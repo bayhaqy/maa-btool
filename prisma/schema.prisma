@@ -1,0 +1,488 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ============================================================
+// 1. IAM & SECURITY DOMAIN
+// ============================================================
+
+model TenantCompany {
+  id            String   @id @default(cuid())
+  companyCode   String   @unique
+  companyName   String
+  description   String?
+  logoUrl       String?
+  website       String?
+  industry      String?
+  parentCode    String?
+  address       String?
+  phone         String?
+  email         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users       SysUser[]
+  dataRecords DataRecord[]
+  apiKeys     ApiKey[]
+  sftpConfigs SftpConfig[]
+}
+
+model SysUser {
+  id           String   @id @default(cuid())
+  companyId    String
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  avatarUrl    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company      TenantCompany  @relation(fields: [companyId], references: [id])
+  userRoles    UserRole[]
+  approvalTicketsRequested ApprovalTicket[] @relation("RequestedBy")
+  approvalTicketsReviewed ApprovalTicket[]  @relation("ReviewedBy")
+  asyncJobs    AsyncBatchJob[]
+  lockedRecords DataRecord[]   @relation("LockedBy")
+  dataVersions DataVersion[]
+  docArticles  Documentation[]
+  aiMessages   AiMessage[]
+  aiConversations AiConversation[]
+  apiKeys      ApiKey[]
+  auditLogs    AuditLog[] @relation("AuditLogUser")
+}
+
+model SysRole {
+  id          String  @id @default(cuid())
+  roleName    String  @unique
+  description String?
+  roleType    String  @default("DATA") // DATA, DOC, API, SFTP, AI, SYSTEM
+
+  userRoles        UserRole[]
+  rolePermissions  RolePermission[]
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+
+  user   SysUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   SysRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+model RolePermission {
+  id                 String  @id @default(cuid())
+  roleId             String
+  moduleId           String
+  canRead            Boolean @default(false)
+  canWrite           Boolean @default(false)
+  canDelete          Boolean @default(false)
+  canApprove         Boolean @default(false)
+  columnRestrictions String?
+  rowFilter          String?
+
+  role   SysRole    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, moduleId])
+}
+
+// ============================================================
+// 2. METADATA & SCHEMA ENGINE
+// ============================================================
+
+model MetaModule {
+  id              String  @id @default(cuid())
+  moduleCode      String  @unique
+  moduleName      String
+  moduleIcon      String  @default("Database")
+  description     String?
+  requireApproval Boolean @default(true)
+  isActive        Boolean @default(true)
+  sortOrder       Int     @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fields          MetaField[]
+  dataRecords     DataRecord[]
+  hierarchyModels HierarchyModel[]
+  rolePermissions RolePermission[]
+  sftpConfigs     SftpConfig[]
+}
+
+model MetaField {
+  id           String @id @default(cuid())
+  moduleId     String
+  fieldCode    String
+  fieldName    String
+  dataType     String // TEXT, NUMBER, DATE, BOOLEAN, SELECT, MULTISELECT, EMAIL, URL, LOOKUP, IMAGE
+  isRequired   Boolean @default(false)
+  isUnique     Boolean @default(false)
+  defaultValue String?
+  placeholder  String?
+  description  String?
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  module       MetaModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  validations  FieldValidation[]
+  lookupId     String?
+  lookupMaster LookupMaster?     @relation(fields: [lookupId], references: [id])
+
+  @@unique([moduleId, fieldCode])
+}
+
+model FieldValidation {
+  id           String  @id @default(cuid())
+  fieldId      String
+  ruleType     String
+  ruleValue    String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  field MetaField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+}
+
+model LookupMaster {
+  id          String @id @default(cuid())
+  lookupCode  String @unique
+  lookupName  String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fields MetaField[]
+  values LookupValue[]
+}
+
+model LookupValue {
+  id           String  @id @default(cuid())
+  lookupId     String
+  valueCode    String
+  displayValue String
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+  createdAt    DateTime @default(now())
+
+  lookup LookupMaster @relation(fields: [lookupId], references: [id], onDelete: Cascade)
+
+  @@unique([lookupId, valueCode])
+}
+
+// ============================================================
+// 3. CORE DATA & AUDIT (SCD Type 2)
+// ============================================================
+
+model DataRecord {
+  id             String   @id @default(cuid())
+  moduleId       String
+  companyId      String
+  status         String   @default("DRAFT")
+  currentPayload String
+  lockedBy       String?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+  updatedById    String?
+
+  module          MetaModule      @relation(fields: [moduleId], references: [id])
+  company         TenantCompany   @relation(fields: [companyId], references: [id])
+  locker          SysUser?        @relation("LockedBy", fields: [lockedBy], references: [id])
+  versions        DataVersion[]
+  approvalTickets ApprovalTicket[]
+  hierarchyNodes  HierarchyNode[]
+  images          ImageAsset[]
+}
+
+model DataVersion {
+  id              String   @id @default(cuid())
+  recordId        String
+  payloadSnapshot String
+  versionNumber   Int
+  changedById     String?
+  changeReason    String?
+  status          String
+  validFrom       DateTime @default(now())
+  validTo         DateTime?
+  createdAt       DateTime @default(now())
+
+  record    DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  changedBy SysUser?   @relation(fields: [changedById], references: [id])
+}
+
+// ============================================================
+// 4. HIERARCHY ENGINE
+// ============================================================
+
+model HierarchyModel {
+  id            String   @id @default(cuid())
+  moduleId      String
+  hierarchyName String
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module MetaModule    @relation(fields: [moduleId], references: [id])
+  nodes  HierarchyNode[]
+}
+
+model HierarchyNode {
+  id               String   @id @default(cuid())
+  hierarchyId      String
+  recordId         String?
+  parentNodeId     String?
+  nodeLabel        String
+  materializedPath String   @default("")
+  depthLevel       Int      @default(0)
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  hierarchy HierarchyModel  @relation(fields: [hierarchyId], references: [id], onDelete: Cascade)
+  record    DataRecord?     @relation(fields: [recordId], references: [id])
+  parent    HierarchyNode?  @relation("HierarchyTree", fields: [parentNodeId], references: [id])
+  children  HierarchyNode[] @relation("HierarchyTree")
+}
+
+// ============================================================
+// 5. WORKFLOW & ASYNC JOBS
+// ============================================================
+
+model ApprovalTicket {
+  id            String    @id @default(cuid())
+  recordId      String
+  requestedById String
+  reviewedById  String?
+  status        String    @default("PENDING")
+  deltaPayload  String?
+  reviewNotes   String?
+  createdAt     DateTime  @default(now())
+  reviewedAt    DateTime?
+
+  record      DataRecord @relation(fields: [recordId], references: [id])
+  requestedBy SysUser    @relation("RequestedBy", fields: [requestedById], references: [id])
+  reviewedBy  SysUser?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+}
+
+model AsyncBatchJob {
+  id            String    @id @default(cuid())
+  userId        String
+  moduleId      String?
+  jobType       String
+  status        String    @default("PENDING")
+  totalRows     Int       @default(0)
+  processedRows Int       @default(0)
+  failedRows    Int       @default(0)
+  errorLog      String?
+  fileName      String?
+  resultFileUrl String?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  user SysUser @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// 6. IMAGE ASSET MANAGEMENT
+// ============================================================
+
+model ImageAsset {
+  id        String   @id @default(cuid())
+  recordId  String
+  fieldName String?
+  fileName  String
+  filePath  String
+  fileSize  Int      @default(0)
+  mimeType  String   @default("image/png")
+  altText   String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  record DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+}
+
+// File storage in database (for Vercel serverless / read-only filesystem)
+// Stores binary file data for both record images and documentation uploads
+model FileAsset {
+  id        String   @id @default(cuid())
+  fileName  String
+  fileData  Bytes
+  mimeType  String   @default("application/octet-stream")
+  fileSize  Int      @default(0)
+  category  String   @default("general") // "image", "doc", "attachment"
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// 7. API INTEGRATION MANAGEMENT
+// ============================================================
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  keyName     String
+  keyHash     String
+  keyPrefix   String
+  companyId   String?
+  userId      String?
+  permissions String
+  rateLimit   Int       @default(100)
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  company    TenantCompany? @relation(fields: [companyId], references: [id])
+  user       SysUser?       @relation(fields: [userId], references: [id])
+  accessLogs ApiAccessLog[]
+}
+
+model ApiAccessLog {
+  id          String   @id @default(cuid())
+  apiKeyId    String
+  endpoint    String
+  method      String
+  statusCode  Int
+  responseMs  Int
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 8. SFTP INTEGRATION MANAGEMENT
+// ============================================================
+
+model SftpConfig {
+  id             String    @id @default(cuid())
+  configName     String
+  host           String
+  port           Int       @default(22)
+  username       String
+  authType       String    @default("PASSWORD")
+  authCredential String
+  remotePath     String    @default("/")
+  schedule       String?
+  syncDirection  String    @default("INBOUND")
+  filePattern    String    @default("*.*")
+  moduleId       String?
+  isActive       Boolean   @default(true)
+  lastSyncAt     DateTime?
+  companyId      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  module    MetaModule?    @relation(fields: [moduleId], references: [id])
+  company   TenantCompany? @relation(fields: [companyId], references: [id])
+  syncLogs  SftpSyncLog[]
+}
+
+model SftpSyncLog {
+  id            String    @id @default(cuid())
+  sftpConfigId  String
+  syncStatus    String
+  filesSynced   Int       @default(0)
+  filesFailed   Int       @default(0)
+  errorDetail   String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  sftpConfig SftpConfig @relation(fields: [sftpConfigId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 9. DOCUMENTATION / KNOWLEDGE BASE
+// ============================================================
+
+model Documentation {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  content     String
+  category    String
+  tags        String?
+  authorId    String?
+  version     Int       @default(1)
+  sortOrder   Int       @default(0)
+  isPublished Boolean   @default(false)
+  viewCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  author SysUser? @relation(fields: [authorId], references: [id])
+}
+
+// ============================================================
+// 10. AI ASSISTANT
+// ============================================================
+
+model AppSettings {
+  id          String   @id @default(cuid())
+  settingKey  String   @unique
+  settingValue String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// 10b. AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String?
+  moduleName  String?
+  description String
+  oldValues   String?
+  newValues   String?
+  companyId   String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        SysUser? @relation("AuditLogUser", fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AiConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     SysUser    @relation(fields: [userId], references: [id])
+  messages AiMessage[]
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String?
+  role           String
+  content        String
+  tokensUsed     Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         SysUser?       @relation(fields: [userId], references: [id])
+}

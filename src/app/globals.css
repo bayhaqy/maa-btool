@@ -1,0 +1,1171 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-corporate: var(--corporate);
+  --color-corporate-foreground: var(--corporate-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-pulse-soft: pulse-soft 3s ease-in-out infinite;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-scale-in: scale-in 0.2s ease-out;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-glow-pulse: glow-pulse 2s ease-in-out infinite;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.99 0.002 0);
+  --foreground: oklch(0.15 0.02 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 0);
+  --primary: oklch(0.55 0.25 25);
+  --primary-foreground: oklch(0.99 0.005 0);
+  --secondary: oklch(0.96 0.005 0);
+  --secondary-foreground: oklch(0.20 0.02 0);
+  --muted: oklch(0.96 0.005 0);
+  --muted-foreground: oklch(0.55 0.015 0);
+  --accent: oklch(0.94 0.01 25);
+  --accent-foreground: oklch(0.20 0.02 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.91 0.005 0);
+  --input: oklch(0.91 0.005 0);
+  --ring: oklch(0.55 0.25 25);
+  --chart-1: oklch(0.55 0.25 25);
+  --chart-2: oklch(0.45 0.08 0);
+  --chart-3: oklch(0.65 0.15 15);
+  --chart-4: oklch(0.75 0.14 35);
+  --chart-5: oklch(0.35 0.05 0);
+  --sidebar: oklch(0.98 0.005 0);
+  --sidebar-foreground: oklch(0.15 0.02 0);
+  --sidebar-primary: oklch(0.55 0.25 25);
+  --sidebar-primary-foreground: oklch(0.99 0.005 0);
+  --sidebar-accent: oklch(0.94 0.02 25);
+  --sidebar-accent-foreground: oklch(0.20 0.02 0);
+  --sidebar-border: oklch(0.91 0.005 0);
+  --sidebar-ring: oklch(0.55 0.25 25);
+  --corporate: oklch(0.55 0.25 25);
+  --corporate-foreground: oklch(0.99 0.005 0);
+
+  /* ===== Brand variables (set dynamically by BrandingProvider) =====
+   * These defaults mirror DEFAULT_BRANDING in src/lib/branding.ts so that
+   * the first paint (before the provider runs) already looks correct.
+   * The provider overrides these via document.documentElement.style. */
+  --brand-secondary: #1A1A1A;
+  --brand-accent: #991B1B;
+  --brand-company-name: 'MAA BTOOL';
+  --brand-slogan: 'Enterprise Master Data Management';
+  --brand-footer: 'MAA BTOOL Enterprise MDM © 2026 | MAP Group';
+  --brand-font-family: 'Inter', system-ui, sans-serif;
+}
+
+.dark {
+  --background: oklch(0.13 0.01 0);
+  --foreground: oklch(0.96 0.005 0);
+  --card: oklch(0.18 0.015 0);
+  --card-foreground: oklch(0.96 0.005 0);
+  --popover: oklch(0.18 0.015 0);
+  --popover-foreground: oklch(0.96 0.005 0);
+  --primary: oklch(0.62 0.26 25);
+  --primary-foreground: oklch(0.13 0.01 0);
+  --secondary: oklch(0.24 0.015 0);
+  --secondary-foreground: oklch(0.96 0.005 0);
+  --muted: oklch(0.24 0.015 0);
+  --muted-foreground: oklch(0.65 0.015 0);
+  --accent: oklch(0.24 0.02 25);
+  --accent-foreground: oklch(0.96 0.005 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.26 25);
+  --chart-1: oklch(0.62 0.26 25);
+  --chart-2: oklch(0.70 0.20 20);
+  --chart-3: oklch(0.55 0.12 0);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.15 0.01 0);
+  --sidebar-foreground: oklch(0.96 0.005 0);
+  --sidebar-primary: oklch(0.62 0.26 25);
+  --sidebar-primary-foreground: oklch(0.96 0.005 0);
+  --sidebar-accent: oklch(0.24 0.02 25);
+  --sidebar-accent-foreground: oklch(0.96 0.005 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.62 0.26 25);
+  --corporate: oklch(0.62 0.26 25);
+  --corporate-foreground: oklch(0.13 0.01 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ===== Red Corporate Accent Utilities ===== */
+.text-corporate { color: oklch(0.55 0.25 25); }
+.dark .text-corporate { color: oklch(0.62 0.26 25); }
+
+.bg-corporate { background-color: oklch(0.55 0.25 25); }
+.dark .bg-corporate { background-color: oklch(0.62 0.26 25); }
+
+.border-corporate { border-color: oklch(0.55 0.25 25); }
+.dark .border-corporate { border-color: oklch(0.62 0.26 25); }
+
+.bg-corporate-subtle { background-color: oklch(0.97 0.02 25); }
+.dark .bg-corporate-subtle { background-color: oklch(0.22 0.03 25); }
+
+.text-corporate-muted { color: oklch(0.65 0.15 25); }
+.dark .text-corporate-muted { color: oklch(0.70 0.18 25); }
+
+/* ===== Red-Black Corporate Gradient ===== */
+.gradient-corporate {
+  background: linear-gradient(135deg, oklch(0.45 0.22 25), oklch(0.18 0.03 0));
+}
+.gradient-corporate-light {
+  background: linear-gradient(135deg, oklch(0.97 0.01 25), oklch(0.95 0.005 0));
+}
+.gradient-corporate-red {
+  background: linear-gradient(135deg, oklch(0.55 0.25 25), oklch(0.45 0.08 0));
+}
+.gradient-corporate-dark {
+  background: linear-gradient(135deg, oklch(0.20 0.04 0), oklch(0.55 0.22 25));
+}
+
+/* ===== Custom Scrollbar Styling ===== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.7 0.01 0);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0.25 25);
+}
+
+/* Dark mode scrollbar */
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.01 0);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.62 0.26 25);
+}
+
+/* Smooth scrollbar for dark mode - slightly lighter track */
+.dark .custom-scrollbar::-webkit-scrollbar-track {
+  background: oklch(0.15 0.01 0 / 50%);
+}
+
+/* Thin scrollbar variant */
+.custom-scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar-thin::-webkit-scrollbar-thumb {
+  background: oklch(0.75 0.01 0);
+  border-radius: 2px;
+}
+.custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0.25 25);
+}
+.dark .custom-scrollbar-thin::-webkit-scrollbar-thumb {
+  background: oklch(0.3 0.01 0);
+}
+.dark .custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.62 0.26 25);
+}
+
+/* Firefox scrollbar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0.01 0) transparent;
+}
+.dark .custom-scrollbar {
+  scrollbar-color: oklch(0.35 0.01 0) transparent;
+}
+
+/* ===== Smooth Transition Utilities ===== */
+.transition-smooth {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.transition-smooth-slow {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.transition-colors-smooth {
+  transition: color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===== Gradient Text Utility ===== */
+.gradient-text {
+  background: linear-gradient(135deg, oklch(0.55 0.25 25), oklch(0.45 0.08 0));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.dark .gradient-text {
+  background: linear-gradient(135deg, oklch(0.62 0.26 25), oklch(0.55 0.12 0));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-corporate {
+  background: linear-gradient(135deg, oklch(0.55 0.25 25), oklch(0.40 0.10 15));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===== Glassmorphism Utility ===== */
+.glass {
+  background: oklch(1 0 0 / 70%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid oklch(1 0 0 / 20%);
+}
+.dark .glass {
+  background: oklch(0.18 0.015 0 / 70%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid oklch(1 0 0 / 8%);
+}
+
+.glass-strong {
+  background: oklch(1 0 0 / 85%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid oklch(1 0 0 / 30%);
+}
+.dark .glass-strong {
+  background: oklch(0.18 0.015 0 / 85%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid oklch(1 0 0 / 12%);
+}
+
+.glass-corporate {
+  background: oklch(0.15 0.02 0 / 80%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid oklch(1 0 0 / 10%);
+}
+
+/* ===== Hover Glow Effects ===== */
+.hover-glow {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+.hover-glow:hover {
+  box-shadow: 0 0 20px oklch(0.55 0.25 25 / 15%), 0 4px 12px oklch(0 0 0 / 8%);
+}
+.dark .hover-glow:hover {
+  box-shadow: 0 0 20px oklch(0.62 0.26 25 / 20%), 0 4px 12px oklch(0 0 0 / 20%);
+}
+
+.hover-glow-corporate {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+.hover-glow-corporate:hover {
+  box-shadow: 0 0 20px oklch(0.55 0.25 25 / 20%), 0 4px 12px oklch(0 0 0 / 8%);
+}
+.dark .hover-glow-corporate:hover {
+  box-shadow: 0 0 20px oklch(0.62 0.26 25 / 25%), 0 4px 12px oklch(0 0 0 / 20%);
+}
+
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px oklch(0 0 0 / 10%);
+}
+.dark .hover-lift:hover {
+  box-shadow: 0 8px 25px oklch(0 0 0 / 25%);
+}
+
+/* ===== Animation Keyframes ===== */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px oklch(0.55 0.25 25 / 15%); }
+  50% { box-shadow: 0 0 16px oklch(0.55 0.25 25 / 30%); }
+}
+
+/* ===== Login Page Animations (CSS-only, no Framer Motion) ===== */
+@keyframes float-orb-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, 20px) scale(1.1); }
+  66% { transform: translate(15px, 35px) scale(1.05); }
+}
+
+@keyframes float-orb-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-40px, -30px) scale(1.15); }
+  66% { transform: translate(-20px, -15px) scale(1.08); }
+}
+
+@keyframes float-orb-3 {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(25px, -15px); }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-float-orb-1 { animation: float-orb-1 14s ease-in-out infinite; }
+.animate-float-orb-2 { animation: float-orb-2 18s ease-in-out infinite; }
+.animate-float-orb-3 { animation: float-orb-3 12s ease-in-out infinite; }
+.animate-fade-in-up { animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-fade-in-down { animation: fade-in-down 0.4s ease-out both; }
+
+/* Stagger delays for login entrance */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.22s; }
+.stagger-3 { animation-delay: 0.34s; }
+.stagger-4 { animation-delay: 0.46s; }
+.stagger-5 { animation-delay: 0.58s; }
+.stagger-6 { animation-delay: 0.7s; }
+.stagger-7 { animation-delay: 0.82s; }
+.stagger-8 { animation-delay: 0.15s; }
+
+/* ===== Better Focus Ring Styles ===== */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid oklch(0.55 0.25 25);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+.dark .focus-ring:focus-visible {
+  outline-color: oklch(0.62 0.26 25);
+}
+
+.focus-ring-subtle:focus-visible {
+  outline: 2px solid oklch(0.55 0.25 25 / 50%);
+  outline-offset: 1px;
+  border-radius: inherit;
+}
+
+.focus-ring-corporate:focus-visible {
+  outline: 2px solid oklch(0.55 0.25 25 / 60%);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ===== Sidebar Active Gradient (with red accent) ===== */
+.nav-active-gradient {
+  background: linear-gradient(135deg, oklch(0.94 0.04 25), oklch(0.96 0.02 0));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 60%), 0 1px 2px oklch(0.55 0.25 25 / 8%);
+}
+.dark .nav-active-gradient {
+  background: linear-gradient(135deg, oklch(0.24 0.04 25), oklch(0.22 0.02 0));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 4%), 0 1px 2px oklch(0.62 0.26 25 / 10%);
+}
+
+/* Red accent variant for active nav */
+.nav-active-red {
+  background: linear-gradient(135deg, oklch(0.96 0.04 25), oklch(0.96 0.01 0));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 60%), 0 1px 2px oklch(0.55 0.25 25 / 10%);
+}
+.dark .nav-active-red {
+  background: linear-gradient(135deg, oklch(0.24 0.03 25), oklch(0.22 0.01 0));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 4%), 0 1px 2px oklch(0.62 0.26 25 / 12%);
+}
+
+/* ===== Page Content Area ===== */
+.page-container {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* ===== Skeleton Shimmer ===== */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, oklch(0.94 0.005 0) 25%, oklch(0.96 0.005 0) 50%, oklch(0.94 0.005 0) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+.dark .skeleton-shimmer {
+  background: linear-gradient(90deg, oklch(0.24 0.01 0) 25%, oklch(0.28 0.01 0) 50%, oklch(0.24 0.01 0) 75%);
+  background-size: 200% 100%;
+}
+
+/* ===== Corporate Banner Styles ===== */
+.banner-corporate {
+  background: linear-gradient(135deg, oklch(0.50 0.22 25), oklch(0.15 0.03 0));
+  position: relative;
+  overflow: hidden;
+}
+.banner-corporate::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 40px,
+    oklch(1 0 0 / 0.02) 40px,
+    oklch(1 0 0 / 0.02) 41px
+  );
+  pointer-events: none;
+}
+.dark .banner-corporate {
+  background: linear-gradient(135deg, oklch(0.40 0.18 25), oklch(0.10 0.02 0));
+}
+
+/* ===== Branding: Sidebar Style Overrides =====
+ * BrandingProvider sets data-sidebar-style on <html>. These selectors
+ * provide CSS-level fallbacks (in addition to the conditional Tailwind
+ * classes applied in AppShell) so the sidebar chrome always reflects
+ * the configured style, even for components that don't directly
+ * consume useBranding().
+ *
+ * Note: AppShell also applies Tailwind utility classes (bg-slate-900,
+ * bg-white, bg-transparent) directly to <aside>, so these rules are
+ * primarily for downstream consumers that opt into the brand variables.
+ */
+[data-sidebar-style="dark"] {
+  --sidebar: oklch(0.20 0.02 0);
+  --sidebar-foreground: oklch(0.96 0.005 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-accent: oklch(0.24 0.04 25);
+  --sidebar-accent-foreground: oklch(0.96 0.005 0);
+}
+
+[data-sidebar-style="light"] {
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.15 0.02 0);
+  --sidebar-border: oklch(0.91 0.005 0);
+  --sidebar-accent: oklch(0.96 0.01 25);
+  --sidebar-accent-foreground: oklch(0.20 0.02 0);
+}
+
+[data-sidebar-style="transparent"] {
+  --sidebar: oklch(1 0 0 / 0%);
+  --sidebar-foreground: oklch(0.15 0.02 0);
+  --sidebar-border: oklch(0.91 0.005 0 / 60%);
+  --sidebar-accent: oklch(0.96 0.01 25);
+  --sidebar-accent-foreground: oklch(0.20 0.02 0);
+}
+
+/* ===== Branding: Compact Mode =====
+ * When data-compact="true" is set on <html>, reduce nav item padding.
+ * AppShell already applies compact Tailwind classes conditionally; this
+ * is a CSS-level backup for any other nav components that want to opt
+ * in via attribute selector.
+ */
+[data-compact="true"] .nav-compact-target {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* ===== Branding: Font Family Variable =====
+ * BrandingProvider sets --brand-font-family on <html>. Components that
+ * want to honor the user's font choice can apply this variable, e.g.
+ * style={{ fontFamily: 'var(--brand-font-family)' }}.
+ */
+body {
+  font-family: var(--brand-font-family), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* ============================================================================
+   .md-render — Comprehensive Markdown Rendering Styles (MAP Group theme)
+   ----------------------------------------------------------------------------
+   Used by the Documentation Hub (DocumentationPage.tsx) to render markdown
+   produced by react-markdown + remark-gfm + rehype-highlight.
+
+   This is a hand-written replacement for @tailwindcss/typography's `prose`
+   class (which is NOT installed in this Tailwind v4 project). It styles every
+   block + inline element emitted by react-markdown and works in both light
+   and dark mode via the `.dark` selector.
+
+   Color system (MAP Group / MAA BTOOL):
+     - Headings: slate-900 (dark: slate-100)
+     - Body text: slate-700 (dark: slate-300)
+     - Accents / links: red-600 (dark: red-400)
+     - Code block background: slate-900 (dark: slate-950)
+     - Blockquote accent: red-500
+   ============================================================================ */
+
+.md-render {
+  /* Base text */
+  color: oklch(0.40 0.02 0);          /* slate-700 */
+  font-size: 0.95rem;
+  line-height: 1.7;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.dark .md-render {
+  color: oklch(0.78 0.015 0);          /* slate-300 */
+}
+
+/* Reset first/last child spacing so the container's padding controls outer gaps */
+.md-render > :first-child { margin-top: 0 !important; }
+.md-render > :last-child  { margin-bottom: 0 !important; }
+
+/* ---- Headings ---- */
+.md-render h1,
+.md-render h2,
+.md-render h3,
+.md-render h4,
+.md-render h5,
+.md-render h6 {
+  color: oklch(0.20 0.02 0);          /* slate-900 */
+  font-weight: 700;
+  line-height: 1.25;
+  scroll-margin-top: 5rem;
+}
+
+.dark .md-render h1,
+.dark .md-render h2,
+.dark .md-render h3,
+.dark .md-render h4,
+.dark .md-render h5,
+.dark .md-render h6 {
+  color: oklch(0.96 0.005 0);          /* slate-100 */
+}
+
+.md-render h1 {
+  font-size: 1.875rem;                 /* text-3xl */
+  font-weight: 800;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid oklch(0.91 0.005 0); /* slate-200 */
+}
+.dark .md-render h1 {
+  border-bottom-color: oklch(1 0 0 / 10%);
+}
+
+.md-render h2 {
+  font-size: 1.5rem;                   /* text-2xl */
+  font-weight: 700;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid oklch(0.93 0.005 0); /* slate-200 lighter */
+}
+.dark .md-render h2 {
+  border-bottom-color: oklch(1 0 0 / 8%);
+}
+
+.md-render h3 {
+  font-size: 1.25rem;                  /* text-xl */
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.md-render h4 {
+  font-size: 1.0625rem;                /* text-lg */
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.md-render h5 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: oklch(0.30 0.02 0);
+}
+.dark .md-render h5 { color: oklch(0.85 0.01 0); }
+
+.md-render h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: oklch(0.45 0.015 0);
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+.dark .md-render h6 { color: oklch(0.70 0.015 0); }
+
+/* ---- Paragraphs ---- */
+.md-render p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  line-height: 1.7;
+}
+
+/* ---- Inline text semantics ---- */
+.md-render strong {
+  font-weight: 600;
+  color: oklch(0.20 0.02 0);          /* slate-900 */
+}
+.dark .md-render strong {
+  color: oklch(0.96 0.005 0);          /* slate-100 */
+}
+
+.md-render em {
+  font-style: italic;
+}
+
+.md-render del {
+  text-decoration: line-through;
+  color: oklch(0.55 0.015 0);
+}
+
+.md-render mark {
+  background-color: oklch(0.95 0.13 95);   /* yellow-200 */
+  color: oklch(0.20 0.02 0);
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.1875rem;
+}
+.dark .md-render mark {
+  background-color: oklch(0.50 0.13 80);   /* yellow-900 */
+  color: oklch(0.96 0.005 0);
+}
+
+.md-render sub,
+.md-render sup {
+  font-size: 0.75rem;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+.md-render sup { top: -0.5em; }
+.md-render sub { bottom: -0.25em; }
+
+.md-render kbd {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.75rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  line-height: 1;
+  color: oklch(0.30 0.02 0);
+  background-color: oklch(0.96 0.005 0);
+  border: 1px solid oklch(0.88 0.005 0);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  box-shadow: 0 1px 0 oklch(0.85 0.005 0);
+}
+.dark .md-render kbd {
+  color: oklch(0.92 0.005 0);
+  background-color: oklch(0.24 0.015 0);
+  border-color: oklch(1 0 0 / 12%);
+  box-shadow: 0 1px 0 oklch(0 0 0 / 30%);
+}
+
+/* ---- Links ---- */
+.md-render a {
+  color: oklch(0.55 0.25 25);          /* red-600 */
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
+  transition: color 0.15s ease;
+}
+.md-render a:hover {
+  color: oklch(0.45 0.22 25);          /* red-700 */
+  text-decoration-thickness: 2px;
+}
+.dark .md-render a {
+  color: oklch(0.70 0.20 25);          /* red-400 */
+}
+.dark .md-render a:hover {
+  color: oklch(0.80 0.18 25);          /* red-300 */
+}
+
+/* ---- Lists ---- */
+.md-render ul {
+  list-style-type: disc;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-left: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.md-render ol {
+  list-style-type: decimal;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-left: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.md-render li {
+  margin-top: 0;
+  margin-bottom: 0;
+  color: oklch(0.40 0.02 0);          /* slate-700 */
+}
+.dark .md-render li {
+  color: oklch(0.78 0.015 0);          /* slate-300 */
+}
+
+.md-render li > p {
+  margin-bottom: 0.375rem;
+}
+
+.md-render li:last-child > p {
+  margin-bottom: 0;
+}
+
+/* Nested lists get tighter spacing */
+.md-render ul ul,
+.md-render ol ol,
+.md-render ul ol,
+.md-render ol ul {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.md-render ul ul { list-style-type: circle; }
+.md-render ul ul ul { list-style-type: square; }
+
+/* ---- GFM Task lists (checkboxes) ---- */
+.md-render ul:has(> li > input[type="checkbox"]),
+.md-render ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.75rem;
+}
+
+.md-render li:has(> input[type="checkbox"]) {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.md-render li > input[type="checkbox"] {
+  margin: 0;
+  margin-top: 0.375rem;
+  width: 1rem;
+  height: 1rem;
+  accent-color: oklch(0.55 0.25 25);   /* red-600 */
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.dark .md-render li > input[type="checkbox"] {
+  accent-color: oklch(0.62 0.26 25);
+}
+
+/* ---- Definition lists (rare, but cover if produced) ---- */
+.md-render dl {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+.md-render dt {
+  font-weight: 600;
+  color: oklch(0.20 0.02 0);
+}
+.dark .md-render dt { color: oklch(0.96 0.005 0); }
+.md-render dd { margin: 0; }
+
+/* ---- Blockquotes ---- */
+.md-render blockquote {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid oklch(0.55 0.25 25);  /* red-500 */
+  background-color: oklch(0.97 0.02 25);        /* red-50 */
+  border-top-right-radius: 0.375rem;
+  border-bottom-right-radius: 0.375rem;
+  color: oklch(0.40 0.02 0);
+  font-style: italic;
+}
+.md-render blockquote > :first-child { margin-top: 0; }
+.md-render blockquote > :last-child  { margin-bottom: 0; }
+
+.dark .md-render blockquote {
+  background-color: oklch(0.22 0.04 25 / 0.35);  /* red-950/20 */
+  border-left-color: oklch(0.62 0.26 25);
+  color: oklch(0.82 0.015 0);
+}
+
+.md-render blockquote blockquote {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ---- Inline code ---- */
+.md-render code:not(pre code) {
+  background-color: oklch(0.96 0.005 0);   /* slate-100 */
+  color: oklch(0.55 0.25 25);              /* red-600 */
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  /* react-markdown wraps inline code in `code` — strip default quotes */
+  white-space: nowrap;
+  word-break: break-word;
+}
+.md-render code:not(pre code)::before,
+.md-render code:not(pre code)::after {
+  content: none;                              /* remove smart-quote padding */
+}
+
+.dark .md-render code:not(pre code) {
+  background-color: oklch(0.24 0.015 0);   /* slate-800 */
+  color: oklch(0.70 0.20 25);              /* red-400 */
+}
+
+/* ---- Code blocks (pre + code) ---- */
+.md-render pre {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background-color: oklch(0.20 0.02 0);       /* slate-900 */
+  color: oklch(0.92 0.005 0);                 /* slate-100 */
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  border: 1px solid oklch(0.30 0.02 0 / 0.5);
+  position: relative;
+}
+
+.dark .md-render pre {
+  background-color: oklch(0.13 0.01 0);       /* slate-950 */
+  border-color: oklch(1 0 0 / 8%);
+}
+
+.md-render pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  font-weight: 400;
+  white-space: pre;
+  word-break: normal;
+  display: block;
+  min-width: 0;
+}
+
+/* Custom scrollbar for code blocks */
+.md-render pre::-webkit-scrollbar {
+  height: 8px;
+}
+.md-render pre::-webkit-scrollbar-track {
+  background: oklch(0.15 0.01 0);
+  border-radius: 4px;
+}
+.md-render pre::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.01 0);
+  border-radius: 4px;
+}
+.md-render pre::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0.25 25);
+}
+
+/* ---- Tables (GFM) ---- */
+.md-render table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid oklch(0.88 0.005 0);
+  border-radius: 0.375rem;
+}
+
+.md-render thead {
+  background-color: oklch(0.96 0.005 0);      /* slate-100 */
+}
+.dark .md-render thead {
+  background-color: oklch(0.24 0.015 0);      /* slate-800 */
+}
+
+.md-render th {
+  padding: 0.625rem 0.875rem;
+  text-align: left;
+  font-weight: 600;
+  color: oklch(0.20 0.02 0);                  /* slate-900 */
+  border: 1px solid oklch(0.88 0.005 0);      /* slate-200 */
+  white-space: nowrap;
+  vertical-align: top;
+}
+.dark .md-render th {
+  color: oklch(0.96 0.005 0);
+  border-color: oklch(1 0 0 / 10%);
+}
+
+.md-render td {
+  padding: 0.5rem 0.875rem;
+  border: 1px solid oklch(0.88 0.005 0);
+  color: oklch(0.40 0.02 0);
+  vertical-align: top;
+}
+.dark .md-render td {
+  border-color: oklch(1 0 0 / 10%);
+  color: oklch(0.78 0.015 0);
+}
+
+/* Zebra striping */
+.md-render tbody tr:nth-child(even) {
+  background-color: oklch(0.98 0.005 0);      /* slate-50 */
+}
+.dark .md-render tbody tr:nth-child(even) {
+  background-color: oklch(0.24 0.015 0 / 0.5); /* slate-800/50 */
+}
+
+.md-render tbody tr:hover {
+  background-color: oklch(0.97 0.02 25 / 0.4); /* red-50/40 */
+}
+.dark .md-render tbody tr:hover {
+  background-color: oklch(0.22 0.04 25 / 0.25);
+}
+
+/* ---- Images ---- */
+.md-render img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1rem auto;
+  display: block;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.04);
+}
+.dark .md-render img {
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
+}
+
+/* ---- Horizontal rule ---- */
+.md-render hr {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  border: 0;
+  border-top: 1px solid oklch(0.88 0.005 0);   /* slate-200 */
+  height: 0;
+  overflow: visible;
+}
+.dark .md-render hr {
+  border-top-color: oklch(1 0 0 / 10%);
+}
+
+/* ---- Figure / figcaption (if produced) ---- */
+.md-render figure {
+  margin: 1rem 0;
+  text-align: center;
+}
+.md-render figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.015 0);
+  font-style: italic;
+}
+.dark .md-render figcaption {
+  color: oklch(0.65 0.015 0);
+}
+
+/* ---- Headings anchor (for TOC) ---- */
+.md-render h1[id],
+.md-render h2[id],
+.md-render h3[id],
+.md-render h4[id] {
+  position: relative;
+}
+
+/* ============================================================================
+   highlight.js — GitHub-Dark theme (used inside .md-render pre code)
+   ----------------------------------------------------------------------------
+   We import the highlight.js styles but scope them under .md-render pre so
+   they don't leak to other parts of the app. The pre block is always dark
+   (slate-900 / slate-950) regardless of light/dark mode, so a dark syntax
+   theme is always appropriate.
+   ============================================================================ */
+.md-render pre code .hljs-comment,
+.md-render pre code .hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.md-render pre code .hljs-keyword,
+.md-render pre code .hljs-selector-tag,
+.md-render pre code .hljs-literal,
+.md-render pre code .hljs-type,
+.md-render pre code .hljs-name,
+.md-render pre code .hljs-section,
+.md-render pre code .hljs-link {
+  color: #ff7b72;
+}
+.md-render pre code .hljs-string,
+.md-render pre code .hljs-meta .hljs-string,
+.md-render pre code .hljs-doctag,
+.md-render pre code .hljs-regexp,
+.md-render pre code .hljs-addition {
+  color: #a5d6ff;
+}
+.md-render pre code .hljs-title,
+.md-render pre code .hljs-title.function_,
+.md-render pre code .hljs-section,
+.md-render pre code .hljs-built_in {
+  color: #d2a8ff;
+}
+.md-render pre code .hljs-number,
+.md-render pre code .hljs-symbol,
+.md-render pre code .hljs-bullet,
+.md-render pre code .hljs-variable,
+.md-render pre code .hljs-template-variable,
+.md-render pre code .hljs-template-tag {
+  color: #79c0ff;
+}
+.md-render pre code .hljs-attr,
+.md-render pre code .hljs-attribute,
+.md-render pre code .hljs-property,
+.md-render pre code .hljs-meta {
+  color: #79c0ff;
+}
+.md-render pre code .hljs-tag {
+  color: #7ee787;
+}
+.md-render pre code .hljs-tag .hljs-name {
+  color: #7ee787;
+}
+.md-render pre code .hljs-tag .hljs-attr {
+  color: #79c0ff;
+}
+.md-render pre code .hljs-deletion {
+  color: #ffa198;
+  background-color: #490202;
+}
+.md-render pre code .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+.md-render pre code .hljs-emphasis {
+  font-style: italic;
+}
+.md-render pre code .hljs-strong {
+  font-weight: 700;
+}
+.md-render pre code .hljs-class .hljs-title,
+.md-render pre code .hljs-title.class_ {
+  color: #fff;
+  font-weight: 700;
+}
+.md-render pre code .hljs-params {
+  color: #d2a8ff;
+}
+.md-render pre code .hljs-meta .hljs-keyword {
+  color: #ff7b72;
+}
+.md-render pre code .hljs-operator {
+  color: #ff7b72;
+}
+
+/* Default base color for any token highlight.js doesn't specifically target */
+.md-render pre code .hljs {
+  color: #c9d1d9;
+  background: transparent;
+}

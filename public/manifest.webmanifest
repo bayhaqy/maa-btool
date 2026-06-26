@@ -1,0 +1,14 @@
+{
+  "name": "MAA BTOOL — Enterprise MDM",
+  "short_name": "MAA BTOOL",
+  "description": "Enterprise Master Data Management platform for MAP Group.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#DC2626",
+  "icons": [
+    { "src": "/map-active-logo.png", "sizes": "1830x914", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

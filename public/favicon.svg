@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DC2626"/>
+      <stop offset="100%" stop-color="#991B1B"/>
+    </linearGradient>
+    <linearGradient id="mGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FECACA"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- M letter -->
+  <path d="M 16 46 L 16 20 L 24 20 L 32 34 L 40 20 L 48 20 L 48 46 L 41 46 L 41 30 L 34 42 L 30 42 L 23 30 L 23 46 Z" fill="url(#mGrad)"/>
+  <!-- Accent dot -->
+  <circle cx="32" cy="52" r="2" fill="#FECACA"/>
+</svg>

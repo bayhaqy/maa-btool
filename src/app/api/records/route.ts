@@ -1,0 +1,495 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STATUS_ACTIVE, STATUS_ARCHIVED, STATUS_REVISION_PENDING } from '@/lib/auth';
+import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
+
+// Validate a record's payload against META_FIELDS
+async function validatePayload(moduleId: string, payload: Record<string, unknown>) {
+  const fields = await db.metaField.findMany({
+    where: { moduleId, isActive: true },
+    include: { validations: true },
+  });
+
+  const errors: string[] = [];
+
+  for (const field of fields) {
+    const value = payload[field.fieldCode];
+
+    if (field.isRequired && (value === undefined || value === null || value === '')) {
+      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) is required`);
+      continue;
+    }
+
+    if (value === undefined || value === null || value === '') continue;
+
+    if (field.dataType === 'NUMBER' && isNaN(Number(value))) {
+      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a number`);
+    }
+    if (field.dataType === 'EMAIL' && typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid email`);
+    }
+    if (field.dataType === 'URL' && typeof value === 'string' && !/^https?:\/\/.+/.test(value)) {
+      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
+    }
+
+    for (const validation of field.validations) {
+      if (validation.ruleType === 'REGEX') {
+        try {
+          const regex = new RegExp(validation.ruleValue);
+          if (typeof value === 'string' && !regex.test(value)) {
+            errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) does not match pattern`);
+          }
+        } catch {
+          // Invalid regex, skip
+        }
+      }
+      if (validation.ruleType === 'MIN_LENGTH' && typeof value === 'string') {
+        if (value.length < parseInt(validation.ruleValue)) {
+          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${validation.ruleValue} characters`);
+        }
+      }
+      if (validation.ruleType === 'MAX_LENGTH' && typeof value === 'string') {
+        if (value.length > parseInt(validation.ruleValue)) {
+          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${validation.ruleValue} characters`);
+        }
+      }
+      if (validation.ruleType === 'MIN_VALUE') {
+        if (Number(value) < Number(validation.ruleValue)) {
+          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${validation.ruleValue}`);
+        }
+      }
+      if (validation.ruleType === 'MAX_VALUE') {
+        if (Number(value) > Number(validation.ruleValue)) {
+          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${validation.ruleValue}`);
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+// GET /api/records?moduleId=xxx&status=xxx&page=1&limit=20
+// GET /api/records?action=detail&id=xxx
+export async function GET(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(tokenPayload.roles, 'data:read')) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    const id = searchParams.get('id');
+
+    // Get single record detail
+    if (action === 'detail' && id) {
+      const isSA = checkSuperAdmin(tokenPayload.roles);
+
+      const record = await db.dataRecord.findUnique({
+        where: { id },
+        include: {
+          module: true,
+          company: true,
+          versions: {
+            orderBy: { versionNumber: 'desc' },
+            include: { changedBy: { select: { id: true, username: true, displayName: true } } },
+          },
+          approvalTickets: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              requestedBy: { select: { id: true, username: true, displayName: true } },
+              reviewedBy: { select: { id: true, username: true, displayName: true } },
+            },
+          },
+        },
+      });
+
+      if (!record) {
+        return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+      }
+
+      // RLS: check company access (Super Admin bypasses)
+      if (!isSA && record.companyId !== tokenPayload.companyId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      return NextResponse.json({ record });
+    }
+
+    // List records
+    const moduleId = searchParams.get('moduleId');
+    const status = searchParams.get('status');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const skip = (page - 1) * limit;
+
+    if (!moduleId) {
+      return NextResponse.json({ error: 'moduleId query parameter is required' }, { status: 400 });
+    }
+
+    const isSA = checkSuperAdmin(tokenPayload.roles);
+
+    const where: Record<string, unknown> = {
+      moduleId,
+      status: { not: STATUS_ARCHIVED },
+    };
+
+    // RLS: filter by company (Super Admin sees all)
+    if (!isSA) {
+      where.companyId = tokenPayload.companyId;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    const [data, total] = await Promise.all([
+      db.dataRecord.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          company: { select: { id: true, companyCode: true, companyName: true } },
+          locker: { select: { id: true, username: true, displayName: true } },
+        },
+      }),
+      db.dataRecord.count({ where }),
+    ]);
+
+    return NextResponse.json({ data, total, page, limit });
+  } catch (error) {
+    console.error('Records GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// POST /api/records - Create record
+export async function POST(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions to create records' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { moduleId, payload } = body;
+
+    if (!moduleId || !payload) {
+      return NextResponse.json({ error: 'moduleId and payload are required' }, { status: 400 });
+    }
+
+    const metaModule = await db.metaModule.findUnique({ where: { id: moduleId } });
+    if (!metaModule) {
+      return NextResponse.json({ error: 'Module not found' }, { status: 404 });
+    }
+
+    const errors = await validatePayload(moduleId, payload);
+    if (errors.length > 0) {
+      return NextResponse.json({ error: 'Validation failed', errors }, { status: 422 });
+    }
+
+    const initialStatus = metaModule.requireApproval ? STATUS_DRAFT : STATUS_ACTIVE;
+
+    const record = await db.dataRecord.create({
+      data: {
+        moduleId,
+        companyId: tokenPayload.companyId,
+        status: initialStatus,
+        currentPayload: JSON.stringify(payload),
+        createdById: tokenPayload.userId,
+        updatedById: tokenPayload.userId,
+      },
+    });
+
+    // If status is ACTIVE, create initial version snapshot
+    if (initialStatus === STATUS_ACTIVE) {
+      await db.dataVersion.create({
+        data: {
+          recordId: record.id,
+          payloadSnapshot: JSON.stringify(payload),
+          versionNumber: 1,
+          changedById: tokenPayload.userId,
+          changeReason: 'Initial creation (auto-approved)',
+          status: STATUS_ACTIVE,
+        },
+      });
+    }
+
+    return NextResponse.json({ record }, { status: 201 });
+  } catch (error) {
+    console.error('Records POST error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// PUT /api/records?action=update - Update record
+// PUT /api/records?action=transition - Change status
+export async function PUT(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    const body = await request.json();
+
+    // Handle status transition
+    if (action === 'transition') {
+      const { id, targetStatus, reviewNotes } = body;
+
+      if (!id || !targetStatus) {
+        return NextResponse.json({ error: 'id and targetStatus are required' }, { status: 400 });
+      }
+
+      const record = await db.dataRecord.findUnique({ where: { id } });
+      if (!record) {
+        return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+      }
+
+      // RLS check
+      const isSA = checkSuperAdmin(tokenPayload.roles);
+      if (!isSA && record.companyId !== tokenPayload.companyId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      // Approval actions require data:approve permission
+      if (targetStatus === STATUS_ACTIVE || targetStatus === STATUS_REJECTED) {
+        if (!hasPermission(tokenPayload.roles, 'data:approve')) {
+          return NextResponse.json({ error: 'Insufficient permissions to approve/reject' }, { status: 403 });
+        }
+      } else {
+        // Other transitions require data:write
+        if (!hasPermission(tokenPayload.roles, 'data:write')) {
+          return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+        }
+      }
+
+      // Validate transition
+      if (!canTransition(record.status, targetStatus)) {
+        return NextResponse.json(
+          { error: `Cannot transition from ${record.status} to ${targetStatus}` },
+          { status: 422 }
+        );
+      }
+
+      const updatedRecord = await db.dataRecord.update({
+        where: { id },
+        data: {
+          status: targetStatus,
+          updatedById: tokenPayload.userId,
+        },
+      });
+
+      // If transitioning to IN_REVIEW, create ApprovalTicket
+      if (targetStatus === STATUS_IN_REVIEW) {
+        await db.approvalTicket.create({
+          data: {
+            recordId: id,
+            requestedById: tokenPayload.userId,
+            status: 'PENDING',
+            deltaPayload: record.currentPayload,
+          },
+        });
+      }
+
+      // If approving (IN_REVIEW -> ACTIVE), create DataVersion snapshot
+      if (record.status === STATUS_IN_REVIEW && targetStatus === STATUS_ACTIVE) {
+        const maxVersion = await db.dataVersion.findFirst({
+          where: { recordId: id },
+          orderBy: { versionNumber: 'desc' },
+          select: { versionNumber: true },
+        });
+
+        await db.dataVersion.create({
+          data: {
+            recordId: id,
+            payloadSnapshot: record.currentPayload,
+            versionNumber: (maxVersion?.versionNumber ?? 0) + 1,
+            changedById: tokenPayload.userId,
+            changeReason: reviewNotes || 'Approved',
+            status: STATUS_ACTIVE,
+          },
+        });
+      }
+
+      return NextResponse.json({ record: updatedRecord });
+    }
+
+    // Handle record update
+    if (action === 'update') {
+      if (!hasPermission(tokenPayload.roles, 'data:write')) {
+        return NextResponse.json({ error: 'Insufficient permissions to update records' }, { status: 403 });
+      }
+
+      const { id, payload } = body;
+
+      if (!id || !payload) {
+        return NextResponse.json({ error: 'id and payload are required' }, { status: 400 });
+      }
+
+      const record = await db.dataRecord.findUnique({ where: { id } });
+      if (!record) {
+        return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+      }
+
+      // RLS check
+      const isSA = checkSuperAdmin(tokenPayload.roles);
+      if (!isSA && record.companyId !== tokenPayload.companyId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      const errors = await validatePayload(record.moduleId, payload);
+      if (errors.length > 0) {
+        return NextResponse.json({ error: 'Validation failed', errors }, { status: 422 });
+      }
+
+      // If record is ACTIVE, create amendment workflow:
+      // 1. Change original record to REVISION_PENDING status
+      // 2. Create a new DRAFT record with the proposed changes
+      // 3. Create a DataVersion entry to track the amendment
+      // 4. Create an ApprovalTicket for the amendment
+      if (record.status === STATUS_ACTIVE) {
+        // Create version snapshot of current active state before amendment
+        const maxVersion = await db.dataVersion.findFirst({
+          where: { recordId: id },
+          orderBy: { versionNumber: 'desc' },
+          select: { versionNumber: true },
+        });
+        const newVersionNumber = (maxVersion?.versionNumber ?? 0) + 1;
+
+        // Create a DataVersion entry for the amendment request
+        await db.dataVersion.create({
+          data: {
+            recordId: id,
+            payloadSnapshot: JSON.stringify(payload),
+            versionNumber: newVersionNumber,
+            changedById: tokenPayload.userId,
+            changeReason: 'Amendment requested (pending approval)',
+            status: STATUS_REVISION_PENDING,
+          },
+        });
+
+        // Update the record with new payload but mark as REVISION_PENDING
+        const updatedRecord = await db.dataRecord.update({
+          where: { id },
+          data: {
+            currentPayload: JSON.stringify(payload),
+            status: STATUS_REVISION_PENDING,
+            updatedById: tokenPayload.userId,
+          },
+        });
+
+        // Create ApprovalTicket for the amendment
+        await db.approvalTicket.create({
+          data: {
+            recordId: id,
+            requestedById: tokenPayload.userId,
+            status: 'PENDING',
+            deltaPayload: record.currentPayload, // Store original payload for diff
+          },
+        });
+
+        return NextResponse.json({ 
+          record: updatedRecord, 
+          message: 'Amendment submitted for approval. Record status changed to Revision Pending.' 
+        });
+      }
+
+      // If DRAFT, update in place
+      if (record.status === STATUS_DRAFT) {
+        const updatedRecord = await db.dataRecord.update({
+          where: { id },
+          data: {
+            currentPayload: JSON.stringify(payload),
+            updatedById: tokenPayload.userId,
+          },
+        });
+
+        return NextResponse.json({ record: updatedRecord });
+      }
+
+      // If REVISION_PENDING, update the proposed changes
+      if (record.status === STATUS_REVISION_PENDING) {
+        const updatedRecord = await db.dataRecord.update({
+          where: { id },
+          data: {
+            currentPayload: JSON.stringify(payload),
+            updatedById: tokenPayload.userId,
+          },
+        });
+
+        return NextResponse.json({ record: updatedRecord });
+      }
+
+      // Other statuses may not allow direct update
+      return NextResponse.json(
+        { error: `Cannot update record in ${record.status} status. Use transition to change status first.` },
+        { status: 422 }
+      );
+    }
+
+    return NextResponse.json({ error: 'Invalid action. Use ?action=update or ?action=transition' }, { status: 400 });
+  } catch (error) {
+    console.error('Records PUT error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/records - Soft delete (ARCHIVED)
+export async function DELETE(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(tokenPayload.roles, 'data:delete')) {
+      return NextResponse.json({ error: 'Insufficient permissions to delete records' }, { status: 403 });
+    }
+
+    let body: Record<string, string> = {};
+    try {
+      body = await request.json();
+    } catch {
+      // No body provided
+    }
+
+    const { id } = body;
+    if (!id) {
+      return NextResponse.json({ error: 'Record id is required' }, { status: 400 });
+    }
+
+    const record = await db.dataRecord.findUnique({ where: { id } });
+    if (!record) {
+      return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+    }
+
+    // RLS check
+    const isSA = checkSuperAdmin(tokenPayload.roles);
+    if (!isSA && record.companyId !== tokenPayload.companyId) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    const updatedRecord = await db.dataRecord.update({
+      where: { id },
+      data: {
+        status: STATUS_ARCHIVED,
+        updatedById: tokenPayload.userId,
+      },
+    });
+
+    return NextResponse.json({ record: updatedRecord });
+  } catch (error) {
+    console.error('Records DELETE error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
