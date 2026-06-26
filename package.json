@@ -1,17 +1,29 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.0",
+  "name": "maa-btool",
+  "version": "2.0.0",
   "private": true,
+  "description": "MAA BTOOL — Enterprise Master Data Management platform for MAP Group",
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "build": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write .",
+    "postinstall": "prisma generate || true",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "db:studio": "prisma studio",
+    "vercel:deploy": "vercel",
+    "vercel:prod": "vercel --prod"
   },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.1.0"
+  },
+  "packageManager": "bun@1.2.0",
   "dependencies": {
     "@clerk/backend": "^3.8.3",
     "@clerk/nextjs": "^7.5.8",
@@ -109,5 +121,13 @@
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
     "vercel": "^54.17.1"
-  }
+  },
+  "trustedDependencies": [
+    "@prisma/client",
+    "@prisma/engines",
+    "prisma",
+    "sharp",
+    "bcryptjs",
+    "@tailwindcss/oxide"
+  ]
 }

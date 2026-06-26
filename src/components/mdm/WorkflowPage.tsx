@@ -11,11 +11,51 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { GitBranch, CheckCircle2, XCircle, Clock, User } from 'lucide-react';
+import {
+  GitBranch, CheckCircle2, XCircle, Clock, User,
+  FileText, FileSearch, ChevronRight, Mail, Package, Building2, Hash,
+  ArrowRight, Plus, Minus, Pencil,
+} from 'lucide-react';
 import { toast } from 'sonner';
+
+// ---------------------------------------------------------------------------
+// Helpers (module-level pure functions for the "Lihat Detail Perubahan" dialog)
+// ---------------------------------------------------------------------------
+
+const RECORD_TITLE_FIELDS = [
+  'name', 'title', 'articleName', 'article_name', 'displayName', 'display_name',
+  'code', 'codeName', 'label', 'subject',
+];
+
+function extractRecordTitle(ticket: any): string {
+  try {
+    const payload = JSON.parse(ticket?.record?.currentPayload || '{}');
+    for (const k of RECORD_TITLE_FIELDS) {
+      const v = payload[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v);
+    }
+    for (const [, v] of Object.entries(payload)) {
+      if (typeof v === 'string' && v.trim() !== '') return v;
+    }
+  } catch {
+    // ignore parse errors — fall through to module name fallback
+  }
+  return ticket?.record?.module?.moduleName || 'Untitled Record';
+}
+
+function prettyRecordJson(raw: string | null | undefined): string {
+  if (!raw) return '{}';
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return String(raw);
+  }
+}
 
 export default function WorkflowPage() {
   const { token, navigate, user } = useAppStore();
@@ -25,6 +65,7 @@ export default function WorkflowPage() {
   const [activeTab, setActiveTab] = useState('PENDING');
   const [actionDialog, setActionDialog] = useState<{ ticketId: string; action: 'approve' | 'reject'; notes: string } | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [detailTicket, setDetailTicket] = useState<any | null>(null);
 
   const loadTickets = useCallback(async () => {
     if (!token) return;
@@ -63,6 +104,10 @@ export default function WorkflowPage() {
       if (!res.ok) { toast.error(data.error || 'Failed'); return; }
       toast.success(actionDialog.action === 'approve' ? 'Approved successfully' : 'Rejected');
       setActionDialog(null);
+      // If the action was launched from inside the detail dialog, close detail too
+      if (detailTicket && detailTicket.id === actionDialog.ticketId) {
+        setDetailTicket(null);
+      }
       loadTickets();
     } catch {
       toast.error('Network error');
@@ -89,6 +134,11 @@ export default function WorkflowPage() {
       return [];
     }
   };
+
+  // Computed values for the "Lihat Detail Perubahan" dialog (cheap; recompute on render)
+  const detailDiffs = detailTicket ? getPayloadDiff(detailTicket) : [];
+  const detailRecordTitle = detailTicket ? extractRecordTitle(detailTicket) : 'Untitled Record';
+  const detailRecordJson = detailTicket ? prettyRecordJson(detailTicket.record?.currentPayload) : '{}';
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -202,6 +252,17 @@ export default function WorkflowPage() {
                           </Button>
                         </div>
                       )}
+
+                      {/* Lihat Detail Perubahan — opens the detail dialog for this ticket */}
+                      <Button
+                        variant="outline"
+                        className="w-full h-10 gap-2 border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800"
+                        onClick={() => setDetailTicket(ticket)}
+                      >
+                        <FileSearch className="w-4 h-4" />
+                        Lihat Detail Perubahan
+                        <ChevronRight className="w-4 h-4 ml-auto" />
+                      </Button>
                     </div>
 
                     {/* Diff Viewer */}
@@ -265,6 +326,259 @@ export default function WorkflowPage() {
               {processing ? 'Processing...' : actionDialog?.action === 'approve' ? 'Approve' : 'Reject'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog — "Lihat Detail Perubahan" (PEMOHON / RINGKASAN PERUBAHAN / DATA RECORD LENGKAP) */}
+      <Dialog open={!!detailTicket} onOpenChange={(open) => { if (!open) setDetailTicket(null); }}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
+          {detailTicket && (
+            <>
+              <DialogHeader className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={cn(
+                    'text-xs border',
+                    detailTicket.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    detailTicket.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
+                    'bg-red-50 text-red-700 border-red-200'
+                  )}>
+                    {detailTicket.status}
+                  </Badge>
+                  <Badge className={cn('text-xs border', STATUS_COLORS[detailTicket.record?.status] || '')}>
+                    Record: {STATUS_LABELS[detailTicket.record?.status] || detailTicket.record?.status}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    <Hash className="w-3 h-3 mr-1" />
+                    {detailTicket.recordId?.slice(0, 8)}…
+                  </Badge>
+                </div>
+                <DialogTitle className="text-xl flex items-start gap-2">
+                  <FileText className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
+                  <span className="break-words">{detailRecordTitle}</span>
+                </DialogTitle>
+                <DialogDescription className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="inline-flex items-center gap-1">
+                    <Package className="w-4 h-4" />
+                    {detailTicket.record?.module?.moduleName || detailTicket.record?.module?.moduleCode || 'Unknown Module'}
+                  </span>
+                  {detailTicket.record?.company && (
+                    <span className="inline-flex items-center gap-1">
+                      <Building2 className="w-4 h-4" />
+                      {detailTicket.record.company.companyName || detailTicket.record.company.companyCode}
+                    </span>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+
+              <ScrollArea className="flex-1 pr-4 -mr-4">
+                <div className="space-y-6 pr-2">
+                  {/* PEMOHON — Requester Info */}
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      Pemohon
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border bg-card p-3">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                          <User className="w-4 h-4" />
+                          <span className="font-medium">Diajukan Oleh</span>
+                        </div>
+                        <p className="text-sm font-medium break-words">
+                          {detailTicket.requestedBy?.displayName || detailTicket.requestedBy?.username || 'Unknown'}
+                        </p>
+                        {detailTicket.requestedBy?.email && (
+                          <p className="text-xs text-muted-foreground mt-0.5 break-words flex items-center gap-1">
+                            <Mail className="w-3 h-3" />
+                            {detailTicket.requestedBy.email}
+                          </p>
+                        )}
+                      </div>
+                      <div className="rounded-lg border bg-card p-3">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                          <Clock className="w-4 h-4" />
+                          <span className="font-medium">Waktu Pengajuan</span>
+                        </div>
+                        <p className="text-sm font-medium break-words">
+                          {new Date(detailTicket.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    {detailTicket.reviewedBy && (
+                      <div className="rounded-lg border bg-muted/40 p-3">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span className="font-medium">Direview Oleh</span>
+                        </div>
+                        <p className="text-sm font-medium break-words">
+                          {detailTicket.reviewedBy?.displayName || detailTicket.reviewedBy?.username}
+                          {detailTicket.reviewedAt && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              on {new Date(detailTicket.reviewedAt).toLocaleString()}
+                            </span>
+                          )}
+                        </p>
+                        {detailTicket.reviewNotes && (
+                          <p className="text-sm mt-2 whitespace-pre-wrap">
+                            <span className="font-medium">Catatan:</span>{' '}
+                            {detailTicket.reviewNotes}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+
+                  <Separator />
+
+                  {/* RINGKASAN PERUBAHAN — Change Summary */}
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <GitBranch className="w-4 h-4" />
+                      Ringkasan Perubahan
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Perbandingan nilai lama → nilai baru untuk setiap field yang berubah.
+                    </p>
+                    {detailDiffs.length === 0 ? (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start gap-3">
+                        <FileSearch className="w-5 h-5 text-gray-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Tidak Ada Perubahan Terdeteksi</p>
+                          <p className="text-xs text-gray-700 mt-0.5">
+                            Tidak ada perubahan field yang terdeteksi pada tiket ini.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
+                            <Plus className="w-3 h-3 mr-0.5" />
+                            {detailDiffs.filter(d => !d.oldVal && d.newVal).length} ditambah
+                          </Badge>
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs">
+                            <Pencil className="w-3 h-3 mr-0.5" />
+                            {detailDiffs.filter(d => d.oldVal && d.newVal).length} diubah
+                          </Badge>
+                          <Badge className="bg-red-100 text-red-800 border-red-200 text-xs">
+                            <Minus className="w-3 h-3 mr-0.5" />
+                            {detailDiffs.filter(d => d.oldVal && !d.newVal).length} dihapus
+                          </Badge>
+                          <span className="text-xs text-muted-foreground ml-1">
+                            Total {detailDiffs.length} field berubah
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {detailDiffs.map((d) => {
+                            const isAdded = !d.oldVal && d.newVal;
+                            const isRemoved = d.oldVal && !d.newVal;
+                            return (
+                              <div
+                                key={d.key}
+                                className={cn(
+                                  'rounded-md border border-l-4 bg-card p-3 space-y-2',
+                                  isAdded ? 'border-l-emerald-400' :
+                                  isRemoved ? 'border-l-red-400' :
+                                  'border-l-amber-400',
+                                )}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-sm font-medium font-mono">{d.key}</span>
+                                  <Badge className={cn(
+                                    'text-[10px] border',
+                                    isAdded ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                    isRemoved ? 'bg-red-50 text-red-700 border-red-200' :
+                                    'bg-amber-50 text-amber-700 border-amber-200',
+                                  )}>
+                                    {isAdded ? 'ditambah' : isRemoved ? 'dihapus' : 'diubah'}
+                                  </Badge>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2">
+                                  <div className={cn(
+                                    'rounded px-2 py-1.5 text-xs font-mono break-words border',
+                                    isAdded ? 'bg-gray-50 text-muted-foreground border-gray-200' :
+                                    'bg-red-50 text-red-900 border-red-200',
+                                  )}>
+                                    {isAdded ? (
+                                      <span className="italic">(belum diset)</span>
+                                    ) : (
+                                      d.oldVal || <span className="italic text-muted-foreground">(kosong)</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-center">
+                                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                                  </div>
+                                  <div className={cn(
+                                    'rounded px-2 py-1.5 text-xs font-mono break-words border',
+                                    isRemoved ? 'bg-gray-50 text-muted-foreground border-gray-200 line-through' :
+                                    'bg-emerald-50 text-emerald-900 border-emerald-200',
+                                  )}>
+                                    {isRemoved ? (
+                                      <span className="italic">(dihapus)</span>
+                                    ) : (
+                                      d.newVal || <span className="italic text-muted-foreground">(kosong)</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </section>
+
+                  <Separator />
+
+                  {/* DATA RECORD LENGKAP — Complete Record Data (proposed) */}
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <FileText className="w-4 h-4" />
+                      Data Record Lengkap
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Data record lengkap yang akan disimpan jika tiket disetujui.
+                    </p>
+                    <ScrollArea className="h-64 rounded-md border bg-muted/40">
+                      <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
+                        {detailRecordJson}
+                      </pre>
+                    </ScrollArea>
+                  </section>
+                </div>
+              </ScrollArea>
+
+              <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2 border-t">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDetailTicket(null)}
+                >
+                  Tutup
+                </Button>
+                {detailTicket.status === 'PENDING' && canApprove && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => setActionDialog({ ticketId: detailTicket.id, action: 'reject', notes: '' })}
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => setActionDialog({ ticketId: detailTicket.id, action: 'approve', notes: '' })}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Approve
+                    </Button>
+                  </div>
+                )}
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

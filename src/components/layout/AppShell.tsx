@@ -84,6 +84,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBranding } from '@/hooks/useBranding';
 import type { SidebarStyle } from '@/lib/branding';
+import OnboardingGuide from '@/components/layout/OnboardingGuide';
 import {
   getAllowedPages,
   filterNavByRole,
@@ -295,7 +296,7 @@ function PageContent() {
 
 function SettingsPage() {
   const { theme, setTheme } = useTheme();
-  const { user } = useAppStore();
+  const { user, replayOnboarding } = useAppStore();
 
   return (
     <div className="p-6 max-w-2xl">
@@ -319,6 +320,37 @@ function SettingsPage() {
             >
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Onboarding */}
+        <div className="rounded-lg border bg-card p-6">
+          <h2 className="text-lg font-semibold mb-1">Panduan & Onboarding</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Putar ulang tour pengenalan fitur kapan saja. Tour akan menampilkan informasi yang
+            disesuaikan dengan peran Anda.
+          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium text-sm">Replay Onboarding Tour</p>
+                <p className="text-xs text-muted-foreground">
+                  Logged in as <span className="font-medium">{user?.username || '—'}</span>
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => replayOnboarding()}
+              className="gap-2 shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              Replay
             </Button>
           </div>
         </div>
@@ -1035,6 +1067,9 @@ export default function AppShell() {
             </CommandGroup>
           </CommandList>
         </CommandDialog>
+
+        {/* Onboarding Guide — shown on first login per user, skippable */}
+        <OnboardingGuide />
       </div>
     </TooltipProvider>
   );

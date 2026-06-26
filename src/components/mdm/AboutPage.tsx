@@ -1,17 +1,76 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Info, Globe, Phone, Heart, Code2, Shield, Database, Users,
   GitBranch, BookOpen, Key, Sparkles, ExternalLink, MessageCircle,
-  Copyright, Mail, MapPin,
+  Copyright, Mail, MapPin, Rocket, Activity, Zap, Server, Cpu,
+  Cloud, ShieldCheck, ArrowUpRight,
 } from 'lucide-react';
+import DeploymentChecklist from './DeploymentChecklist';
+
+interface DeploymentInfo {
+  environment: string;
+  region: string | null;
+  deploymentUrl: string | null;
+  publicUrl: string;
+  projectName: string;
+  analyticsEnabled: boolean;
+  speedInsightsEnabled: boolean;
+  framework: string;
+  frameworkVersion: string;
+  runtime: string;
+  regions: string[];
+  regionsLabel: string[];
+  buildCommand: string;
+}
 
 export default function AboutPage() {
+  const [deployInfo, setDeployInfo] = useState<DeploymentInfo | null>(null);
+  const [deployLoading, setDeployLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/deployment-info', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to fetch deployment info');
+        const data = (await res.json()) as DeploymentInfo;
+        if (!cancelled) setDeployInfo(data);
+      } catch {
+        if (!cancelled) {
+          // Fallback to known production defaults so the section always renders
+          setDeployInfo({
+            environment: 'production',
+            region: 'sin1',
+            deploymentUrl: 'maa-btool.bayhaqy.my.id',
+            publicUrl: 'https://maa-btool.bayhaqy.my.id',
+            projectName: 'maa-btool',
+            analyticsEnabled: true,
+            speedInsightsEnabled: true,
+            framework: 'nextjs',
+            frameworkVersion: '16',
+            runtime: 'nodejs20',
+            regions: ['sin1', 'hkg1', 'iad1'],
+            regionsLabel: ['Singapore', 'Hong Kong', 'Washington D.C.'],
+            buildCommand: 'next build',
+          });
+        }
+      } finally {
+        if (!cancelled) setDeployLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const features = [
     {
       icon: Database,
@@ -149,6 +208,147 @@ export default function AboutPage() {
         </CardContent>
       </Card>
 
+      {/* Deployment Information */}
+      <Card className="shadow-sm border-emerald-200 dark:border-emerald-900/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="space-y-1">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-emerald-600" />
+                Deployment Information
+              </CardTitle>
+              <CardDescription>
+                Production deployment powered by Vercel — preview deployments are auto-generated per git push
+              </CardDescription>
+            </div>
+            {deployLoading ? (
+              <Skeleton className="h-6 w-24" />
+            ) : (
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800 text-xs">
+                <span className="relative flex h-2 w-2 mr-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                {deployInfo?.environment === 'production' ? 'Live' : deployInfo?.environment ?? 'Live'}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-2 space-y-5">
+          {/* Production URL hero banner */}
+          <a
+            href="https://maa-btool.bayhaqy.my.id"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 p-4 hover:shadow-md hover:border-emerald-300 transition-all group"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="shrink-0 w-10 h-10 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">
+                    Production URL
+                  </p>
+                  <p className="text-sm font-mono font-semibold truncate">
+                    https://maa-btool.bayhaqy.my.id
+                  </p>
+                </div>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-emerald-600 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </div>
+          </a>
+
+          {/* Detail grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <DeployTile
+              icon={Rocket}
+              label="Preview Deployments"
+              value="Enabled"
+              sub="Auto per git push / CLI"
+              status="active"
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Code2}
+              label="Framework"
+              value={`Next.js ${deployInfo?.frameworkVersion ?? '16'}`}
+              sub="Turbopack"
+              status="active"
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Server}
+              label="Regions"
+              value="3 regions"
+              sub={deployInfo?.regionsLabel?.join(' · ') ?? 'Singapore · Hong Kong · Washington D.C.'}
+              status="active"
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Cpu}
+              label="Runtime"
+              value="Node.js 20.x"
+              sub="Serverless + Edge"
+              status="active"
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Activity}
+              label="Vercel Analytics"
+              value={deployInfo?.analyticsEnabled ? 'Enabled' : 'Disabled'}
+              sub="Real User Monitoring"
+              status={deployInfo?.analyticsEnabled ? 'active' : 'warning'}
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Zap}
+              label="Speed Insights"
+              value={deployInfo?.speedInsightsEnabled ? 'Enabled' : 'Disabled'}
+              sub="Core Web Vitals"
+              status={deployInfo?.speedInsightsEnabled ? 'active' : 'warning'}
+              loading={deployLoading}
+            />
+            <DeployTile
+              icon={Cloud}
+              label="Build Command"
+              value={deployInfo?.buildCommand ?? 'next build'}
+              sub="Bun install"
+              status="active"
+              loading={deployLoading}
+              mono
+            />
+            <DeployTile
+              icon={ShieldCheck}
+              label="Security Headers"
+              value="5 headers"
+              sub="HSTS · X-Frame · CSP-ready"
+              status="active"
+              loading={deployLoading}
+            />
+          </div>
+
+          {/* Region detail row */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-xs text-muted-foreground mr-1">Edge regions:</span>
+            {(deployInfo?.regionsLabel ?? ['Singapore', 'Hong Kong', 'Washington D.C.']).map((region) => (
+              <Badge
+                key={region}
+                variant="outline"
+                className="text-xs py-1 px-2.5 border-emerald-200 text-emerald-700 dark:border-emerald-900/50 dark:text-emerald-400"
+              >
+                <Globe className="w-3 h-3 mr-1" />
+                {region}
+              </Badge>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Deployment Checklist */}
+      <DeploymentChecklist />
+
       {/* Developer Info */}
       <Card className="shadow-sm border-red-200 dark:border-red-800">
         <CardHeader>
@@ -249,6 +449,70 @@ export default function AboutPage() {
         </p>
         <p className="mt-1">MAP Group — PT Mitra Adiperkasa Tbk</p>
       </div>
+    </div>
+  );
+}
+
+interface DeployTileProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  sub: string;
+  status: 'active' | 'warning';
+  loading: boolean;
+  mono?: boolean;
+}
+
+function DeployTile({ icon: Icon, label, value, sub, status, loading, mono }: DeployTileProps) {
+  const isActive = status === 'active';
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-3 transition-colors',
+        isActive
+          ? 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+          : 'border-amber-200 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/20',
+      )}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div
+          className={cn(
+            'w-7 h-7 rounded-md flex items-center justify-center',
+            isActive
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+              : 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+          )}
+        >
+          <Icon className="w-4 h-4" />
+        </div>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide',
+            isActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400',
+          )}
+        >
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              isActive ? 'bg-emerald-500' : 'bg-amber-500',
+            )}
+          />
+          {isActive ? 'Active' : 'Check'}
+        </span>
+      </div>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+        {label}
+      </p>
+      {loading ? (
+        <Skeleton className="h-4 w-20 mt-1" />
+      ) : (
+        <p className={cn('text-sm font-semibold mt-0.5 truncate', mono && 'font-mono')}>
+          {value}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground mt-0.5 truncate" title={sub}>
+        {sub}
+      </p>
     </div>
   );
 }

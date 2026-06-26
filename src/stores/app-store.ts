@@ -62,6 +62,24 @@ interface AppState {
 
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+
+  /** Per-user onboarding completion flag. Keyed by username so each user
+   *  gets their own onboarding experience. */
+  onboardingCompleted: Record<string, boolean>;
+  /** Monotonic counter bumped whenever the user manually requests the
+   *  onboarding tour to replay. OnboardingGuide watches this value to
+   *  re-open the dialog even if it has already been shown once. */
+  onboardingTrigger: number;
+  /** Mark onboarding as completed for the given username. */
+  completeOnboarding: (username: string) => void;
+  /** Reset onboarding for the given username (re-show the guide). */
+  resetOnboarding: (username: string) => void;
+  /** Returns true if the current user has not yet completed onboarding. */
+  needsOnboarding: () => boolean;
+  /** Manually replay the onboarding tour for the currently logged-in user.
+   *  Resets the completion flag AND bumps the trigger counter so the
+   *  OnboardingGuide component re-opens immediately. */
+  replayOnboarding: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -124,6 +142,34 @@ export const useAppStore = create<AppState>()(
 
       sidebarOpen: true,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+      onboardingCompleted: {},
+      onboardingTrigger: 0,
+      completeOnboarding: (username) =>
+        set((state) => ({
+          onboardingCompleted: { ...state.onboardingCompleted, [username]: true },
+        })),
+      resetOnboarding: (username) =>
+        set((state) => {
+          const next = { ...state.onboardingCompleted };
+          delete next[username];
+          return { onboardingCompleted: next };
+        }),
+      replayOnboarding: () =>
+        set((state) => {
+          if (!state.user) return state;
+          const next = { ...state.onboardingCompleted };
+          delete next[state.user.username];
+          return {
+            onboardingCompleted: next,
+            onboardingTrigger: state.onboardingTrigger + 1,
+          };
+        }),
+      needsOnboarding: () => {
+        const state = useAppStore.getState();
+        if (!state.user) return false;
+        return !state.onboardingCompleted[state.user.username];
+      },
     }),
     {
       name: 'maa-btool-storage',
@@ -133,6 +179,7 @@ export const useAppStore = create<AppState>()(
         originalUser: state.originalUser,
         user: state.user,
         currentPage: state.currentPage,
+        onboardingCompleted: state.onboardingCompleted,
       }),
     }
   )

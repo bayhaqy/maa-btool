@@ -1,23 +1,57 @@
+# Files excluded from Vercel build context (reduces upload size & build time)
+# NOTE: Do NOT exclude image files — public/* images are needed for the build!
+
+# Dependencies (re-installed on Vercel)
 node_modules
+
+# Build artifacts (regenerated during build)
 .next
+out
+build
+dist
+
+# Git metadata
 .git
+
+# Logs
 *.log
 dev.log
 server.log
-bun.lock
+
+# Local database
 db/custom.db
-*.png
-*.jpg
-*.jpeg
+db/*.db
+db/*.db-journal
+
+# Agent / sandbox artifacts
 agent-ctx
 download
 upload
-seed-standalone.ts
-seed-data-standalone.ts
-scripts-seed-runner.mjs
+tool-results
 .zscripts
 mini-services
 examples
 skills
 .claude
 .z-ai-config
+prod-link
+
+# Standalone seed scripts (not needed in production build)
+seed-standalone.mjs
+seed-data-standalone.mjs
+scripts-seed-runner.mjs
+start.sh
+watchdog.sh
+
+# IDE & OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# TypeScript build info
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Worklog (internal development log)
+worklog.md

@@ -6,8 +6,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-jetbrains, "JetBrains Mono"), ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+  --font-display: var(--font-space-grotesk, "Space Grotesk"), var(--font-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -139,9 +140,220 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Enable optical sizing globally — variable fonts will pick the best weight for the rendered size */
+    font-optical-sizing: auto;
+    /* Allow synthetic bold/italic only when true weights aren't loaded (avoids ugly fallbacks) */
+    font-synthesis: weight style;
+    /* Smooth scrolling for in-page navigation */
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    /* ===========================================================
+       Plus Jakarta Sans — distinctive OpenType features (2026 viral)
+       - kern  : kerning (essential)
+       - liga  : standard ligatures (fi, fl, ffi)
+       - calt  : contextual alternates
+       - ss01  : alternate single-story 'a' (more geometric, viral look)
+       - ss02  : alternate single-story 'g' (more modern, less traditional)
+       - ss03  : alternate 'l' with serif foot (distinctive designer touch)
+       - cv01  : alternate '1' (with base serif)
+       - cv02  : alternate 'I' (with serifs)
+       - cv11  : straight-sided 'M' (more geometric)
+       - cv05  : alternate '6' and '9' (more open)
+       These features make Plus Jakarta Sans visually DISTINGTIVE vs. system fonts.
+       =========================================================== */
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "ss01" 1, "ss02" 1, "ss03" 1, "cv01" 1, "cv02" 1, "cv11" 1, "cv05" 1;
+    /* Slightly tighter tracking for a more modern, designed feel */
+    letter-spacing: -0.012em;
+    /* Better readability — 1.65 is the sweet spot for sans-serif body text */
+    line-height: 1.65;
+    /* Slightly heavier base weight for more confident UI presence (450 vs default 400) */
+    font-weight: 450;
+    /* Crisp font rendering on macOS — works in tandem with `antialiased` utility */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Variable font axis optimization — tells the browser to use the variable instance */
+    font-variation-settings: "opsz" auto;
   }
+
+  /* Headings use Space Grotesk for distinctive display character.
+     Each tier gets progressively tighter letter-spacing for visual impact. */
+  h1 {
+    font-family: var(--font-display);
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    font-weight: 700;
+    font-feature-settings: "kern" 1, "liga" 1, "ss01" 1, "ss02" 1;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+    font-weight: 700;
+    font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    font-weight: 600;
+    font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
+    text-wrap: balance;
+  }
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    font-weight: 600;
+    font-feature-settings: "kern" 1, "liga" 1;
+    text-wrap: balance;
+  }
+  h5 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    font-weight: 600;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+    font-weight: 600;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  /* Code / monospace blocks use JetBrains Mono */
+  code, pre, kbd, samp {
+    font-family: var(--font-mono);
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "zero" 1, "ss01" 1, "ss02" 1, "ss03" 1, "cv01" 1;
+    font-optical-sizing: auto;
+  }
+
+  code {
+    font-size: 0.875em;
+    letter-spacing: -0.005em;
+  }
+
+  pre {
+    line-height: 1.65;
+  }
+
+  /* Paragraphs — better readability with balanced wrapping */
+  p {
+    text-wrap: pretty;
+    line-height: 1.65;
+  }
+
+  /* Strong / bold — ensure bolder visual presence */
+  strong, b {
+    font-weight: 650;
+  }
+
+  /* Lead paragraph — for hero sections */
+  p.lead, .lead {
+    font-size: 1.2em;
+    line-height: 1.55;
+    font-weight: 450;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* ===== Typography Utility Classes (2026 viral display system) ===== */
+
+/* Display font utility — use on hero text, page titles, large numbers */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  font-feature-settings: "kern" 1, "liga" 1, "ss01" 1, "ss02" 1;
+  font-optical-sizing: auto;
+}
+
+/* Monospace utility — alias for code font with proper fallback chain */
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Tabular numerals for aligned numeric columns / dashboards / tables */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "kern" 1;
+}
+
+/* Body font helper (in case Tailwind's font-sans utility is overridden) */
+.font-body {
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+}
+
+/* ===== Hero Typography Scale (responsive clamp for eye-catching headlines) ===== */
+/* Use .text-hero for the LARGEST page title (e.g. landing hero, dashboard title) */
+.text-hero {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw + 1rem, 4.5rem);
+  line-height: 1.0;
+  letter-spacing: -0.045em;
+  font-weight: 700;
+  font-feature-settings: "kern" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1;
+  text-wrap: balance;
+  font-optical-sizing: auto;
+}
+
+/* Use .text-display-xl for section-leading headlines */
+.text-display-xl {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3.5vw + 0.5rem, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
+  text-wrap: balance;
+}
+
+/* Use .text-display-lg for prominent card headers / feature titles */
+.text-display-lg {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 2vw + 0.5rem, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
+}
+
+/* Large numeric display — for stats / KPI cards / dashboards */
+.text-stat {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3vw + 1rem, 3.5rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "kern" 1, "ss01" 1;
+}
+
+/* Eyebrow / kicker label — small uppercase tracked text above headings */
+.text-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-feature-settings: "kern" 1, "ss01" 1;
+}
+
+/* Gradient text — for hero word emphasis (uses red corporate gradient) */
+.text-gradient {
+  background: linear-gradient(135deg, oklch(0.55 0.25 25), oklch(0.40 0.10 15));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ===== Red Corporate Accent Utilities ===== */
@@ -571,7 +783,7 @@
  * style={{ fontFamily: 'var(--brand-font-family)' }}.
  */
 body {
-  font-family: var(--brand-font-family), var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--brand-font-family), var(--font-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ============================================================================
@@ -740,7 +952,7 @@ body {
   display: inline-block;
   padding: 0.125rem 0.375rem;
   font-size: 0.75rem;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-family: var(--font-jetbrains, "JetBrains Mono"), ui-monospace, monospace;
   line-height: 1;
   color: oklch(0.30 0.02 0);
   background-color: oklch(0.96 0.005 0);
@@ -902,7 +1114,7 @@ body {
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-size: 0.85em;
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-jetbrains, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
   /* react-markdown wraps inline code in `code` — strip default quotes */
   white-space: nowrap;
@@ -929,7 +1141,7 @@ body {
   overflow-x: auto;
   font-size: 0.85rem;
   line-height: 1.6;
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-jetbrains, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   border: 1px solid oklch(0.30 0.02 0 / 0.5);
   position: relative;
 }

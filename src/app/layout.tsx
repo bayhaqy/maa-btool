@@ -1,19 +1,51 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+/**
+ * Typography system (2026 viral standard — enhanced for eye-catching display)
+ *
+ * Viral 2026 fonts selected:
+ * - Plus Jakarta Sans : body / UI text (modern geometric sans-serif, SEA tech trend, TikTok-era branding)
+ * - Space Grotesk     : display / headings (geometric sans-serif w/ distinctive letterforms, AI/startup branding)
+ * - JetBrains Mono    : code / monospace (premium developer font, GitHub/Vercel aesthetic)
+ *
+ * Enhancements:
+ * - `adjustFontFallback: true` reduces layout shift via metric-matched fallbacks
+ * - `preload: true` for critical above-the-fold fonts
+ * - Full weight spectrum loaded (200-800 for Jakarta, 300-700 for Grotesk) for true variable impact
+ * - Font CSS variables applied to <html> so they cascade to :root globally
+ * - Optical sizing enabled in CSS for variable-font-aware rendering
+ */
+const jakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
+  weight: ["200", "300", "400", "500", "600", "700", "800"],
+  display: "swap",
+  preload: true,
+  adjustFontFallback: true,
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
+  preload: true,
+  adjustFontFallback: true,
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  preload: false,
+  adjustFontFallback: true,
 });
 
 export const metadata: Metadata = {
@@ -95,7 +127,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${jakartaSans.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+    >
       <head>
         {/* Preload primary font + favicon for faster paint */}
         <link rel="icon" href="/map-active-logo.png" type="image/png" sizes="1830x914" />
@@ -104,7 +140,15 @@ export default function RootLayout({
         <link rel="preload" as="image" href="/map-active-logo.png" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className="antialiased bg-background text-foreground"
+        style={{
+          // Critical fallback in case @theme inline hasn't loaded yet — prevents FOUT to system font
+          fontFamily:
+            'var(--font-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+          // Variable font optimizations — make the font "pop" with optical sizing
+          fontOpticalSizing: "auto",
+          fontSynthesis: "weight style",
+        }}
       >
         <ThemeProvider
           attribute="class"
