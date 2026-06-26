@@ -2,7 +2,26 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'maa-btool-secret-key-change-in-production';
+// SECURITY: Fail-fast if JWT_SECRET is missing in production.
+// Never use a hardcoded fallback — that would allow token forgery.
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'FATAL: JWT_SECRET environment variable is required in production. ' +
+        'Generate one with: openssl rand -base64 32'
+      );
+    }
+    // Dev-only fallback — logs a warning so devs know to set it
+    console.warn(
+      '⚠️  JWT_SECRET not set — using insecure dev fallback. ' +
+      'Set JWT_SECRET in .env for local development.'
+    );
+    return 'dev-only-insecure-jwt-secret-do-not-use-in-production';
+  }
+  return secret;
+})();
 const ACCESS_TOKEN_EXPIRY = '8h';
 const REFRESH_TOKEN_EXPIRY = '7d';
 

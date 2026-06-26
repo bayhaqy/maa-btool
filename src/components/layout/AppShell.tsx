@@ -38,12 +38,24 @@ import {
   Info,
   Activity,
   Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,6 +149,19 @@ interface NavItem {
   page: PageView;
   icon: React.ElementType;
   parent?: string;
+}
+
+interface NotificationItem {
+  id: string;
+  type: 'approval' | 'audit' | 'system';
+  title: string;
+  description: string;
+  timestamp: string;
+  read: boolean;
+  severity: 'info' | 'warning' | 'success' | 'error';
+  actionLabel?: string;
+  actionPage?: string;
+  actionParams?: Record<string, string>;
 }
 
 const mainNav: NavItem[] = [
@@ -501,6 +526,20 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
+function formatNotifTime(isoTimestamp: string): string {
+  const now = Date.now();
+  const then = new Date(isoTimestamp).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Date(isoTimestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageView }[] {
   const paths: Record<PageView, { label: string; page?: PageView }[]> = {
     dashboard: [{ label: 'Home', page: 'dashboard' as PageView }],
@@ -580,6 +619,53 @@ export default function AppShell() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
+
+  // ── Notifications state ────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // Fetch notifications from /api/notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setNotifLoading(true);
+      const res = await fetch('/api/notifications', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unreadCount || 0);
+    } catch {
+      // Silent fail — notifications are non-critical
+    } finally {
+      setNotifLoading(false);
+    }
+  }, []);
+
+  // Poll notifications every 60s + on mount
+  useEffect(() => {
+    if (!user) return;
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60_000);
+    return () => clearInterval(interval);
+  }, [user, fetchNotifications]);
+
+  // Refetch when popover opens
+  useEffect(() => {
+    if (notifOpen) fetchNotifications();
+  }, [notifOpen, fetchNotifications]);
+
+  const handleNotifClick = (notif: NotificationItem) => {
+    setNotifOpen(false);
+    if (notif.actionPage) {
+      navigate(notif.actionPage as PageView);
+    }
+  };
+
+  const markAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+  };
 
   // Keyboard shortcut: Cmd+K / Ctrl+K
   useEffect(() => {
@@ -915,16 +1001,131 @@ export default function AppShell() {
                 <Search className="w-4.5 h-4.5" />
               </Button>
 
-              {/* Notification Bell */}
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-foreground relative">
-                    <Bell className="w-4.5 h-4.5" />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Notifications</TooltipContent>
-              </Tooltip>
+              {/* Notification Bell — functional popover */}
+              <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:text-foreground relative"
+                        aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+                      >
+                        <Bell className="w-4.5 h-4.5" />
+                        {unreadCount > 0 && (
+                          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                          </span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Notifications{unreadCount > 0 ? ` · ${unreadCount} unread` : ''}</TooltipContent>
+                </Tooltip>
+                <PopoverContent
+                  className="w-80 sm:w-96 p-0"
+                  align="end"
+                  sideOffset={8}
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-semibold text-sm">Notifications</span>
+                      {unreadCount > 0 && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                          {unreadCount} new
+                        </Badge>
+                      )}
+                    </div>
+                    {unreadCount > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={markAllRead}
+                      >
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
+                  <ScrollArea className="max-h-[400px]">
+                    {notifLoading && notifications.length === 0 ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading...
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-500/50" />
+                        <p className="text-sm font-medium">All caught up!</p>
+                        <p className="text-xs">No new notifications</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y">
+                        {notifications.map((notif) => {
+                          const Icon = notif.severity === 'success' ? CheckCircle2
+                            : notif.severity === 'error' ? XCircle
+                            : notif.severity === 'warning' ? AlertTriangle
+                            : notif.type === 'approval' ? Clock
+                            : notif.type === 'audit' ? ScrollText
+                            : ShieldAlert;
+                          const iconColor = notif.severity === 'success' ? 'text-emerald-600 dark:text-emerald-400'
+                            : notif.severity === 'error' ? 'text-red-600 dark:text-red-400'
+                            : notif.severity === 'warning' ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-blue-600 dark:text-blue-400';
+                          return (
+                            <button
+                              key={notif.id}
+                              onClick={() => handleNotifClick(notif)}
+                              className={cn(
+                                'w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors group',
+                                !notif.read && 'bg-red-50/50 dark:bg-red-950/10'
+                              )}
+                            >
+                              <div className={cn('shrink-0 mt-0.5', iconColor)}>
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0 space-y-0.5">
+                                <p className="text-sm font-medium leading-tight">{notif.title}</p>
+                                <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{notif.description}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] text-muted-foreground/70">
+                                    {formatNotifTime(notif.timestamp)}
+                                  </span>
+                                  {notif.actionLabel && (
+                                    <span className="text-[10px] font-medium text-red-600 dark:text-red-400 group-hover:underline">
+                                      {notif.actionLabel} →
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {!notif.read && (
+                                <span className="shrink-0 mt-1 w-2 h-2 bg-red-500 rounded-full" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </ScrollArea>
+                  {notifications.length > 0 && (
+                    <div className="border-t p-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full h-8 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setNotifOpen(false);
+                          navigate('workflow');
+                        }}
+                      >
+                        View all in Workflow
+                      </Button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
 
               {/* Dark Mode Toggle */}
               <Tooltip delayDuration={0}>

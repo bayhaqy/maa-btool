@@ -131,13 +131,13 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: message },
     ];
 
-    // Call AI using z-ai-web-dev-sdk
+    // Call AI using z-ai-web-dev-sdk (secure env-based config via src/lib/ai.ts)
     let aiResponse: string;
     let tokensUsed = 0;
 
     try {
-      const ZAI = (await import('z-ai-web-dev-sdk')).default;
-      const zai = await ZAI.create();
+      const { getAIClient } = await import('@/lib/ai');
+      const zai = await getAIClient();
       const response = await zai.chat.completions.create({
         messages: aiMessages,
         stream: false,

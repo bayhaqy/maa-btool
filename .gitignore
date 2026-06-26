@@ -64,6 +64,7 @@ mini-services/
 examples/
 skills/
 .claude/
+.z-ai-config
 .z-ai-config/
 prod-link/
 
