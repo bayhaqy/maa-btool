@@ -597,7 +597,7 @@ const searchNavigationItems: SearchCommandItem[] = [
 ];
 
 export default function AppShell() {
-  const { user, logout, currentPage, sidebarOpen, setSidebarOpen, navigate, restoreImpersonation, originalUser } = useAppStore();
+  const { user, logout, currentPage, sidebarOpen, setSidebarOpen, navigate, restoreImpersonation, originalUser, token } = useAppStore();
   const { theme, setTheme } = useTheme();
   const { settings } = useBranding();
   const isSuperAdmin = isSuperAdminRole(user?.roles);
@@ -628,9 +628,13 @@ export default function AppShell() {
 
   // Fetch notifications from /api/notifications
   const fetchNotifications = useCallback(async () => {
+    if (!token) return;
     try {
       setNotifLoading(true);
-      const res = await fetch('/api/notifications', { cache: 'no-store' });
+      const res = await fetch('/api/notifications', {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) return;
       const data = await res.json();
       setNotifications(data.notifications || []);
@@ -640,15 +644,15 @@ export default function AppShell() {
     } finally {
       setNotifLoading(false);
     }
-  }, []);
+  }, [token]);
 
   // Poll notifications every 60s + on mount
   useEffect(() => {
-    if (!user) return;
+    if (!user || !token) return;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 60_000);
     return () => clearInterval(interval);
-  }, [user, fetchNotifications]);
+  }, [user, token, fetchNotifications]);
 
   // Refetch when popover opens
   useEffect(() => {
