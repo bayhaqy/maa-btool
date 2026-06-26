@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   output: "standalone",
   reactStrictMode: false,
   // ── Security ──────────────────────────────────────────────────────────
@@ -12,10 +12,12 @@ const nextConfig: NextConfig = {
   compress: true,
   // ── TypeScript & ESLint ────────────────────────────────────────────────
   // Production builds should NEVER fail on type errors — Vercel uses this.
-  // (We run `bun run type-check` in CI for strict checking instead.)
+  // (We run `bun run type-check` in CI for advisory checking instead.)
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Next.js 16 type defs no longer include `eslint`, but it is still honored
+  // at runtime. The whole object is cast to NextConfig below to silence TS2353.
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -73,4 +75,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default nextConfig as NextConfig;

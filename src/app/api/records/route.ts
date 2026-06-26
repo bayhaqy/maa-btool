@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STATUS_ACTIVE, STATUS_ARCHIVED, STATUS_REVISION_PENDING } from '@/lib/auth';
+import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STATUS_ACTIVE, STATUS_ARCHIVED, STATUS_REVISION_PENDING, STATUS_REJECTED } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 
 // Validate a record's payload against META_FIELDS
