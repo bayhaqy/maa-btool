@@ -580,24 +580,25 @@ export default function AiAssistantPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -10 }}
                     className={cn(
-                      'group relative rounded-lg border transition-colors',
+                      'group relative rounded-lg border transition-colors flex items-stretch',
                       activeConversationId === conv.id
                         ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
                         : 'bg-transparent border-transparent hover:bg-accent/50'
                     )}
                   >
+                    {/* Conversation button (title + meta) — takes available space, title truncates */}
                     <button
                       onClick={() => loadConversation(conv.id)}
-                      className="w-full text-left px-3 py-2.5 text-sm"
+                      className="flex-1 min-w-0 text-left px-3 py-2.5 text-sm"
                     >
-                      <div className="flex items-center gap-2 pr-12">
+                      <div className="flex items-center gap-2">
                         {conv.pinned ? (
                           <Pin className="w-3.5 h-3.5 shrink-0 text-red-600 fill-red-600" />
                         ) : (
                           <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                         )}
                         <span className={cn(
-                          'truncate flex-1',
+                          'truncate min-w-0',
                           activeConversationId === conv.id
                             ? 'text-red-700 dark:text-red-300 font-medium'
                             : 'text-foreground'
@@ -610,15 +611,15 @@ export default function AiAssistantPage() {
                       </p>
                     </button>
 
-                    {/* Quick actions — always visible (not hover-only, for touch/mobile) */}
-                    <div className="absolute top-1 right-1 flex items-center gap-0.5">
+                    {/* Quick actions — inline (not absolute), always fully visible, clearly clickable */}
+                    <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggleBookmark(conv.id, conv.bookmarked); }}
                         className={cn(
-                          'p-1 rounded transition-colors',
+                          'p-1.5 rounded-md transition-colors',
                           conv.bookmarked
-                            ? 'bg-amber-50 dark:bg-amber-900/30'
-                            : 'opacity-60 hover:opacity-100 hover:bg-background/80'
+                            ? 'bg-amber-100 dark:bg-amber-900/40'
+                            : 'hover:bg-background/80'
                         )}
                         title={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
                         aria-label={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
@@ -632,7 +633,7 @@ export default function AiAssistantPage() {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
-                            className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-background/80 transition-opacity"
+                            className="p-1.5 rounded-md hover:bg-background/80 transition-colors border border-transparent hover:border-border"
                             title="More options"
                             aria-label="More options"
                           >

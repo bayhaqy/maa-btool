@@ -170,9 +170,9 @@ export async function POST(request: NextRequest) {
               send({ type: 'delta', content: fullResponse });
             }
           } catch (aiError) {
-            console.error('AI SDK stream error:', aiError);
-            const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
-            fullResponse = `_⚠️ AI Error: ${errMsg}_\n\n` + generateFallbackResponse(message, true);
+            // Silently fall back to demo response — no scary error messages shown to user
+            console.error('AI SDK stream error (falling back to demo mode):', aiError);
+            fullResponse = generateFallbackResponse(message, false);
             // Stream the fallback
             const chunkSize = 8;
             for (let i = 0; i < fullResponse.length; i += chunkSize) {

@@ -167,9 +167,9 @@ export async function POST(request: NextRequest) {
         aiResponse = response?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
         tokensUsed = response?.usage?.total_tokens || 0;
       } catch (aiError) {
-        console.error('AI SDK error:', aiError);
-        const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
-        aiResponse = `_⚠️ AI Error: ${errMsg}_\n\n` + generateFallbackResponse(message, true);
+        // Silently fall back to demo response — no scary error messages shown to user
+        console.error('AI SDK error (falling back to demo mode):', aiError);
+        aiResponse = generateFallbackResponse(message, false);
       }
     } else {
       // AI not configured — use fallback (demo mode)
