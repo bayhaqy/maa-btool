@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
             const { getAIClient } = await import('@/lib/ai');
             const zai = await getAIClient();
             const response: unknown = await zai.chat.completions.create({
+              model: 'glm-4-flash',
               messages: aiMessages,
               stream: true,
             });
@@ -170,7 +171,8 @@ export async function POST(request: NextRequest) {
             }
           } catch (aiError) {
             console.error('AI SDK stream error:', aiError);
-            fullResponse = generateFallbackResponse(message, true);
+            const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
+            fullResponse = `_⚠️ AI Error: ${errMsg}_\n\n` + generateFallbackResponse(message, true);
             // Stream the fallback
             const chunkSize = 8;
             for (let i = 0; i < fullResponse.length; i += chunkSize) {

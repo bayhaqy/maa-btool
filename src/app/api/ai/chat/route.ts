@@ -160,6 +160,7 @@ export async function POST(request: NextRequest) {
         const { getAIClient } = await import('@/lib/ai');
         const zai = await getAIClient();
         const response = await zai.chat.completions.create({
+          model: 'glm-4-flash',
           messages: aiMessages,
           stream: false,
         });
@@ -167,7 +168,8 @@ export async function POST(request: NextRequest) {
         tokensUsed = response?.usage?.total_tokens || 0;
       } catch (aiError) {
         console.error('AI SDK error:', aiError);
-        aiResponse = generateFallbackResponse(message, true);
+        const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
+        aiResponse = `_⚠️ AI Error: ${errMsg}_\n\n` + generateFallbackResponse(message, true);
       }
     } else {
       // AI not configured — use fallback (demo mode)
