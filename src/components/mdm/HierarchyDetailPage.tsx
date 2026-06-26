@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,8 +17,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   ArrowLeft, Plus, ChevronRight, ChevronDown, MoreVertical, Pencil, Trash2,
-  ArrowUp, ArrowDown, Folder, FolderOpen,
+  ArrowUp, ArrowDown, Folder, FolderOpen, Search, ChevronsDownUp, ChevronsUpDown,
 } from 'lucide-react';
+import { STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
 import { toast } from 'sonner';
 
 interface TreeNode {
@@ -26,6 +27,9 @@ interface TreeNode {
   nodeLabel: string;
   depthLevel: number;
   sortOrder: number;
+  status?: string;
+  description?: string;
+  materializedPath?: string;
   children: TreeNode[];
   parentNodeId?: string | null;
 }
@@ -34,6 +38,7 @@ export default function HierarchyDetailPage() {
   const { token, selectedHierarchyId, navigate } = useAppStore();
   const [hierarchy, setHierarchy] = useState<any>(null);
   const [treeNodes, setTreeNodes] = useState<TreeNode[]>([]);
+  const [flatNodes, setFlatNodes] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [nodeDialogOpen, setNodeDialogOpen] = useState(false);
@@ -41,6 +46,8 @@ export default function HierarchyDetailPage() {
   const [parentNodeForNew, setParentNodeForNew] = useState<string | null>(null);
   const [nodeForm, setNodeForm] = useState({ nodeLabel: '', sortOrder: 0 });
   const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!token || !selectedHierarchyId) return;
@@ -59,6 +66,7 @@ export default function HierarchyDetailPage() {
       if (detailRes.ok) setHierarchy(detailData.hierarchy);
       if (nodesRes.ok) {
         setTreeNodes(nodesData.nodes || []);
+        setFlatNodes(nodesData.flatNodes || []);
         // Auto-expand all nodes
         const allIds = new Set<string>();
         const collectIds = (nodes: TreeNode[]) => {
@@ -88,6 +96,22 @@ export default function HierarchyDetailPage() {
       else next.add(nodeId);
       return next;
     });
+  };
+
+  const expandAll = () => {
+    const allIds = new Set<string>();
+    const collectIds = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        allIds.add(n.id);
+        if (n.children) collectIds(n.children);
+      }
+    };
+    collectIds(treeNodes);
+    setExpandedNodes(allIds);
+  };
+
+  const collapseAll = () => {
+    setExpandedNodes(new Set());
   };
 
   const handleSaveNode = async () => {
@@ -138,6 +162,7 @@ export default function HierarchyDetailPage() {
       });
       if (!res.ok) { const d = await res.json(); toast.error(d.error); return; }
       toast.success('Node deleted');
+      if (selectedNodeId === id) setSelectedNodeId(null);
       loadData();
     } catch {
       toast.error('Network error');
@@ -147,14 +172,30 @@ export default function HierarchyDetailPage() {
   const handleMoveNode = async (node: any, direction: 'up' | 'down') => {
     if (!token) return;
     try {
-      await fetch('/api/hierarchies?action=nodes', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          id: node.id,
-          sortOrder: node.sortOrder + (direction === 'up' ? -1 : 1),
+      // Find siblings (same parentNodeId) and sort by sortOrder
+      const siblings = flatNodes
+        .filter((n: any) => (n.parentNodeId || null) === (node.parentNodeId || null))
+        .sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+      const currentIdx = siblings.findIndex((n: any) => n.id === node.id);
+      const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+      if (swapIdx < 0 || swapIdx >= siblings.length) {
+        // Already at top/bottom — nothing to do
+        return;
+      }
+      const swapNode = siblings[swapIdx];
+      // Swap sortOrder values between the two nodes
+      await Promise.all([
+        fetch('/api/hierarchies?action=nodes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: node.id, sortOrder: swapNode.sortOrder }),
         }),
-      });
+        fetch('/api/hierarchies?action=nodes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: swapNode.id, sortOrder: node.sortOrder }),
+        }),
+      ]);
       loadData();
     } catch {
       toast.error('Failed to move node');
@@ -175,19 +216,102 @@ export default function HierarchyDetailPage() {
     setNodeDialogOpen(true);
   };
 
+  // Search: find matching nodes + their ancestors
+  const { filteredNodes, matchedIds, keepIds } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { filteredNodes: treeNodes, matchedIds: new Set<string>(), keepIds: new Set<string>() };
+    }
+    const q = searchQuery.toLowerCase();
+
+    // Find all matching node ids
+    const matchIds = new Set<string>();
+    const findMatches = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        if (n.nodeLabel.toLowerCase().includes(q)) {
+          matchIds.add(n.id);
+        }
+        if (n.children) findMatches(n.children);
+      }
+    };
+    findMatches(treeNodes);
+
+    // Build ancestor map (parent chain for each match)
+    const parentMap = new Map<string, string | null>();
+    for (const flat of flatNodes) {
+      parentMap.set(flat.id, flat.parentNodeId || null);
+    }
+    const keepIds = new Set<string>();
+    for (const id of matchIds) {
+      let cur: string | null = id;
+      while (cur) {
+        keepIds.add(cur);
+        cur = parentMap.get(cur) || null;
+      }
+    }
+
+    // Filter tree to keep only matching + ancestor nodes
+    const filterTree = (nodes: TreeNode[]): TreeNode[] => {
+      const result: TreeNode[] = [];
+      for (const n of nodes) {
+        const filteredChildren = n.children ? filterTree(n.children) : [];
+        if (keepIds.has(n.id)) {
+          result.push({ ...n, children: filteredChildren });
+        }
+      }
+      return result;
+    };
+
+    return { filteredNodes: filterTree(treeNodes), matchedIds: matchIds, keepIds };
+  }, [searchQuery, treeNodes, flatNodes]);
+
+  // Effective expanded set = user toggles ∪ ancestors of search matches (derived during render — no setState-in-effect)
+  const effectiveExpanded = useMemo(() => {
+    if (keepIds.size === 0) return expandedNodes;
+    const next = new Set(expandedNodes);
+    for (const id of keepIds) next.add(id);
+    return next;
+  }, [expandedNodes, keepIds]);
+
+  // Build breadcrumb from selected node (using flatNodes parent chain)
+  const breadcrumb = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const parentMap = new Map<string, { node: TreeNode; parent: string | null }>();
+    for (const flat of flatNodes) {
+      parentMap.set(flat.id, { node: flat, parent: flat.parentNodeId || null });
+    }
+    const path: TreeNode[] = [];
+    let cur: string | null = selectedNodeId;
+    while (cur) {
+      const entry = parentMap.get(cur);
+      if (!entry) break;
+      path.unshift(entry.node);
+      cur = entry.parent;
+    }
+    return path;
+  }, [selectedNodeId, flatNodes]);
+
   const renderNode = (node: TreeNode, depth: number = 0) => {
     const hasChildren = node.children && node.children.length > 0;
-    const isExpanded = expandedNodes.has(node.id);
+    const isExpanded = effectiveExpanded.has(node.id);
+    const isMatch = matchedIds.has(node.id);
+    const isSelected = selectedNodeId === node.id;
+    const statusColor = node.status ? STATUS_COLORS[node.status] : '';
+    const statusLabel = node.status ? STATUS_LABELS[node.status] : '';
 
     return (
       <div key={node.id}>
         <div
-          className="flex items-center gap-1 py-1.5 px-2 hover:bg-accent/50 rounded-lg group min-h-[40px]"
+          className={cn(
+            'flex items-center gap-1 py-1.5 px-2 hover:bg-accent/50 rounded-lg min-h-[40px] cursor-pointer',
+            isMatch && 'bg-yellow-100 hover:bg-yellow-200',
+            isSelected && 'ring-2 ring-teal-400'
+          )}
           style={{ paddingLeft: `${depth * 24 + 8}px` }}
+          onClick={() => setSelectedNodeId(node.id)}
         >
           {/* Expand/collapse button */}
           <button
-            onClick={() => hasChildren && toggleExpand(node.id)}
+            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(node.id); }}
             className={cn(
               'w-6 h-6 flex items-center justify-center rounded shrink-0 transition-colors',
               hasChildren ? 'hover:bg-accent cursor-pointer' : 'cursor-default'
@@ -210,20 +334,30 @@ export default function HierarchyDetailPage() {
           {/* Label */}
           <span className="flex-1 text-sm font-medium truncate">{node.nodeLabel}</span>
 
-          {/* Actions */}
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openAddNode(node.id)}>
+          {/* Status badge */}
+          {node.status && node.status !== 'DRAFT' && (
+            <Badge variant="outline" className={cn('text-[10px] h-5 px-1.5', statusColor)}>
+              {statusLabel}
+            </Badge>
+          )}
+
+          {/* Actions — always visible (no opacity-0) */}
+          <div
+            className="flex items-center gap-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => openAddNode(node.id)}>
               <Plus className="w-3 h-3" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveNode(node, 'up')}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => handleMoveNode(node, 'up')}>
               <ArrowUp className="w-3 h-3" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveNode(node, 'down')}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => handleMoveNode(node, 'down')}>
               <ArrowDown className="w-3 h-3" />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7">
+                <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors">
                   <MoreVertical className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
@@ -285,11 +419,54 @@ export default function HierarchyDetailPage() {
         </Button>
       </div>
 
+      {/* Breadcrumb */}
+      {breadcrumb && breadcrumb.length > 0 && (
+        <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap p-2 rounded-lg bg-accent/40">
+          <span className="text-xs font-medium text-foreground/70">Path:</span>
+          {breadcrumb.map((n, idx) => (
+            <span key={n.id} className="flex items-center gap-1">
+              {idx > 0 && <ChevronRight className="w-3 h-3 text-muted-foreground/50" />}
+              <button
+                className={cn(
+                  'hover:text-foreground hover:underline transition-colors',
+                  idx === breadcrumb.length - 1 && 'text-teal-700 font-semibold'
+                )}
+                onClick={() => setSelectedNodeId(n.id)}
+              >
+                {n.nodeLabel}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Tree */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg">Tree View</CardTitle>
-          <CardDescription>Expand, collapse, and manage hierarchy nodes</CardDescription>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="text-lg">Tree View</CardTitle>
+              <CardDescription>Expand, collapse, search, and manage hierarchy nodes</CardDescription>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" className="h-8" onClick={expandAll}>
+                <ChevronsUpDown className="w-3.5 h-3.5 mr-1" /> Expand All
+              </Button>
+              <Button variant="outline" size="sm" className="h-8" onClick={collapseAll}>
+                <ChevronsDownUp className="w-3.5 h-3.5 mr-1" /> Collapse All
+              </Button>
+            </div>
+          </div>
+          {/* Search input */}
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search nodes..."
+              className="pl-9 h-9"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           {treeNodes.length === 0 ? (
@@ -299,9 +476,13 @@ export default function HierarchyDetailPage() {
                 <Plus className="w-4 h-4 mr-1" /> Add Root Node
               </Button>
             </div>
+          ) : filteredNodes.length === 0 && searchQuery.trim() ? (
+            <div className="py-8 text-center">
+              <p className="text-muted-foreground">No nodes match &ldquo;{searchQuery}&rdquo;.</p>
+            </div>
           ) : (
             <div className="space-y-0.5 max-h-[500px] overflow-y-auto custom-scrollbar">
-              {treeNodes.map((node) => renderNode(node))}
+              {filteredNodes.map((node) => renderNode(node))}
             </div>
           )}
         </CardContent>
@@ -345,5 +526,3 @@ export default function HierarchyDetailPage() {
     </div>
   );
 }
-
-

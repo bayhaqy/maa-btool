@@ -157,10 +157,12 @@ model FieldValidation {
 }
 
 model LookupMaster {
-  id          String @id @default(cuid())
-  lookupCode  String @unique
+  id          String   @id @default(cuid())
+  lookupCode  String   @unique
   lookupName  String
   description String?
+  category    String?  // System / Custom / ISO (for grouping)
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -169,13 +171,17 @@ model LookupMaster {
 }
 
 model LookupValue {
-  id           String  @id @default(cuid())
+  id           String    @id @default(cuid())
   lookupId     String
   valueCode    String
   displayValue String
-  isActive     Boolean @default(true)
-  sortOrder    Int     @default(0)
-  createdAt    DateTime @default(now())
+  description  String?
+  validFrom    DateTime?
+  validTo      DateTime?
+  isActive     Boolean   @default(true)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   lookup LookupMaster @relation(fields: [lookupId], references: [id], onDelete: Cascade)
 
@@ -250,6 +256,8 @@ model HierarchyNode {
   depthLevel       Int      @default(0)
   sortOrder        Int      @default(0)
   isActive         Boolean  @default(true)
+  status           String   @default("DRAFT") // DRAFT / IN_REVIEW / ACTIVE / ARCHIVED
+  description      String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

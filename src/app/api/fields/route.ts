@@ -14,6 +14,19 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const moduleId = searchParams.get('moduleId');
+    const lookupId = searchParams.get('lookupId');
+
+    // "Where used" query: list fields referencing a specific lookup
+    if (lookupId) {
+      const fields = await db.metaField.findMany({
+        where: { lookupId },
+        orderBy: { fieldCode: 'asc' },
+        include: {
+          module: { select: { id: true, moduleCode: true, moduleName: true } },
+        },
+      });
+      return NextResponse.json({ fields });
+    }
 
     if (!moduleId) {
       return NextResponse.json({ error: 'moduleId query parameter is required' }, { status: 400 });

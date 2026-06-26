@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission } from '@/lib/rbac';
+import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
+import { logAudit } from '@/lib/audit';
 
-// GET /api/admin/lookups?lookupCode=xxx - List all lookups with values
+// GET /api/admin/lookups?lookupCode=xxx&includeInactive=true - List all lookups with values
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -12,16 +13,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Only Super Admin can manage lookups
-    if (!tokenPayload.roles.includes('Super Admin')) {
+    if (!isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage lookups.' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
     const lookupCode = searchParams.get('lookupCode');
+    const includeInactive = searchParams.get('includeInactive') === 'true';
 
     const where: Record<string, unknown> = {};
     if (lookupCode) {
       where.lookupCode = lookupCode;
+    }
+    if (!includeInactive) {
+      where.isActive = true;
     }
 
     const lookups = await db.lookupMaster.findMany({
@@ -29,10 +34,15 @@ export async function GET(request: NextRequest) {
       orderBy: { lookupName: 'asc' },
       include: {
         values: {
-          where: { isActive: true },
+          where: includeInactive ? {} : { isActive: true },
           orderBy: { sortOrder: 'asc' },
         },
-        _count: { select: { values: { where: { isActive: true } } } },
+        _count: {
+          select: {
+            values: { where: { isActive: true } },
+            fields: true, // where-used count
+          },
+        },
       },
     });
 
@@ -52,12 +62,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Only Super Admin can create lookups
-    if (!tokenPayload.roles.includes('Super Admin')) {
+    if (!isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create lookups.' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { lookupCode, lookupName, description, values } = body;
+    const { lookupCode, lookupName, description, category, values } = body;
 
     if (!lookupCode || !lookupName) {
       return NextResponse.json(
@@ -77,10 +87,23 @@ export async function POST(request: NextRequest) {
         lookupCode,
         lookupName,
         description,
+        category,
         values: {
-          create: (values || []).map((v: { valueCode: string; displayValue: string }, index: number) => ({
+          create: (values || []).map(
+            (v: {
+              valueCode: string;
+              displayValue: string;
+              description?: string;
+              validFrom?: string;
+              validTo?: string;
+            },
+            index: number
+          ) => ({
             valueCode: v.valueCode,
             displayValue: v.displayValue,
+            description: v.description || null,
+            validFrom: v.validFrom ? new Date(v.validFrom) : null,
+            validTo: v.validTo ? new Date(v.validTo) : null,
             sortOrder: index,
           })),
         },
@@ -90,6 +113,24 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'LOOKUP_CREATE',
+      entityType: 'LookupMaster',
+      entityId: lookup.id,
+      moduleName: 'Lookup',
+      description: `Created lookup "${lookupName}" (${lookupCode})`,
+      newValues: {
+        id: lookup.id,
+        lookupCode,
+        lookupName,
+        description: description || null,
+        category: category || null,
+        valueCount: (values || []).length,
+      },
+      companyId: tokenPayload.companyId,
+    });
+
     return NextResponse.json({ lookup }, { status: 201 });
   } catch (error) {
     console.error('Admin Lookups POST error:', error);
@@ -97,7 +138,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT /api/admin/lookups - Update lookup
+// PUT /api/admin/lookups - Update lookup (non-destructive: per-value upsert)
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -106,47 +147,68 @@ export async function PUT(request: NextRequest) {
     }
 
     // Only Super Admin can update lookups
-    if (!tokenPayload.roles.includes('Super Admin')) {
+    if (!isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update lookups.' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { id, lookupName, description, values } = body;
+    const { id, lookupName, description, category, values } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Lookup id is required' }, { status: 400 });
     }
 
-    const existing = await db.lookupMaster.findUnique({ where: { id } });
+    const existing = await db.lookupMaster.findUnique({
+      where: { id },
+      include: { values: true },
+    });
     if (!existing) {
       return NextResponse.json({ error: 'Lookup not found' }, { status: 404 });
     }
 
     // Update lookup basic info
+    const updateData: Record<string, unknown> = {};
+    if (lookupName !== undefined) updateData.lookupName = lookupName;
+    if (description !== undefined) updateData.description = description;
+    if (category !== undefined) updateData.category = category;
+
     const lookup = await db.lookupMaster.update({
       where: { id },
-      data: {
-        ...(lookupName !== undefined && { lookupName }),
-        ...(description !== undefined && { description }),
-      },
+      data: updateData,
     });
 
-    // Update values if provided
+    // Upsert each value (preserves IDs, isActive, createdAt) — fixes destructive deleteMany+createMany bug
     if (values !== undefined) {
-      // Delete existing values
-      await db.lookupValue.deleteMany({ where: { lookupId: id } });
-
-      // Create new values
-      if (values.length > 0) {
-        await db.lookupValue.createMany({
-          data: values.map((v: { valueCode: string; displayValue: string }, index: number) => ({
+      for (let i = 0; i < values.length; i++) {
+        const v = values[i];
+        await db.lookupValue.upsert({
+          where: { lookupId_valueCode: { lookupId: id, valueCode: v.valueCode } },
+          create: {
             lookupId: id,
             valueCode: v.valueCode,
             displayValue: v.displayValue,
-            sortOrder: index,
-          })),
+            description: v.description || null,
+            validFrom: v.validFrom ? new Date(v.validFrom) : null,
+            validTo: v.validTo ? new Date(v.validTo) : null,
+            sortOrder: i,
+            isActive: true,
+          },
+          update: {
+            displayValue: v.displayValue,
+            description: v.description || null,
+            validFrom: v.validFrom ? new Date(v.validFrom) : null,
+            validTo: v.validTo ? new Date(v.validTo) : null,
+            sortOrder: i,
+            isActive: true,
+          },
         });
       }
+      // Soft-delete values not in the submitted array (deactivate instead of delete)
+      const submittedCodes = values.map((v: { valueCode: string }) => v.valueCode);
+      await db.lookupValue.updateMany({
+        where: { lookupId: id, valueCode: { notIn: submittedCodes } },
+        data: { isActive: false },
+      });
     }
 
     // Fetch updated lookup with values
@@ -157,6 +219,27 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'LOOKUP_UPDATE',
+      entityType: 'LookupMaster',
+      entityId: id,
+      moduleName: 'Lookup',
+      description: `Updated lookup "${existing.lookupName}" (${existing.lookupCode})`,
+      oldValues: {
+        id: existing.id,
+        lookupName: existing.lookupName,
+        description: existing.description,
+        category: existing.category,
+        valueCount: existing.values.length,
+      },
+      newValues: {
+        ...updateData,
+        valueCount: values !== undefined ? values.length : existing.values.length,
+      },
+      companyId: tokenPayload.companyId,
+    });
+
     return NextResponse.json({ lookup: updatedLookup });
   } catch (error) {
     console.error('Admin Lookups PUT error:', error);
@@ -164,7 +247,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE /api/admin/lookups - Delete lookup
+// DELETE /api/admin/lookups - Soft-delete lookup by default; hard-delete with ?hardDelete=true
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -173,9 +256,13 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Only Super Admin can delete lookups
-    if (!tokenPayload.roles.includes('Super Admin')) {
+    if (!isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete lookups.' }, { status: 403 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const hardDelete = searchParams.get('hardDelete') === 'true';
+    const force = searchParams.get('force') === 'true';
 
     let body: Record<string, string> = {};
     try {
@@ -194,8 +281,71 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Lookup not found' }, { status: 404 });
     }
 
-    await db.lookupMaster.delete({ where: { id } });
-    return NextResponse.json({ message: 'Lookup deleted' });
+    // Referential integrity check: how many MetaFields use this lookup?
+    const fieldCount = await db.metaField.count({ where: { lookupId: id } });
+
+    // Block hard delete if referenced, unless ?force=true
+    if (fieldCount > 0 && hardDelete && !force) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete lookup: it is referenced by ${fieldCount} module field(s). Deactivate it instead, or remove the field references first.`,
+          fieldCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    // For soft delete (default), block only if explicitly requested AND referenced AND no force
+    // (soft delete is safe even when referenced — MetaField.isActive still resolves the lookup)
+    if (hardDelete) {
+      // Hard delete: cascades to LookupValue
+      await db.lookupMaster.delete({ where: { id } });
+
+      await logAudit({
+        userId: tokenPayload.userId,
+        action: 'LOOKUP_DELETE',
+        entityType: 'LookupMaster',
+        entityId: id,
+        moduleName: 'Lookup',
+        description: `Hard-deleted lookup "${existing.lookupName}" (${existing.lookupCode})${fieldCount > 0 ? ` (forced — was referenced by ${fieldCount} fields)` : ''}`,
+        oldValues: {
+          id: existing.id,
+          lookupCode: existing.lookupCode,
+          lookupName: existing.lookupName,
+          description: existing.description,
+          category: existing.category,
+        },
+        companyId: tokenPayload.companyId,
+      });
+
+      return NextResponse.json({ message: 'Lookup permanently deleted' });
+    }
+
+    // Soft delete: set isActive=false on master and all active values
+    await db.lookupMaster.update({ where: { id }, data: { isActive: false } });
+    await db.lookupValue.updateMany({
+      where: { lookupId: id, isActive: true },
+      data: { isActive: false },
+    });
+
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'LOOKUP_DEACTIVATE',
+      entityType: 'LookupMaster',
+      entityId: id,
+      moduleName: 'Lookup',
+      description: `Deactivated lookup "${existing.lookupName}" (${existing.lookupCode})${fieldCount > 0 ? ` — still referenced by ${fieldCount} fields` : ''}`,
+      oldValues: {
+        id: existing.id,
+        lookupCode: existing.lookupCode,
+        lookupName: existing.lookupName,
+        isActive: true,
+      },
+      newValues: { isActive: false },
+      companyId: tokenPayload.companyId,
+    });
+
+    return NextResponse.json({ message: 'Lookup deactivated (soft-deleted)', fieldCount });
   } catch (error) {
     console.error('Admin Lookups DELETE error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

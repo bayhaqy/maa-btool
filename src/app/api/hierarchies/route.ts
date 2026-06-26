@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
+import { checkAuthAndPermission } from '@/lib/rbac';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/hierarchies?moduleId=xxx - List hierarchies
 // GET /api/hierarchies?action=nodes&hierarchyId=xxx - Get all nodes for a hierarchy
@@ -10,6 +12,10 @@ export async function GET(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:read');
+    if (authCheck.error) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
     const { searchParams } = new URL(request.url);
@@ -106,6 +112,10 @@ export async function POST(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    if (authCheck.error) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    }
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
@@ -113,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     // Create node
     if (action === 'nodes') {
-      const { hierarchyId, parentNodeId, nodeLabel, recordId, sortOrder } = body;
+      const { hierarchyId, parentNodeId, nodeLabel, recordId, sortOrder, status, description } = body;
 
       if (!hierarchyId || !nodeLabel) {
         return NextResponse.json({ error: 'hierarchyId and nodeLabel are required' }, { status: 400 });
@@ -134,6 +144,16 @@ export async function POST(request: NextRequest) {
         depthLevel = parent.depthLevel + 1;
       }
 
+      // Compute next sortOrder among siblings if not provided
+      let nextSortOrder = sortOrder;
+      if (nextSortOrder === undefined || nextSortOrder === null) {
+        const siblingAgg = await db.hierarchyNode.aggregate({
+          where: { hierarchyId, parentNodeId: parentNodeId || null },
+          _max: { sortOrder: true },
+        });
+        nextSortOrder = (siblingAgg._max.sortOrder ?? -1) + 1;
+      }
+
       const node = await db.hierarchyNode.create({
         data: {
           hierarchyId,
@@ -142,8 +162,30 @@ export async function POST(request: NextRequest) {
           recordId: recordId || null,
           materializedPath,
           depthLevel,
-          sortOrder: sortOrder ?? 0,
+          sortOrder: nextSortOrder,
+          ...(status && { status }),
+          ...(description !== undefined && { description }),
         },
+      });
+
+      await logAudit({
+        userId: tokenPayload.userId,
+        action: 'HIERARCHY_NODE_CREATE',
+        entityType: 'HierarchyNode',
+        entityId: node.id,
+        moduleName: 'Hierarchy',
+        description: `Created node "${nodeLabel}" in hierarchy ${hierarchyId}`,
+        newValues: {
+          id: node.id,
+          hierarchyId,
+          parentNodeId: parentNodeId || null,
+          nodeLabel,
+          materializedPath,
+          depthLevel,
+          sortOrder: nextSortOrder,
+          status: node.status,
+        },
+        companyId: tokenPayload.companyId,
       });
 
       return NextResponse.json({ node }, { status: 201 });
@@ -169,6 +211,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'HIERARCHY_CREATE',
+      entityType: 'HierarchyModel',
+      entityId: hierarchy.id,
+      moduleName: metaModule.moduleName,
+      description: `Created hierarchy "${hierarchyName}" in module ${metaModule.moduleName}`,
+      newValues: {
+        id: hierarchy.id,
+        moduleId,
+        hierarchyName,
+        description: description || null,
+      },
+      companyId: tokenPayload.companyId,
+    });
+
     return NextResponse.json({ hierarchy }, { status: 201 });
   } catch (error) {
     console.error('Hierarchies POST error:', error);
@@ -184,6 +242,10 @@ export async function PUT(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    if (authCheck.error) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    }
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
@@ -191,7 +253,7 @@ export async function PUT(request: NextRequest) {
 
     // Update node
     if (action === 'nodes') {
-      const { id, nodeLabel, parentNodeId, sortOrder, isActive } = body;
+      const { id, nodeLabel, parentNodeId, sortOrder, isActive, status, description } = body;
 
       if (!id) {
         return NextResponse.json({ error: 'Node id is required' }, { status: 400 });
@@ -250,14 +312,43 @@ export async function PUT(request: NextRequest) {
         }
       }
 
+      const updateData: Record<string, unknown> = {};
+      if (nodeLabel !== undefined) updateData.nodeLabel = nodeLabel;
+      if (parentNodeId !== undefined) {
+        updateData.parentNodeId = parentNodeId || null;
+        updateData.materializedPath = materializedPath;
+        updateData.depthLevel = depthLevel;
+      }
+      if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (status !== undefined) updateData.status = status;
+      if (description !== undefined) updateData.description = description;
+
       const node = await db.hierarchyNode.update({
         where: { id },
-        data: {
-          ...(nodeLabel !== undefined && { nodeLabel }),
-          ...(parentNodeId !== undefined && { parentNodeId: parentNodeId || null, materializedPath, depthLevel }),
-          ...(sortOrder !== undefined && { sortOrder }),
-          ...(isActive !== undefined && { isActive }),
+        data: updateData,
+      });
+
+      await logAudit({
+        userId: tokenPayload.userId,
+        action: 'HIERARCHY_NODE_UPDATE',
+        entityType: 'HierarchyNode',
+        entityId: id,
+        moduleName: 'Hierarchy',
+        description: `Updated node "${existing.nodeLabel}"${nodeLabel && nodeLabel !== existing.nodeLabel ? ` → "${nodeLabel}"` : ''}`,
+        oldValues: {
+          id: existing.id,
+          nodeLabel: existing.nodeLabel,
+          parentNodeId: existing.parentNodeId,
+          materializedPath: existing.materializedPath,
+          depthLevel: existing.depthLevel,
+          sortOrder: existing.sortOrder,
+          isActive: existing.isActive,
+          status: existing.status,
+          description: existing.description,
         },
+        newValues: updateData,
+        companyId: tokenPayload.companyId,
       });
 
       return NextResponse.json({ node });
@@ -275,12 +366,29 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Hierarchy not found' }, { status: 404 });
     }
 
+    const updateData: Record<string, unknown> = {};
+    if (hierarchyName !== undefined) updateData.hierarchyName = hierarchyName;
+    if (description !== undefined) updateData.description = description;
+
     const hierarchy = await db.hierarchyModel.update({
       where: { id },
-      data: {
-        ...(hierarchyName !== undefined && { hierarchyName }),
-        ...(description !== undefined && { description }),
+      data: updateData,
+    });
+
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'HIERARCHY_UPDATE',
+      entityType: 'HierarchyModel',
+      entityId: id,
+      moduleName: 'Hierarchy',
+      description: `Updated hierarchy "${existing.hierarchyName}"`,
+      oldValues: {
+        id: existing.id,
+        hierarchyName: existing.hierarchyName,
+        description: existing.description,
       },
+      newValues: updateData,
+      companyId: tokenPayload.companyId,
     });
 
     return NextResponse.json({ hierarchy });
@@ -297,6 +405,10 @@ export async function DELETE(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    if (authCheck.error) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
     const { searchParams } = new URL(request.url);
@@ -322,6 +434,27 @@ export async function DELETE(request: NextRequest) {
       }
 
       await db.hierarchyNode.delete({ where: { id } });
+
+      await logAudit({
+        userId: tokenPayload.userId,
+        action: 'HIERARCHY_NODE_DELETE',
+        entityType: 'HierarchyNode',
+        entityId: id,
+        moduleName: 'Hierarchy',
+        description: `Deleted node "${existing.nodeLabel}" (hierarchyId=${existing.hierarchyId})`,
+        oldValues: {
+          id: existing.id,
+          hierarchyId: existing.hierarchyId,
+          nodeLabel: existing.nodeLabel,
+          parentNodeId: existing.parentNodeId,
+          materializedPath: existing.materializedPath,
+          depthLevel: existing.depthLevel,
+          sortOrder: existing.sortOrder,
+          status: existing.status,
+        },
+        companyId: tokenPayload.companyId,
+      });
+
       return NextResponse.json({ message: 'Node deleted' });
     }
 
@@ -337,6 +470,23 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.hierarchyModel.delete({ where: { id } });
+
+    await logAudit({
+      userId: tokenPayload.userId,
+      action: 'HIERARCHY_DELETE',
+      entityType: 'HierarchyModel',
+      entityId: id,
+      moduleName: 'Hierarchy',
+      description: `Deleted hierarchy "${existing.hierarchyName}"`,
+      oldValues: {
+        id: existing.id,
+        moduleId: existing.moduleId,
+        hierarchyName: existing.hierarchyName,
+        description: existing.description,
+      },
+      companyId: tokenPayload.companyId,
+    });
+
     return NextResponse.json({ message: 'Hierarchy deleted' });
   } catch (error) {
     console.error('Hierarchies DELETE error:', error);
