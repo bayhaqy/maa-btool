@@ -70,7 +70,6 @@ export function getAIConfig(): ZAIConfig {
 export async function getAIClient(): Promise<ZAI> {
   if (!cachedInstance) {
     const config = getAIConfig();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cachedInstance = new (ZAI as unknown as { new (config: ZAIConfig): ZAI })(config);
   }
   return cachedInstance;

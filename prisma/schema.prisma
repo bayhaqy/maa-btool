@@ -464,11 +464,14 @@ model AuditLog {
 }
 
 model AiConversation {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(cuid())
+  userId       String
+  title        String?
+  bookmarked   Boolean   @default(false)
+  bookmarkedAt DateTime?
+  pinned       Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   user     SysUser    @relation(fields: [userId], references: [id])
   messages AiMessage[]
