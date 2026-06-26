@@ -589,16 +589,16 @@ export default function AiAssistantPage() {
                     {/* Conversation button (title + meta) — takes available space, title truncates */}
                     <button
                       onClick={() => loadConversation(conv.id)}
-                      className="flex-1 min-w-0 text-left px-3 py-2.5 text-sm"
+                      className="flex-1 min-w-0 overflow-hidden text-left px-3 py-2.5 text-sm"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0 overflow-hidden">
                         {conv.pinned ? (
                           <Pin className="w-3.5 h-3.5 shrink-0 text-red-600 fill-red-600" />
                         ) : (
                           <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                         )}
                         <span className={cn(
-                          'truncate min-w-0',
+                          'truncate flex-1 min-w-0',
                           activeConversationId === conv.id
                             ? 'text-red-700 dark:text-red-300 font-medium'
                             : 'text-foreground'
@@ -606,7 +606,7 @@ export default function AiAssistantPage() {
                           {conv.title || 'New Conversation'}
                         </span>
                       </div>
-                      <p className="text-[10px] mt-1 ml-5.5 text-muted-foreground">
+                      <p className="text-[10px] mt-1 ml-5.5 text-muted-foreground truncate">
                         {formatRelativeTime(conv.updatedAt)} · {conv._count?.messages || 0} msgs
                       </p>
                     </button>
