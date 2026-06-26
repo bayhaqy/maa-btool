@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
         const { getAIClient } = await import('@/lib/ai');
         const zai = await getAIClient();
         const response = await zai.chat.completions.create({
-          model: 'glm-4',
+          model: 'glm-4-plus',
           messages: aiMessages,
           stream: false,
         });
