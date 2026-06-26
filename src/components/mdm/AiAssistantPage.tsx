@@ -590,7 +590,7 @@ export default function AiAssistantPage() {
                       onClick={() => loadConversation(conv.id)}
                       className="w-full text-left px-3 py-2.5 text-sm"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 pr-12">
                         {conv.pinned ? (
                           <Pin className="w-3.5 h-3.5 shrink-0 text-red-600 fill-red-600" />
                         ) : (
@@ -610,26 +610,34 @@ export default function AiAssistantPage() {
                       </p>
                     </button>
 
-                    {/* Quick actions */}
-                    <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Quick actions — always visible (not hover-only, for touch/mobile) */}
+                    <div className="absolute top-1 right-1 flex items-center gap-0.5">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggleBookmark(conv.id, conv.bookmarked); }}
-                        className="p-1 rounded hover:bg-background/80"
+                        className={cn(
+                          'p-1 rounded transition-colors',
+                          conv.bookmarked
+                            ? 'bg-amber-50 dark:bg-amber-900/30'
+                            : 'opacity-60 hover:opacity-100 hover:bg-background/80'
+                        )}
                         title={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                        aria-label={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
                       >
                         {conv.bookmarked ? (
-                          <BookmarkCheck className="w-3.5 h-3.5 text-amber-500" />
+                          <BookmarkCheck className="w-4 h-4 text-amber-500" />
                         ) : (
-                          <Bookmark className="w-3.5 h-3.5 text-muted-foreground" />
+                          <Bookmark className="w-4 h-4 text-muted-foreground" />
                         )}
                       </button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
                             onClick={(e) => e.stopPropagation()}
-                            className="p-1 rounded hover:bg-background/80"
+                            className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-background/80 transition-opacity"
+                            title="More options"
+                            aria-label="More options"
                           >
-                            <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
