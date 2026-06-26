@@ -632,7 +632,6 @@ export default function AiAssistantPage() {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
-                            onClick={(e) => e.stopPropagation()}
                             className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-background/80 transition-opacity"
                             title="More options"
                             aria-label="More options"
@@ -640,7 +639,7 @@ export default function AiAssistantPage() {
                             <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-44 z-50">
                           <DropdownMenuItem onClick={() => handleOpenRename(conv.id, conv.title || '')}>
                             <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
                           </DropdownMenuItem>
