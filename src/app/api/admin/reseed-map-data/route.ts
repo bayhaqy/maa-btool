@@ -792,6 +792,9 @@ export async function POST(request: NextRequest) {
 
     // ============================================================
     // STEP 4: CREATE SAMPLE DATA RECORDS
+    // Optimized for serverless: uses Promise.all (parallel creates in chunks)
+    // + createMany (bulk inserts) so the whole step completes in a few
+    // seconds instead of ~300 sequential DB round-trips.
     // ============================================================
     let articlesCreated = 0;
     let storesCreated = 0;
@@ -799,12 +802,39 @@ export async function POST(request: NextRequest) {
     let pricingsCreated = 0;
     let promotionsCreated = 0;
 
-    // Track created article records by code so we can attach version
-    // snapshots / approval tickets after creation.
-    const articleRecordByCode: Record<string, { id: string; currentPayload: string; createdById: string | null }> = {};
+    // Track created article/store records by code so we can attach images
+    // after creation.
+    const articleRecordByCode: Record<string, { id: string }> = {};
+    const storeRecordByCode: Record<string, { id: string }> = {};
+
+    // Helper: run async tasks in chunks to avoid overwhelming the DB
+    // connection pool (serverless Prisma typically allows ~10 concurrent).
+    async function parallelChunked<T, R>(
+      items: T[],
+      fn: (item: T, index: number) => Promise<R>,
+      chunkSize = 8
+    ): Promise<R[]> {
+      const results: R[] = [];
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(
+          chunk.map((item, j) => fn(item, i + j))
+        );
+        results.push(...chunkResults);
+      }
+      return results;
+    }
 
     // ── 4a. ARTICLE_MASTER records (50) ────────────────────────
-    for (const seed of ARTICLE_SEEDS) {
+    // Build all payloads first, then create records in parallel chunks,
+    // then bulk-insert DataVersions and ApprovalTickets with createMany.
+    interface ArticleRow {
+      seed: typeof ARTICLE_SEEDS[0];
+      payloadStr: string;
+      recordId: string;
+    }
+    const articleRows: ArticleRow[] = [];
+    await parallelChunked(ARTICLE_SEEDS, async (seed) => {
       const payload = {
         article_code: seed.code,
         article_name: seed.name,
@@ -830,59 +860,37 @@ export async function POST(request: NextRequest) {
           updatedById: superAdmin.id,
         },
       });
-      articleRecordByCode[seed.code] = {
-        id: record.id,
-        currentPayload: payloadStr,
-        createdById: superAdmin.id,
-      };
+      articleRecordByCode[seed.code] = { id: record.id };
+      articleRows.push({ seed, payloadStr, recordId: record.id });
       articlesCreated++;
+    });
 
-      // Status-dependent side effects:
-      //  - ACTIVE: DataVersion(version=1, status=ACTIVE, reason="Initial creation (auto-approved)")
-      //  - IN_REVIEW: ApprovalTicket(status=PENDING, deltaPayload=currentPayload)
-      //  - REVISION_PENDING: DataVersion(version=1, ACTIVE) + ApprovalTicket(PENDING)
-      //    (simulates an active record that was edited and is pending re-approval)
-      //  - DRAFT: nothing extra
-      if (seed.status === 'ACTIVE') {
-        await db.dataVersion.create({
-          data: {
-            recordId: record.id,
-            payloadSnapshot: payloadStr,
-            versionNumber: 1,
-            changedById: superAdmin.id,
-            changeReason: 'Initial creation (auto-approved)',
-            status: 'ACTIVE',
-          },
-        });
-      } else if (seed.status === 'IN_REVIEW') {
-        await db.approvalTicket.create({
-          data: {
-            recordId: record.id,
-            requestedById: superAdmin.id,
-            status: 'PENDING',
-            deltaPayload: payloadStr,
-          },
-        });
-      } else if (seed.status === 'REVISION_PENDING') {
-        await db.dataVersion.create({
-          data: {
-            recordId: record.id,
-            payloadSnapshot: payloadStr,
-            versionNumber: 1,
-            changedById: superAdmin.id,
-            changeReason: 'Initial creation (auto-approved)',
-            status: 'ACTIVE',
-          },
-        });
-        await db.approvalTicket.create({
-          data: {
-            recordId: record.id,
-            requestedById: superAdmin.id,
-            status: 'PENDING',
-            deltaPayload: payloadStr,
-          },
-        });
-      }
+    // Bulk-insert DataVersions for ACTIVE + REVISION_PENDING articles
+    const articleVersionData = articleRows
+      .filter((r) => r.seed.status === 'ACTIVE' || r.seed.status === 'REVISION_PENDING')
+      .map((r) => ({
+        recordId: r.recordId,
+        payloadSnapshot: r.payloadStr,
+        versionNumber: 1,
+        changedById: superAdmin.id,
+        changeReason: 'Initial creation (auto-approved)',
+        status: 'ACTIVE' as const,
+      }));
+    if (articleVersionData.length > 0) {
+      await db.dataVersion.createMany({ data: articleVersionData });
+    }
+
+    // Bulk-insert ApprovalTickets for IN_REVIEW + REVISION_PENDING articles
+    const articleTicketData = articleRows
+      .filter((r) => r.seed.status === 'IN_REVIEW' || r.seed.status === 'REVISION_PENDING')
+      .map((r) => ({
+        recordId: r.recordId,
+        requestedById: superAdmin.id,
+        status: 'PENDING' as const,
+        deltaPayload: r.payloadStr,
+      }));
+    if (articleTicketData.length > 0) {
+      await db.approvalTicket.createMany({ data: articleTicketData });
     }
     summary.steps.push(
       `Step 4a ARTICLE_MASTER: created ${articlesCreated} records ` +
@@ -890,8 +898,13 @@ export async function POST(request: NextRequest) {
     );
 
     // ── 4b. STORE_MASTER records (12, all ACTIVE) ──────────────
-    const storeRecordByCode: Record<string, { id: string; currentPayload: string }> = {};
-    for (const seed of STORE_SEEDS) {
+    interface StoreRow {
+      seed: typeof STORE_SEEDS[0];
+      payloadStr: string;
+      recordId: string;
+    }
+    const storeRows: StoreRow[] = [];
+    await parallelChunked(STORE_SEEDS, async (seed) => {
       const payload = {
         store_code: seed.code,
         store_name: seed.name,
@@ -915,24 +928,33 @@ export async function POST(request: NextRequest) {
           updatedById: superAdmin.id,
         },
       });
-      storeRecordByCode[seed.code] = { id: record.id, currentPayload: payloadStr };
+      storeRecordByCode[seed.code] = { id: record.id };
+      storeRows.push({ seed, payloadStr, recordId: record.id });
       storesCreated++;
-      // ACTIVE → DataVersion snapshot
-      await db.dataVersion.create({
-        data: {
-          recordId: record.id,
-          payloadSnapshot: payloadStr,
+    });
+    // Bulk-insert store DataVersions
+    if (storeRows.length > 0) {
+      await db.dataVersion.createMany({
+        data: storeRows.map((r) => ({
+          recordId: r.recordId,
+          payloadSnapshot: r.payloadStr,
           versionNumber: 1,
           changedById: superAdmin.id,
           changeReason: 'Initial creation (auto-approved)',
-          status: 'ACTIVE',
-        },
+          status: 'ACTIVE' as const,
+        })),
       });
     }
     summary.steps.push(`Step 4b STORE_MASTER: created ${storesCreated} ACTIVE records with version snapshots`);
 
     // ── 4c. SUPPLIER_MASTER records (12: 9 ACTIVE + 2 IN_REVIEW + 1 DRAFT) ──
-    for (const seed of SUPPLIER_SEEDS) {
+    interface SupplierRow {
+      seed: typeof SUPPLIER_SEEDS[0];
+      payloadStr: string;
+      recordId: string;
+    }
+    const supplierRows: SupplierRow[] = [];
+    await parallelChunked(SUPPLIER_SEEDS, async (seed) => {
       const payload = {
         supplier_code: seed.code,
         supplier_name: seed.name,
@@ -958,34 +980,44 @@ export async function POST(request: NextRequest) {
           updatedById: superAdmin.id,
         },
       });
+      supplierRows.push({ seed, payloadStr, recordId: record.id });
       suppliersCreated++;
-      if (seed.status === 'ACTIVE') {
-        await db.dataVersion.create({
-          data: {
-            recordId: record.id,
-            payloadSnapshot: payloadStr,
-            versionNumber: 1,
-            changedById: superAdmin.id,
-            changeReason: 'Initial creation (auto-approved)',
-            status: 'ACTIVE',
-          },
-        });
-      } else if (seed.status === 'IN_REVIEW') {
-        await db.approvalTicket.create({
-          data: {
-            recordId: record.id,
-            requestedById: superAdmin.id,
-            status: 'PENDING',
-            deltaPayload: payloadStr,
-          },
-        });
-      }
-      // DRAFT — no version / no ticket
+    });
+    // Bulk-insert supplier DataVersions (ACTIVE only)
+    const supplierVersionData = supplierRows
+      .filter((r) => r.seed.status === 'ACTIVE')
+      .map((r) => ({
+        recordId: r.recordId,
+        payloadSnapshot: r.payloadStr,
+        versionNumber: 1,
+        changedById: superAdmin.id,
+        changeReason: 'Initial creation (auto-approved)',
+        status: 'ACTIVE' as const,
+      }));
+    if (supplierVersionData.length > 0) {
+      await db.dataVersion.createMany({ data: supplierVersionData });
+    }
+    // Bulk-insert supplier ApprovalTickets (IN_REVIEW only)
+    const supplierTicketData = supplierRows
+      .filter((r) => r.seed.status === 'IN_REVIEW')
+      .map((r) => ({
+        recordId: r.recordId,
+        requestedById: superAdmin.id,
+        status: 'PENDING' as const,
+        deltaPayload: r.payloadStr,
+      }));
+    if (supplierTicketData.length > 0) {
+      await db.approvalTicket.createMany({ data: supplierTicketData });
     }
     summary.steps.push(`Step 4c SUPPLIER_MASTER: created ${suppliersCreated} records (9 ACTIVE + 2 IN_REVIEW + 1 DRAFT)`);
 
     // ── 4d. PRICING_MASTER records (15, all ACTIVE) ────────────
-    for (const seed of PRICING_SEEDS) {
+    interface PricingRow {
+      payloadStr: string;
+      recordId: string;
+    }
+    const pricingRows: PricingRow[] = [];
+    await parallelChunked(PRICING_SEEDS, async (seed) => {
       const payload = {
         pricing_code: seed.code,
         article_code: seed.articleCode,
@@ -1010,22 +1042,31 @@ export async function POST(request: NextRequest) {
           updatedById: superAdmin.id,
         },
       });
+      pricingRows.push({ payloadStr, recordId: record.id });
       pricingsCreated++;
-      await db.dataVersion.create({
-        data: {
-          recordId: record.id,
-          payloadSnapshot: payloadStr,
+    });
+    if (pricingRows.length > 0) {
+      await db.dataVersion.createMany({
+        data: pricingRows.map((r) => ({
+          recordId: r.recordId,
+          payloadSnapshot: r.payloadStr,
           versionNumber: 1,
           changedById: superAdmin.id,
           changeReason: 'Initial creation (auto-approved)',
-          status: 'ACTIVE',
-        },
+          status: 'ACTIVE' as const,
+        })),
       });
     }
     summary.steps.push(`Step 4d PRICING_MASTER: created ${pricingsCreated} ACTIVE records with version snapshots`);
 
     // ── 4e. PROMOTION_MASTER records (8: 6 ACTIVE + 1 IN_REVIEW + 1 DRAFT) ──
-    for (const seed of PROMOTION_SEEDS) {
+    interface PromoRow {
+      seed: typeof PROMOTION_SEEDS[0];
+      payloadStr: string;
+      recordId: string;
+    }
+    const promoRows: PromoRow[] = [];
+    await parallelChunked(PROMOTION_SEEDS, async (seed) => {
       const payload = {
         promo_code: seed.code,
         promo_name: seed.name,
@@ -1052,43 +1093,56 @@ export async function POST(request: NextRequest) {
           updatedById: superAdmin.id,
         },
       });
+      promoRows.push({ seed, payloadStr, recordId: record.id });
       promotionsCreated++;
-      if (seed.status === 'ACTIVE') {
-        await db.dataVersion.create({
-          data: {
-            recordId: record.id,
-            payloadSnapshot: payloadStr,
-            versionNumber: 1,
-            changedById: superAdmin.id,
-            changeReason: 'Initial creation (auto-approved)',
-            status: 'ACTIVE',
-          },
-        });
-      } else if (seed.status === 'IN_REVIEW') {
-        await db.approvalTicket.create({
-          data: {
-            recordId: record.id,
-            requestedById: superAdmin.id,
-            status: 'PENDING',
-            deltaPayload: payloadStr,
-          },
-        });
-      }
+    });
+    const promoVersionData = promoRows
+      .filter((r) => r.seed.status === 'ACTIVE')
+      .map((r) => ({
+        recordId: r.recordId,
+        payloadSnapshot: r.payloadStr,
+        versionNumber: 1,
+        changedById: superAdmin.id,
+        changeReason: 'Initial creation (auto-approved)',
+        status: 'ACTIVE' as const,
+      }));
+    if (promoVersionData.length > 0) {
+      await db.dataVersion.createMany({ data: promoVersionData });
+    }
+    const promoTicketData = promoRows
+      .filter((r) => r.seed.status === 'IN_REVIEW')
+      .map((r) => ({
+        recordId: r.recordId,
+        requestedById: superAdmin.id,
+        status: 'PENDING' as const,
+        deltaPayload: r.payloadStr,
+      }));
+    if (promoTicketData.length > 0) {
+      await db.approvalTicket.createMany({ data: promoTicketData });
     }
     summary.steps.push(`Step 4e PROMOTION_MASTER: created ${promotionsCreated} records (6 ACTIVE + 1 IN_REVIEW + 1 DRAFT)`);
 
     // ============================================================
-    // STEP 5: CREATE IMAGEASSET RECORDS
-    // (1 primary image per article & per store, from Unsplash URLs)
+    // STEP 5: CREATE IMAGEASSET RECORDS (bulk insert via createMany)
+    // 1 primary image per article + per store from stable Unsplash URLs.
     // ============================================================
     let imagesCreated = 0;
-
-    // Per-category cycling index (so different articles in the same
-    // category get different photos from the pool)
     const categoryPhotoIndex: Record<string, number> = {};
     let storePhotoIndex = 0;
 
-    // 5a. Article images
+    // Build all image records, then insert in one createMany call
+    const imageAssetsData: Array<{
+      recordId: string;
+      fieldName: string;
+      fileName: string;
+      filePath: string;
+      fileSize: number;
+      mimeType: string;
+      altText: string;
+      sortOrder: number;
+      isPrimary: boolean;
+    }> = [];
+
     for (const seed of ARTICLE_SEEDS) {
       const rec = articleRecordByCode[seed.code];
       if (!rec) continue;
@@ -1096,42 +1150,41 @@ export async function POST(request: NextRequest) {
       const idx = categoryPhotoIndex[seed.category] ?? 0;
       const url = pool[idx % pool.length];
       categoryPhotoIndex[seed.category] = idx + 1;
-      await db.imageAsset.create({
-        data: {
-          recordId: rec.id,
-          fieldName: 'images',
-          fileName: `${seed.code}.jpg`,
-          filePath: url,
-          fileSize: 0,
-          mimeType: 'image/jpeg',
-          altText: seed.name,
-          sortOrder: 0,
-          isPrimary: true,
-        },
+      imageAssetsData.push({
+        recordId: rec.id,
+        fieldName: 'images',
+        fileName: `${seed.code}.jpg`,
+        filePath: url,
+        fileSize: 0,
+        mimeType: 'image/jpeg',
+        altText: seed.name,
+        sortOrder: 0,
+        isPrimary: true,
       });
       imagesCreated++;
     }
 
-    // 5b. Store images
     for (const seed of STORE_SEEDS) {
       const rec = storeRecordByCode[seed.code];
       if (!rec) continue;
       const url = STORE_PHOTOS[storePhotoIndex % STORE_PHOTOS.length];
       storePhotoIndex++;
-      await db.imageAsset.create({
-        data: {
-          recordId: rec.id,
-          fieldName: 'store_photos',
-          fileName: `${seed.code}.jpg`,
-          filePath: url,
-          fileSize: 0,
-          mimeType: 'image/jpeg',
-          altText: seed.name,
-          sortOrder: 0,
-          isPrimary: true,
-        },
+      imageAssetsData.push({
+        recordId: rec.id,
+        fieldName: 'store_photos',
+        fileName: `${seed.code}.jpg`,
+        filePath: url,
+        fileSize: 0,
+        mimeType: 'image/jpeg',
+        altText: seed.name,
+        sortOrder: 0,
+        isPrimary: true,
       });
       imagesCreated++;
+    }
+
+    if (imageAssetsData.length > 0) {
+      await db.imageAsset.createMany({ data: imageAssetsData });
     }
     summary.steps.push(
       `Step 5 ImageAsset: created ${imagesCreated} primary images ` +
