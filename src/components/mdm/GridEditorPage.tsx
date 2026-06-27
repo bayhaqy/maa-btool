@@ -35,6 +35,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
   Image as ImageIcon,
   Loader2,
   PencilLine,
@@ -91,6 +94,209 @@ interface MetaField {
     lookupName: string;
     values: LookupValue[];
   } | null;
+}
+
+// ============================================================================
+// Advanced multi-column multi-condition filter types & helpers
+// ============================================================================
+
+type FilterOperator =
+  | 'contains'
+  | 'equals'
+  | 'not_equals'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_empty'
+  | 'is_not_empty'
+  | 'greater_than'
+  | 'less_than'
+  | 'greater_or_equal'
+  | 'less_or_equal'
+  | 'is_true'
+  | 'is_false';
+
+type FilterConnector = 'AND' | 'OR';
+
+interface AdvancedFilter {
+  id: string;
+  fieldCode: string;
+  operator: FilterOperator;
+  value: string;
+  connector: FilterConnector;
+}
+
+/** Returns the list of valid operators for a given field dataType. */
+function getOperatorsForDataType(dataType: string): FilterOperator[] {
+  switch (dataType) {
+    case 'TEXT':
+    case 'EMAIL':
+    case 'URL':
+      return [
+        'contains',
+        'equals',
+        'not_equals',
+        'starts_with',
+        'ends_with',
+        'is_empty',
+        'is_not_empty',
+      ];
+    case 'NUMBER':
+    case 'DATE':
+      return [
+        'equals',
+        'not_equals',
+        'greater_than',
+        'less_than',
+        'greater_or_equal',
+        'less_or_equal',
+        'is_empty',
+        'is_not_empty',
+      ];
+    case 'BOOLEAN':
+      return ['is_true', 'is_false'];
+    case 'SELECT':
+    case 'MULTISELECT':
+    case 'LOOKUP':
+      return ['equals', 'not_equals', 'is_empty', 'is_not_empty'];
+    default:
+      return ['equals', 'is_empty', 'is_not_empty'];
+  }
+}
+
+/** Human-readable label for a filter operator (used in the operator dropdown). */
+function formatOperator(op: FilterOperator): string {
+  const map: Record<FilterOperator, string> = {
+    contains: 'contains',
+    equals: 'equals',
+    not_equals: 'not equals',
+    starts_with: 'starts with',
+    ends_with: 'ends with',
+    is_empty: 'is empty',
+    is_not_empty: 'is not empty',
+    greater_than: 'greater than',
+    less_than: 'less than',
+    greater_or_equal: '≥ (greater or equal)',
+    less_or_equal: '≤ (less or equal)',
+    is_true: 'is true',
+    is_false: 'is false',
+  };
+  return map[op] || op;
+}
+
+/** Returns true if the operator needs a value input (some operators like
+ *  is_empty / is_true have no value). */
+function operatorNeedsValue(op: FilterOperator): boolean {
+  return !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(op);
+}
+
+/** Evaluate a single advanced-filter condition against a row's payload. */
+function evaluateCondition(
+  editedPayload: Record<string, unknown>,
+  originalPayload: Record<string, unknown>,
+  cond: AdvancedFilter,
+  fields: MetaField[]
+): boolean {
+  const field = fields.find((f) => f.fieldCode === cond.fieldCode);
+  if (!field) return true; // unknown field → don't filter out
+  const rawVal =
+    editedPayload[cond.fieldCode] ?? originalPayload[cond.fieldCode] ?? '';
+  const strVal = String(rawVal ?? '');
+  const isEmpty =
+    rawVal === null ||
+    rawVal === undefined ||
+    strVal === '' ||
+    strVal === 'null' ||
+    strVal === 'undefined';
+  const condVal = cond.value || '';
+
+  switch (cond.operator) {
+    case 'is_empty':
+      return isEmpty;
+    case 'is_not_empty':
+      return !isEmpty;
+    case 'is_true':
+      return (
+        rawVal === true ||
+        strVal === 'true' ||
+        rawVal === 1 ||
+        strVal === '1'
+      );
+    case 'is_false':
+      return (
+        rawVal === false ||
+        strVal === 'false' ||
+        rawVal === 0 ||
+        strVal === '0' ||
+        isEmpty
+      );
+    case 'contains':
+      return (
+        !isEmpty &&
+        strVal.toLowerCase().includes(condVal.toLowerCase())
+      );
+    case 'equals':
+      return strVal.toLowerCase() === condVal.toLowerCase();
+    case 'not_equals':
+      return strVal.toLowerCase() !== condVal.toLowerCase();
+    case 'starts_with':
+      return (
+        !isEmpty &&
+        strVal.toLowerCase().startsWith(condVal.toLowerCase())
+      );
+    case 'ends_with':
+      return (
+        !isEmpty &&
+        strVal.toLowerCase().endsWith(condVal.toLowerCase())
+      );
+    case 'greater_than':
+    case 'less_than':
+    case 'greater_or_equal':
+    case 'less_or_equal': {
+      if (isEmpty) return false;
+      if (field.dataType === 'DATE') {
+        const a = new Date(strVal).getTime();
+        const b = new Date(condVal).getTime();
+        if (isNaN(a) || isNaN(b)) return false;
+        if (cond.operator === 'greater_than') return a > b;
+        if (cond.operator === 'less_than') return a < b;
+        if (cond.operator === 'greater_or_equal') return a >= b;
+        return a <= b;
+      }
+      const aNum = Number(strVal);
+      const bNum = Number(condVal);
+      if (isNaN(aNum) || isNaN(bNum)) return false;
+      if (cond.operator === 'greater_than') return aNum > bNum;
+      if (cond.operator === 'less_than') return aNum < bNum;
+      if (cond.operator === 'greater_or_equal') return aNum >= bNum;
+      return aNum <= bNum;
+    }
+  }
+  return false;
+}
+
+/** Evaluate a list of advanced-filter conditions against a row, combining
+ *  left-to-right with the per-condition connector (the first condition has
+ *  no connector). Returns true if the row passes. Empty list → true. */
+function evaluateAdvancedFilters(
+  editedPayload: Record<string, unknown>,
+  originalPayload: Record<string, unknown>,
+  conds: AdvancedFilter[],
+  fields: MetaField[]
+): boolean {
+  if (conds.length === 0) return true;
+  let result = evaluateCondition(
+    editedPayload,
+    originalPayload,
+    conds[0],
+    fields
+  );
+  for (let i = 1; i < conds.length; i++) {
+    const c = conds[i];
+    const r = evaluateCondition(editedPayload, originalPayload, c, fields);
+    if (c.connector === 'AND') result = result && r;
+    else result = result || r;
+  }
+  return result;
 }
 
 interface ModuleItem {
@@ -266,6 +472,12 @@ export default function GridEditorPage() {
   const [showErrors, setShowErrors] = useState(false);
   /** Popover anchor for the IMAGE cell popover (in-grid image manager). */
   const [imagePopover, setImagePopover] = useState<{ rowId: string; fieldCode: string } | null>(null);
+  /** Advanced filter builder state: an array of AND/OR conditions. */
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilter[]>([]);
+  /** Toggles visibility of the advanced-filter builder panel. */
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  /** Lightbox overlay state: holds the image list + current index. */
+  const [lightbox, setLightbox] = useState<{ images: ImageInfo[]; index: number } | null>(null);
 
   // Refs for column resize drag
   const dragRef = useRef<{ fieldCode: string; startX: number; startWidth: number } | null>(null);
@@ -302,6 +514,68 @@ export default function GridEditorPage() {
       // silent
     }
   }, [token, activeModuleId]);
+
+  /** Bulk-load server-side images for ALL rows in the grid. Called after the
+   *  initial data fetch (and after refresh / save) so thumbnails render
+   *  immediately, rather than only when an IMAGE cell is opened. Fetches are
+   *  chunked (8 in parallel) to avoid hammering the server. The grid renders
+   *  the rows first (without images) and each chunk updates the relevant
+   *  rows' `imagesByField` as it resolves — non-blocking. */
+  const loadAllRowImages = useCallback(
+    async (rowIds: string[]) => {
+      if (!token || rowIds.length === 0) return;
+      const CHUNK_SIZE = 8;
+      for (let i = 0; i < rowIds.length; i += CHUNK_SIZE) {
+        const chunk = rowIds.slice(i, i + CHUNK_SIZE);
+        const chunkSet = new Set(chunk);
+        // Mark as loaded first to prevent duplicate fetches from
+        // ensureRowImages (which may be triggered concurrently by the user
+        // opening an IMAGE cell popover while the bulk load is in flight).
+        setRows((prev) =>
+          prev.map((r) =>
+            chunkSet.has(r.id) && !r.imagesLoaded
+              ? { ...r, imagesLoaded: true }
+              : r
+          )
+        );
+        const results = await Promise.all(
+          chunk.map(
+            async (rid): Promise<{ rid: string; imgs: ImageInfo[] }> => {
+              try {
+                const res = await fetch(`/api/images?recordId=${rid}`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) return { rid, imgs: [] };
+                const data = await res.json();
+                const imgs: ImageInfo[] = (data.images || []).map(
+                  (img: Record<string, unknown>) => ({
+                    id: String(img.id),
+                    fileName: String(img.fileName || ''),
+                    filePath: String(img.filePath || ''),
+                    altText: (img.altText as string) || null,
+                    isPrimary: Boolean(img.isPrimary),
+                    sortOrder: Number(img.sortOrder || 0),
+                    fieldName: (img.fieldName as string) || null,
+                  })
+                );
+                return { rid, imgs };
+              } catch {
+                return { rid, imgs: [] };
+              }
+            }
+          )
+        );
+        setRows((prev) =>
+          prev.map((r) => {
+            const found = results.find((x) => x.rid === r.id);
+            if (!found) return r;
+            return { ...r, imagesByField: groupImagesByField(found.imgs) };
+          })
+        );
+      }
+    },
+    [token]
+  );
 
   const loadFieldsAndRecords = useCallback(async () => {
     if (!token || !activeModuleId) return;
@@ -344,12 +618,21 @@ export default function GridEditorPage() {
       setSaveErrors([]);
       setShowErrors(false);
       setActiveCell(null);
+      // Load images for ALL rows in the background (non-blocking). The grid
+      // renders immediately with empty thumbnails, then images fill in as
+      // each chunk of /api/images responses resolves. This fixes the user's
+      // complaint that "gambar di grid view tidak muncul" — previously
+      // images were only fetched lazily when the image popover was opened or
+      // when a row became dirty.
+      if (dataRows.length > 0) {
+        void loadAllRowImages(dataRows.map((r) => r.id));
+      }
     } catch {
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [token, activeModuleId]);
+  }, [token, activeModuleId, loadAllRowImages]);
 
   useEffect(() => {
     loadModules();
@@ -393,8 +676,13 @@ export default function GridEditorPage() {
         return Object.values(r.editedPayload).some((v) => String(v ?? '').toLowerCase().includes(q));
       });
     }
+    if (advancedFilters.length > 0) {
+      result = result.filter((r) =>
+        evaluateAdvancedFilters(r.editedPayload, r.originalPayload, advancedFilters, fields)
+      );
+    }
     return result;
-  }, [rows, statusFilter, searchQuery]);
+  }, [rows, statusFilter, searchQuery, advancedFilters, fields]);
 
   const editableCount = useMemo(
     () => rows.filter((r) => EDITABLE_STATUSES.has(r.status)).length,
@@ -1101,6 +1389,26 @@ export default function GridEditorPage() {
               )}
             </div>
 
+            {/* Advanced Filter toggle button */}
+            <Button
+              variant={showAdvancedFilter ? 'default' : 'outline'}
+              size="sm"
+              className={cn(
+                'h-9',
+                showAdvancedFilter && 'bg-red-600 hover:bg-red-700 text-white'
+              )}
+              onClick={() => setShowAdvancedFilter((v) => !v)}
+              title="Advanced multi-column filter builder"
+            >
+              <SlidersHorizontal className="w-4 h-4 mr-1.5" />
+              Advanced
+              {advancedFilters.length > 0 && (
+                <Badge className="ml-1.5 h-5 px-1.5 text-[10px] bg-white/20 border-white/30 text-white">
+                  {advancedFilters.length}
+                </Badge>
+              )}
+            </Button>
+
             <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
               <Button
                 variant="outline"
@@ -1162,8 +1470,89 @@ export default function GridEditorPage() {
               <span className="font-medium text-foreground">{editableCount}</span> editable
               {statusFilter !== 'ALL' && <span> · filtered by {statusFilter}</span>}
               {searchQuery && <span> · matching &ldquo;{searchQuery}&rdquo;</span>}
+              {advancedFilters.length > 0 && (
+                <span className="text-red-700 font-medium">
+                  {' '}· {advancedFilters.length} advanced filter{advancedFilters.length !== 1 ? 's' : ''}
+                </span>
+              )}
             </span>
           </div>
+
+          {/* Toolbar row 3: Advanced Filter builder panel (collapsible) */}
+          {showAdvancedFilter && (
+            <Card className="shadow-sm border-red-200">
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-red-600" />
+                    Advanced Filter
+                    <span className="text-muted-foreground font-normal">
+                      · pick columns + operators + values, combine with AND/OR
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setAdvancedFilters([])}
+                      disabled={advancedFilters.length === 0}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {advancedFilters.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-2 text-center">
+                      No filter conditions. Click &ldquo;Add Condition&rdquo; to narrow down records by specific columns.
+                    </p>
+                  )}
+                  {advancedFilters.map((cond, i) => (
+                    <AdvancedFilterRow
+                      key={cond.id}
+                      filter={cond}
+                      isFirst={i === 0}
+                      fields={fields}
+                      onChange={(next) =>
+                        setAdvancedFilters((prev) =>
+                          prev.map((f) => (f.id === cond.id ? next : f))
+                        )
+                      }
+                      onRemove={() =>
+                        setAdvancedFilters((prev) => prev.filter((f) => f.id !== cond.id))
+                      }
+                    />
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    const filterableFields = fields.filter((f) => f.dataType !== 'IMAGE');
+                    const firstField = filterableFields[0];
+                    setAdvancedFilters((prev) => [
+                      ...prev,
+                      {
+                        id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        fieldCode: firstField?.fieldCode || '',
+                        operator: firstField
+                          ? getOperatorsForDataType(firstField.dataType)[0]
+                          : 'contains',
+                        value: '',
+                        connector: 'AND',
+                      },
+                    ]);
+                  }}
+                  disabled={fields.filter((f) => f.dataType !== 'IMAGE').length === 0}
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Condition
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -1185,7 +1574,7 @@ export default function GridEditorPage() {
               <LayoutGrid className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
               <h3 className="text-lg font-medium">No records to display</h3>
               <p className="text-muted-foreground text-sm mt-1">
-                {searchQuery || statusFilter !== 'ALL'
+                {searchQuery || statusFilter !== 'ALL' || advancedFilters.length > 0
                   ? 'Try adjusting your filters'
                   : 'Add a row to get started'}
               </p>
@@ -1196,6 +1585,7 @@ export default function GridEditorPage() {
                 onClick={() => {
                   setSearchQuery('');
                   setStatusFilter('ALL');
+                  setAdvancedFilters([]);
                 }}
               >
                 Clear Filters
@@ -1358,6 +1748,18 @@ export default function GridEditorPage() {
                                       setPrimaryImage(row.id, field.fieldCode, imageId)
                                     }
                                     onCloseImagePopover={() => setImagePopover(null)}
+                                    onOpenLightbox={() => {
+                                      const cellImgs =
+                                        row.imagesByField?.[field.fieldCode] || [];
+                                      if (cellImgs.length === 0) return;
+                                      const primaryIdx = cellImgs.findIndex(
+                                        (i) => i.isPrimary
+                                      );
+                                      setLightbox({
+                                        images: cellImgs,
+                                        index: primaryIdx >= 0 ? primaryIdx : 0,
+                                      });
+                                    }}
                                     allFields={fields}
                                     editedPayload={row.editedPayload}
                                   />
@@ -1425,6 +1827,119 @@ export default function GridEditorPage() {
           DRAFT · REVISION_PENDING · ACTIVE rows are editable (ACTIVE → amendment workflow)
         </span>
       </div>
+
+      {/* Lightbox overlay (click-to-enlarge for IMAGE cells).
+          Shows the image full-screen with prev/next navigation if there are
+          multiple images. Works for both server images (filePath=/api/...)
+          and pending blob-URL images (filePath=blob:...). Closes on click
+          outside, X button, or Escape. */}
+      {lightbox && lightbox.images[lightbox.index] && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setLightbox(null);
+            else if (e.key === 'ArrowLeft' && lightbox.images.length > 1) {
+              e.stopPropagation();
+              setLightbox({
+                ...lightbox,
+                index:
+                  (lightbox.index - 1 + lightbox.images.length) %
+                  lightbox.images.length,
+              });
+            } else if (e.key === 'ArrowRight' && lightbox.images.length > 1) {
+              e.stopPropagation();
+              setLightbox({
+                ...lightbox,
+                index: (lightbox.index + 1) % lightbox.images.length,
+              });
+            }
+          }}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image lightbox"
+        >
+          <div
+            className="relative max-w-full max-h-full flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={lightbox.images[lightbox.index].filePath}
+              alt={
+                lightbox.images[lightbox.index].altText ||
+                lightbox.images[lightbox.index].fileName ||
+                'Image'
+              }
+              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.opacity = '0.3';
+              }}
+            />
+            {/* Caption: filename + index/total */}
+            <div className="mt-2 text-center text-white text-xs">
+              <span className="font-medium">
+                {lightbox.images[lightbox.index].fileName || 'image'}
+              </span>
+              {lightbox.images.length > 1 && (
+                <span className="text-white/70 ml-2">
+                  ({lightbox.index + 1} / {lightbox.images.length})
+                </span>
+              )}
+              {lightbox.images[lightbox.index].pending && (
+                <span className="ml-2 text-amber-300">(pending upload)</span>
+              )}
+            </div>
+            {/* Prev / next navigation (only when multiple images) */}
+            {lightbox.images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightbox({
+                      ...lightbox,
+                      index:
+                        (lightbox.index - 1 + lightbox.images.length) %
+                        lightbox.images.length,
+                    });
+                  }}
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  type="button"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightbox({
+                      ...lightbox,
+                      index: (lightbox.index + 1) % lightbox.images.length,
+                    });
+                  }}
+                  aria-label="Next image"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
+            )}
+          </div>
+          {/* Close (X) button */}
+          <button
+            type="button"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightbox(null);
+            }}
+            aria-label="Close lightbox"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1503,6 +2018,11 @@ interface CellRendererProps {
   onRemoveImage?: (imageId: string) => void;
   onSetPrimaryImage?: (imageId: string) => void;
   onCloseImagePopover?: () => void;
+  /** Opens the full-screen lightbox (click-to-enlarge) for this cell's
+   *  images. Only triggered when the user clicks the primary thumbnail —
+   *  NOT when the cell is being actively edited (isActive). The upload
+   *  button opens the image-manager popover instead. */
+  onOpenLightbox?: () => void;
 }
 
 function CellRenderer({
@@ -1524,6 +2044,7 @@ function CellRenderer({
   onRemoveImage,
   onSetPrimaryImage,
   onCloseImagePopover,
+  onOpenLightbox,
 }: CellRendererProps) {
   const cellBase =
     'w-full h-9 px-2 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 rounded-none';
@@ -1533,20 +2054,50 @@ function CellRenderer({
     const imgs = images || [];
     const pendingCount = imgs.filter((i) => i.pending).length;
     const primary = imgs.find((i) => i.isPrimary);
+    // Click-to-enlarge is disabled while the cell is being actively edited
+    // (e.g. when the user just clicked into it and is about to open the
+    // upload popover). The upload button (below) opens the popover instead.
+    const canOpenLightbox = !!onOpenLightbox && imgs.length > 0 && !isActive;
     return (
       <div className="h-9 flex items-center gap-1 px-1.5 relative">
-        {/* Primary thumbnail (or placeholder) */}
+        {/* Primary thumbnail (or placeholder) — click to enlarge via lightbox */}
         {primary ? (
-          <img
-            src={primary.filePath}
-            alt={primary.altText || primary.fileName}
-            className="w-7 h-7 rounded object-cover border border-border flex-shrink-0"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.opacity = '0.3';
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (canOpenLightbox) onOpenLightbox?.();
             }}
-          />
+            className={cn(
+              'w-7 h-7 rounded border border-border flex-shrink-0 overflow-hidden p-0',
+              canOpenLightbox
+                ? 'cursor-zoom-in hover:ring-2 hover:ring-red-400 hover:border-red-400 transition-all'
+                : 'cursor-default'
+            )}
+            aria-label={canOpenLightbox ? 'Enlarge image' : 'Image'}
+            tabIndex={-1}
+          >
+            <img
+              src={primary.filePath}
+              alt={primary.altText || primary.fileName}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.opacity = '0.3';
+              }}
+            />
+          </button>
         ) : (
-          <div className="w-7 h-7 rounded border border-dashed border-muted-foreground/40 flex items-center justify-center flex-shrink-0">
+          <div
+            className={cn(
+              'w-7 h-7 rounded border border-dashed border-muted-foreground/40 flex items-center justify-center flex-shrink-0',
+              canOpenLightbox && 'cursor-zoom-in hover:border-red-400'
+            )}
+            onClick={(e) => {
+              if (!canOpenLightbox) return;
+              e.stopPropagation();
+              onOpenLightbox?.();
+            }}
+          >
             <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/50" />
           </div>
         )}
@@ -1942,5 +2493,253 @@ function ImageManagerPopover({
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// Advanced Filter Row — a single condition in the advanced-filter builder.
+// Renders [connector (if not first)] [field select] [operator select]
+// [value input/select] [remove button].
+// ============================================================================
+
+interface AdvancedFilterRowProps {
+  filter: AdvancedFilter;
+  isFirst: boolean;
+  fields: MetaField[];
+  onChange: (next: AdvancedFilter) => void;
+  onRemove: () => void;
+}
+
+function AdvancedFilterRow({
+  filter,
+  isFirst,
+  fields,
+  onChange,
+  onRemove,
+}: AdvancedFilterRowProps) {
+  const filterableFields = fields.filter((f) => f.dataType !== 'IMAGE');
+  const field = filterableFields.find((f) => f.fieldCode === filter.fieldCode);
+  const dataType = field?.dataType || 'TEXT';
+  const operators = getOperatorsForDataType(dataType);
+  const needsValue = operatorNeedsValue(filter.operator);
+
+  // When the field changes, reset the operator + value to valid defaults for
+  // the new field's dataType (the old operator may not exist on the new type).
+  const handleFieldChange = (newFieldCode: string) => {
+    const newField = filterableFields.find((f) => f.fieldCode === newFieldCode);
+    const newOps = getOperatorsForDataType(newField?.dataType || 'TEXT');
+    const newOp = newOps.includes(filter.operator) ? filter.operator : newOps[0];
+    onChange({ ...filter, fieldCode: newFieldCode, operator: newOp, value: '' });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {!isFirst ? (
+        <ShadSelect
+          value={filter.connector}
+          onValueChange={(v) =>
+            onChange({ ...filter, connector: v as FilterConnector })
+          }
+        >
+          <SelectTrigger className="w-[72px] h-8 text-xs font-semibold">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="AND">AND</SelectItem>
+            <SelectItem value="OR">OR</SelectItem>
+          </SelectContent>
+        </ShadSelect>
+      ) : (
+        <div className="w-[72px] text-[10px] font-semibold text-muted-foreground text-right uppercase tracking-wide">
+          Where
+        </div>
+      )}
+
+      <ShadSelect value={filter.fieldCode} onValueChange={handleFieldChange}>
+        <SelectTrigger className="w-[150px] h-8 text-xs">
+          <SelectValue placeholder="Pick column" />
+        </SelectTrigger>
+        <SelectContent>
+          {filterableFields.map((f) => (
+            <SelectItem key={f.id} value={f.fieldCode}>
+              {f.fieldName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </ShadSelect>
+
+      <ShadSelect
+        value={filter.operator}
+        onValueChange={(v) =>
+          onChange({ ...filter, operator: v as FilterOperator })
+        }
+      >
+        <SelectTrigger className="w-[150px] h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {operators.map((op) => (
+            <SelectItem key={op} value={op}>
+              {formatOperator(op)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </ShadSelect>
+
+      {needsValue ? (
+        <FilterValueInput
+          field={field}
+          value={filter.value}
+          onChange={(v) => onChange({ ...filter, value: v })}
+        />
+      ) : (
+        <div className="text-[10px] text-muted-foreground italic h-8 flex items-center px-2 min-w-[120px]">
+          (no value needed)
+        </div>
+      )}
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+        onClick={onRemove}
+        aria-label="Remove condition"
+        title="Remove condition"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+// ============================================================================
+// Filter Value Input — renders the right input control for a filter's value
+// based on the field dataType: text/number/date → Input; SELECT/LOOKUP →
+// single-select dropdown; MULTISELECT → multi-select popover with checkboxes.
+// ============================================================================
+
+interface FilterValueInputProps {
+  field: MetaField | undefined;
+  value: string;
+  onChange: (v: string) => void;
+}
+
+function FilterValueInput({ field, value, onChange }: FilterValueInputProps) {
+  if (!field) {
+    return (
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 text-xs flex-1 min-w-[120px]"
+        placeholder="Value"
+      />
+    );
+  }
+
+  const dt = field.dataType;
+
+  // SELECT / LOOKUP → single-select dropdown
+  if (dt === 'SELECT' || dt === 'LOOKUP') {
+    const options = field.lookupMaster?.values || [];
+    return (
+      <ShadSelect value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-[160px] h-8 text-xs">
+          <SelectValue placeholder="Pick value" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">&mdash; (any) &mdash;</SelectItem>
+          {options.map((v) => (
+            <SelectItem key={v.id} value={v.valueCode}>
+              {v.displayValue}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </ShadSelect>
+    );
+  }
+
+  // MULTISELECT → multi-select popover (comma-separated values)
+  if (dt === 'MULTISELECT') {
+    const options = field.lookupMaster?.values || [];
+    const selected = value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const selectedSet = new Set(selected);
+    const toggle = (code: string) => {
+      const next = new Set(selectedSet);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      onChange(Array.from(next).join(','));
+    };
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs min-w-[120px] justify-start"
+          >
+            {selected.length === 0 ? (
+              <span className="text-muted-foreground">Pick values...</span>
+            ) : (
+              <span className="truncate">{selected.length} selected</span>
+            )}
+            <ChevronDown className="w-3 h-3 ml-auto" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 p-1" align="start">
+          <div className="max-h-48 overflow-y-auto custom-scrollbar">
+            {options.length === 0 && (
+              <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                No options defined
+              </div>
+            )}
+            {options.map((v) => {
+              const checked = selectedSet.has(v.valueCode);
+              return (
+                <label
+                  key={v.id}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-sm"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => toggle(v.valueCode)}
+                    className="data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                  />
+                  <span className="truncate">{v.displayValue}</span>
+                </label>
+              );
+            })}
+          </div>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              className="w-full text-xs text-red-600 hover:bg-red-50 mt-1 py-1 rounded"
+              onClick={() => onChange('')}
+            >
+              Clear all
+            </button>
+          )}
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  // TEXT / EMAIL / URL / NUMBER / DATE → typed Input
+  let inputType = 'text';
+  if (dt === 'EMAIL') inputType = 'email';
+  else if (dt === 'URL') inputType = 'url';
+  else if (dt === 'NUMBER') inputType = 'number';
+  else if (dt === 'DATE') inputType = 'date';
+
+  return (
+    <Input
+      type={inputType}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 text-xs flex-1 min-w-[120px]"
+      placeholder="Value"
+    />
   );
 }

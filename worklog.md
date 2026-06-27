@@ -1132,3 +1132,113 @@ Notes for next agents:
 - In-grid image upload uses a deferred-save model: pending uploads are stored as blob URLs in React state + File objects in a ref; they're flushed to /api/images only when the user clicks "Save Changes".
 - The single-record form (RecordDetailPage) still uses immediate image upload (standard MDM pattern for asset management). The deferred-save model is only in the grid editor.
 - The local dev server (localhost:3000) is unstable in the sandbox due to Turbopack memory constraints. Use the Vercel production URL for reliable testing.
+
+---
+Task ID: 23-B
+Agent: Subagent (23-B Module Builder)
+Task: Modify src/components/mdm/ModuleDetailPage.tsx to fix 3 issues per MDM best practices (Stibo-style): (1) add IMAGE data type to the DATA_TYPES constant, (2) make validation rules EDITABLE per column (not just add/delete), (3) make module metadata (name/description/requireApproval) editable from the module detail page (Super Admin only).
+
+Work Log:
+- Read worklog.md (Tasks 1-22) to understand prior context — Stibo best practices, MAP Active reseed, grid editor amendment workflow, deferred image upload.
+- Read /home/z/my-project/src/components/mdm/ModuleDetailPage.tsx (551 lines) to map the exact insertion points.
+- Verified backend support: PUT /api/fields?action=validation (id/ruleType/ruleValue/errorMessage) exists at line 165 of src/app/api/fields/route.ts; PUT /api/modules (id/moduleName/description/requireApproval) exists at line 111 of src/app/api/modules/route.ts; app-store user.roles is string[] (line 34) so user?.roles?.includes('Super Admin') is valid.
+- Applied 11 targeted edits via MultiEdit (no full rewrite):
+  1. Added Settings to the lucide-react import list (line 26).
+  2. Appended 'IMAGE' to DATA_TYPES (line 29).
+  3. Added user to the destructured useAppStore() values (line 33).
+  4. Added 3 new state hooks after validationForm: editValidation (any|null), moduleDialogOpen (bool), moduleForm ({moduleName, description, requireApproval}).
+  5. Rewrote handleSaveValidation to branch on editValidation: PUT {id, ...validationForm} when editing vs POST {fieldId, ...validationForm} when creating. Toast 'Validation updated' vs 'Validation added'. Clears editValidation and closes dialog on success.
+  6. Added new handleSaveModule: PUT /api/modules with {id: selectedModuleId, moduleName, description, requireApproval}. Toast 'Module updated'. Closes dialog + calls loadModule() on success.
+  7. Added "Edit Module" button to the header (right-aligned via ml-auto), visible only if user?.roles?.includes('Super Admin'). Red brand styling (bg-red-600 hover:bg-red-700 text-white). Pre-fills moduleForm from metaModule on click.
+  8. Made each validation badge (Badge component in the Validations column) clickable: onClick sets selectedFieldId, editValidation, pre-fills validationForm from v.ruleType/v.ruleValue/v.errorMessage, opens dialog. Added cursor-pointer + hover:bg-secondary/80 classes. Added e.stopPropagation() to the × delete button so deletion does not also open the edit dialog (delete still works as before).
+  9. Updated the Shield "add validation" icon button to also setEditValidation(null) explicitly when opening in CREATE mode.
+  10. Updated the Validation Dialog title to {editValidation ? 'Edit Validation Rule' : 'Add Validation Rule'} and the save button label to {saving ? 'Saving...' : editValidation ? 'Update' : 'Add Rule'}.
+  11. Added a new "Module Edit Dialog" at the bottom of the JSX (reusing Dialog/Label/Input/Textarea/Switch/Button). moduleName is editable; moduleCode is shown as a disabled input with helper text explaining immutability (Stibo best practice — code is the unique key); description is a Textarea; requireApproval is a Switch with explanatory helper text. Save button calls handleSaveModule.
+- Verified with `bunx tsc --noEmit --skipLibCheck 2>&1 | grep -E "ModuleDetailPage" | head -20` → ZERO output (no TypeScript errors in this file).
+- Verified with `bunx eslint src/components/mdm/ModuleDetailPage.tsx --max-warnings 0` → EXIT_CODE=0 (zero errors, zero warnings). Note: `bun run lint` on the whole project OOM-crashes in the sandbox (pre-existing memory constraint, unrelated to my changes — same heap issue noted in Task 22 worklog).
+- Constraints honored: only existing shadcn/ui components reused (Dialog, Input, Label, Switch, Textarea, Select, Button, Badge); existing red brand color used; field dialog logic untouched; no other files modified.
+
+Stage Summary:
+- ✅ Issue 1 (IMAGE data type): 'IMAGE' appended to DATA_TYPES — builder now exposes IMAGE as a selectable data type when creating/editing fields, consistent with the Prisma schema and the IMAGE-rendering already implemented in GridEditorPage + RecordDetailPage.
+- ✅ Issue 2 (Editable validation rules): validation badges are now clickable to open the dialog in EDIT mode (pre-filled with ruleType/ruleValue/errorMessage); the × delete button is preserved with stopPropagation; the Shield add button explicitly resets editValidation to null; handleSaveValidation branches to PUT /api/fields?action=validation when editing vs POST when creating; toast + dialog title + button label all reflect the mode.
+- ✅ Issue 3 (Module metadata editable on detail page): Super Admin users see an "Edit Module" button in the header that opens a dialog pre-filled with the current moduleName/description/requireApproval. moduleCode is intentionally read-only (immutable identifier — Stibo best practice). handleSaveModule PUTs to /api/modules and reloads the module on success.
+- TypeScript: 0 new errors in ModuleDetailPage.tsx (verified with tsc --noEmit --skipLibCheck, grep "ModuleDetailPage" returns nothing).
+- ESLint: 0 errors, 0 warnings on ModuleDetailPage.tsx (verified with eslint --max-warnings 0, exit code 0).
+- File grew from 551 → 673 lines.
+- Worklog appended (this entry).
+
+---
+Task ID: 23-C
+Agent: Subagent (23-C Record Detail Deferred Image)
+Task: Refactor src/components/mdm/RecordDetailPage.tsx to implement Stibo-style deferred image save — image ops (upload / delete / set-primary / replace) must be queued locally and only flushed to /api/images when the user clicks the main record "Save" button. Fixes the "belum saya save tetapi malah langsung tersimpan" complaint and adds an explicit Replace option.
+
+Work Log:
+- Read worklog.md (Tasks 1-22) to understand prior context — confirmed the GridEditorPage already uses deferred image save (Task 22), but RecordDetailPage still uses immediate save. The task is to bring RecordDetailPage to the same Stibo best-practice model.
+- Read the full 1084-line RecordDetailPage.tsx to map the refactor surface: ImageUploadField (lines 42-345) had handleUpload POSTing immediately, handleDelete calling DELETE, handleSetPrimary calling PATCH. Main RecordDetailPage had handleSave (lines 464-509), recordImages state (line 359), loadImages (line 363).
+- Verified backend support: POST /api/images (FormData), DELETE /api/images?imageId=xxx (route.ts line 203), PATCH /api/images?imageId=xxx (route.ts line 269), POST /api/records returns { record } (route.ts line 226) so data.record.id is the new record id.
+- Verified eslint config (eslint.config.mjs) has no-unused-vars + no-explicit-any + react-hooks/* all OFF — so the refactor doesn't have to fight the linter on unused imports or `any`.
+- Edit 1: Updated lucide-react import — replaced `Loader2` with `RefreshCw` (Loader2 is no longer used since uploads are now synchronous local blob operations; RefreshCw drives the new Replace button).
+- Edit 2: Full rewrite of ImageUploadField (was lines 44-345, now lines 48-294). New props: fieldName, images, onAddFiles, onDeleteImage, onSetPrimary, onReplaceImage, disabled, hasPendingChanges. Removed token/recordId props (no longer calls the API directly). Removed uploading state + Loader2 spinner (uploads are now local blob URL creations, instant). Removed the !recordId early-return block — the drop zone is now always rendered in edit mode (supports pending uploads on new records before first save). Added a hidden single-file replace <input> + replaceTarget state for the Replace flow. Hover overlay now has 3 buttons: Set-as-primary (Star), Replace (RefreshCw), Delete (X). Added a "Pending" badge on pending thumbnails. Added an amber "Unsaved image changes — click Save to persist" banner when hasPendingChanges is true. Kept the existing lightbox preview (click thumbnail to enlarge). View-only mode (disabled) still shows thumbnails only with click-to-preview.
+- Edit 3: Added deferred image-save state in RecordDetailPage (after recordImages state): pendingUploads (Array<{ tempId, fieldCode, file, blobUrl }>), pendingDeletions (Array<{ imageId, fieldCode }>), pendingPrimary (Record<fieldCode, imageId>). Added hasPendingImageOps boolean + fieldHasPendingOps(fieldCode) helper for per-field badge logic.
+- Edit 4: Added 6 deferred image helpers above handleSave:
+  * validateImageFile(file) — same 11 supported extensions (jpg/jpeg/png/gif/webp/bmp/tiff/heic/heif/avif/svg) + 20MB limit, returns error string or null.
+  * addPendingFiles(fieldCode, files) — validates each file, creates a tempId `pending-<ts>-<i>-<rand>`, creates a blob URL via URL.createObjectURL, adds to recordImages with pending:true flag, queues in pendingUploads. Auto-marks the first file as primary when the field has no existing primary image AND no other pending entry — also records the choice in pendingPrimary so flushPendingImages sets isPrimary on POST.
+  * deleteImage(fieldCode, imageId) — if pending: revoke blob URL + remove from pendingUploads. If server image: queue in pendingDeletions. Removes from recordImages display list. If the deleted image was primary (or was queued to become primary), clears pendingPrimary[fieldCode] to avoid PATCHing a deleted image.
+  * setPrimaryImage(fieldCode, imageId) — updates recordImages display (mark chosen isPrimary, others false) + records choice in pendingPrimary[fieldCode]. No API call.
+  * replaceImage(fieldCode, imageId, file) — if pending image: swap the File + blob URL (revoke old), keep same tempId so any pendingPrimary entry stays valid. If server image: queue DELETE on old id + add new pending upload (new tempId) preserving the replaced image's isPrimary status, and update pendingPrimary[fieldCode] to the new tempId if wasPrimary. Toasts "Image replaced (pending Save)".
+  * discardPendingImages() — revokes all blob URLs from pendingUploads, clears all 3 pending states, reloads server images via loadImages (or clears recordImages for new records). Called from Cancel button + Back button.
+  * flushPendingImages(recordId) — flush order: (1) DELETE each pending deletion, (2) POST each pending upload with FormData (file, recordId, fieldName=fieldCode, isPrimary from pendingPrimary match), revoke blob URL after POST, (3) PATCH each pendingPrimary entry where imageId is a server id (not `pending-` prefix) and not in pendingDeletions. Returns counts { uploaded, deleted, primarySet }. Clears pending state + calls loadImages(recordId) at the end.
+- Edit 5: Updated handleSave (was lines 464-509):
+  * New record branch: after POST /api/records succeeds, read data.record.id; if hasPendingImageOps and newRecordId present, call flushPendingImages(newRecordId) and build a summary toast "Record created · N image(s) uploaded · M deleted · K primary set". Otherwise plain "Record created" toast. Then navigate.
+  * Existing record branch: after PUT /api/records succeeds, if hasPendingImageOps, call flushPendingImages(selectedRecordId) and append image-op summary to the existing toast: "Record updated · N image(s) uploaded · M deleted · K primary set". Then setIsEditing(false) + loadData().
+  * Fixed pre-existing TS issue: navigate('data-records', { moduleId: selectedModuleId }) → moduleId: selectedModuleId || undefined (selectedModuleId is string|null, navigate's moduleId param is string|undefined).
+- Edit 6: Updated renderFieldInput IMAGE branch (was lines 543-554) — replaced the old props (token, recordId, onImagesChange, disabled=!selectedRecordId) with the new deferred-save props (onAddFiles, onDeleteImage, onSetPrimary, onReplaceImage, disabled=!isEditing, hasPendingChanges=fieldHasPendingOps). Importantly: `disabled` is now `!isEditing` (not `!selectedRecordId`), so the drop zone is interactive in edit mode regardless of whether the record has been saved yet — this enables the new-record pending-uploads UX required by the task ("with deferred save, we CAN allow selecting images before first save").
+- Edit 7: Updated Cancel button — now calls discardPendingImages() in addition to setIsEditing(false) + setEditPayload reset. This ensures blob URLs are revoked and pending state is cleared when the user cancels edit mode without saving.
+- Edit 8: Updated Back button (header ArrowLeft) — now calls discardPendingImages() before navigate(). Prevents blob URL leaks when the user navigates away with pending changes.
+- Edit 9: Added an amber "Unsaved images" Badge in the header (between the Edit/Request-Amendment buttons and the Cancel/Save buttons) that appears when isEditing && hasPendingImageOps. Uses the existing Badge component with amber border/bg/text + a pulsing dot indicator. Mirrors the per-field amber badge inside ImageUploadField.
+- Verification: `bunx tsc --noEmit --skipLibCheck 2>&1 | grep -E "RecordDetailPage"` → ZERO output (0 TypeScript errors in this file). `bunx eslint src/components/mdm/RecordDetailPage.tsx --max-warnings 0; echo "EXIT=$?"` → EXIT=0 (0 errors, 0 warnings).
+
+Stage Summary:
+- ✅ Deferred image save implemented end-to-end in RecordDetailPage (Stibo-style asset maintenance): all image mutations (upload, delete, set-primary, replace) stay local as blob URLs + pending queues and only flush to /api/images when the user clicks the main record "Save" button. Fixes the "belum saya save tetapi malah langsung tersimpan" complaint.
+- ✅ Explicit Replace option: hover any image thumbnail in edit mode → 3-button overlay (Set-as-primary / Replace / Delete). Replace opens the file picker; for pending images it swaps the File+blob URL in place; for server images it queues a DELETE on the old id + adds a new pending upload preserving the isPrimary status.
+- ✅ Pending ops tracked in lifted state (pendingUploads / pendingDeletions / pendingPrimary) — ImageUploadField is now a pure display + dispatch component (no API calls).
+- ✅ New records CAN now queue image uploads before first save (blob URLs only) — flushed after the record is created and the new recordId is known.
+- ✅ Cancel button + Back button both discard pending images (revoke blob URLs + reload server state).
+- ✅ Amber "Unsaved images" badge in the header + per-field "Unsaved image changes — click Save to persist" banner inside ImageUploadField when there are pending ops.
+- ✅ Toast summary on save: "Record updated · 2 image(s) uploaded · 1 deleted · 1 primary set" (only non-zero parts included).
+- ✅ TypeScript: 0 errors in RecordDetailPage.tsx. ESLint: 0 errors, 0 warnings.
+- File grew from 1084 → 1377 lines (net +293 from the new helper functions + expanded ImageUploadField JSX).
+- Files modified: src/components/mdm/RecordDetailPage.tsx only.
+- No backend / API changes (existing /api/images POST/DELETE/PATCH endpoints reused unchanged).
+
+---
+Task ID: 23-D
+Agent: Subagent (23-D Grid Editor)
+Task: Fix two issues in `src/components/mdm/GridEditorPage.tsx`: (A) image thumbnails don't render in the grid + add a click-to-enlarge lightbox; (B) add an advanced multi-column multi-condition filter builder (AND/OR) on top of the existing simple search.
+
+Work Log:
+- Read prior worklog (Tasks 21-22) to understand grid editor architecture (deferred image save, cascading dropdown, status filter tabs, amendment workflow).
+- Read `src/app/api/images/route.ts` GET handler (line 162): only supports `recordId` and `imageId` query params — NOT `moduleId`. So bulk image loading must be per-record.
+- Read full `GridEditorPage.tsx` (1947 lines) to map exact structure: data loaders (~306-352), ensureRowImages (~407), filteredRows useMemo (~383), toolbar (~1052-1168), CellRenderer IMAGE branch (~1531-1596), ImageManagerPopover (~1807+).
+- FIX A.1 — Added `loadAllRowImages(rowIds)` useCallback (~line 524) that fetches `GET /api/images?recordId=<id>` for every row in parallel chunks of 8 (Promise.all per chunk), marking each row `imagesLoaded=true` before fetch (to prevent duplicate fetches from `ensureRowImages`), then updating `imagesByField` + `imagesLoaded=true` on each row as chunks resolve. Called from `loadFieldsAndRecords` after `setRows(dataRows)` (non-blocking — grid renders first, images fill in as they load). Also added `loadAllRowImages` to `loadFieldsAndRecords` deps array.
+- FIX A.2 — Made the IMAGE cell primary thumbnail a `<button>` (was `<img>`) with `cursor-zoom-in` + red hover ring when lightbox is available (`onOpenLightbox` provided AND imgs.length>0 AND !isActive). Click handler calls `e.stopPropagation()` then `onOpenLightbox?.()`. The placeholder div (no primary) also gets the click handler. Added `onOpenLightbox?: () => void` to `CellRendererProps` + `CellRenderer` signature.
+- FIX A.3 — Wired `onOpenLightbox` from the main render: builds `{ images: cellImgs, index: primaryIdx>=0?primaryIdx:0 }` and calls `setLightbox(...)`.
+- FIX A.4 — Added `lightbox` state `{ images: ImageInfo[]; index: number } | null`. Added full-screen lightbox overlay (`fixed inset-0 z-50 bg-black/80`) at the bottom of the main return, with: enlarged image (`max-h-[80vh] object-contain`), fileName caption + `(index/total)` counter + `(pending upload)` badge for pending blobs, ChevronLeft/ChevronRight prev/next buttons (only when >1 image), X close button, Escape/ArrowLeft/ArrowRight keyboard handlers. Click outside closes. Works for both server images (`/api/uploads/...`) and pending blob URLs (`blob:...`).
+- FIX A.5 — Verified the existing upload button + image-manager Popover still works unchanged (separate `<Popover>` with `<PopoverTrigger>` on the Upload icon button — the thumbnail click does NOT open the popover, only the upload button does).
+- FIX B.1 — Added 3 lucide icons to the import block: `SlidersHorizontal`, `ChevronLeft`, `ChevronRight` (X, Trash2, Plus already imported).
+- FIX B.2 — Added module-level types: `FilterOperator` (13 operators), `FilterConnector` ('AND'|'OR'), `AdvancedFilter` interface `{ id, fieldCode, operator, value, connector }`. Added module-level helpers: `getOperatorsForDataType(dataType)` (returns valid operators per dataType: TEXT/EMAIL/URL→7 ops, NUMBER/DATE→8 ops, BOOLEAN→is_true/is_false, SELECT/MULTISELECT/LOOKUP→4 ops), `formatOperator(op)` (human-readable labels), `operatorNeedsValue(op)` (false for is_empty/is_not_empty/is_true/is_false), `evaluateCondition(editedPayload, originalPayload, cond, fields)` (case-insensitive contains/equals/starts_with/ends_with; numeric + date comparisons for greater_than/less_than/etc; null/''/undefined/null-string/undefined-string treated as empty), `evaluateAdvancedFilters(...)` (left-to-right AND/OR combination; first condition has no connector).
+- FIX B.3 — Added state: `advancedFilters: AdvancedFilter[]`, `showAdvancedFilter: boolean`.
+- FIX B.4 — Updated `filteredRows` useMemo: applies status filter → search query → advanced filters (in that order). Added `advancedFilters` + `fields` to deps array.
+- FIX B.5 — Added "Advanced" toggle button (SlidersHorizontal icon, red when active) next to the search box. Shows a Badge with the active condition count.
+- FIX B.6 — Added collapsible Advanced Filter panel (Card with red border) as toolbar row 3: header with title + Clear All button; list of `AdvancedFilterRow` components; "+ Add Condition" button (picks first non-IMAGE field with the first valid operator for its dataType).
+- FIX B.7 — Updated summary bar to show `· N advanced filter(s)` in red when conditions are active. Updated "Clear Filters" button in the empty-state to also reset `advancedFilters`. Updated empty-state message condition to include `advancedFilters.length > 0`.
+- FIX B.8 — Added `AdvancedFilterRow` component: renders [connector ShadSelect (AND/OR) OR "Where" label for first row] [field ShadSelect (non-IMAGE fields, shows fieldName)] [operator ShadSelect (filtered to valid ops for field dataType)] [value input OR "(no value needed)" note] [Trash2 remove button]. Field change resets operator (if old op invalid for new type) + clears value.
+- FIX B.9 — Added `FilterValueInput` component: TEXT/EMAIL/URL/NUMBER/DATE → typed `<Input>`; SELECT/LOOKUP → `<ShadSelect>` populated from `field.lookupMaster.values` (compares valueCode); MULTISELECT → `<Popover>` with Checkbox list, comma-joined values, "Clear all" button.
+- Ran `bunx tsc --noEmit --skipLibCheck 2>&1 | grep GridEditorPage` → 0 errors in this file. (Pre-existing unrelated errors in pinecone.ts / resend.ts / app-store.ts remain.)
+- Ran `bunx eslint src/components/mdm/GridEditorPage.tsx --max-warnings 0` (with NODE_OPTIONS=--max-old-space-size=4096 to avoid OOM) → EXIT=0, 0 errors, 0 warnings.
+
+Stage Summary:
+- FIX A (image thumbnails + lightbox): Grid now fetches images for ALL rows on data load (chunked 8-at-a-time, non-blocking). Thumbnails render immediately for untouched rows. Clicking a thumbnail opens a full-screen lightbox with prev/next navigation, fileName caption, Escape/arrow-key support. The upload button still opens the image-manager popover (deferred upload/delete/primary workflow unchanged). Works for both server images and pending blob URLs.
+- FIX B (advanced filter builder): Added an "Advanced" toggle button next to the search box. The collapsible panel lets users add multiple conditions, each picking a column + operator + value, combined with AND/OR (left-to-right). Operators are dataType-aware (TEXT has contains/starts_with/ends_with/etc; NUMBER/DATE has greater_than/less_than/etc; BOOLEAN has is_true/is_false; SELECT/LOOKUP/MULTISELECT has equals/not_equals + is_empty). is_empty/is_not_empty/is_true/is_false operators hide the value input. Summary bar shows active condition count. Empty-state "Clear Filters" also clears advanced filters.
+- No regressions: inline cell editing, cascading dropdowns, status filter tabs, save/discard/refresh buttons, amendment workflow for ACTIVE rows, and the image-manager popover all preserved (surgical edits only).
+- tsc: 0 errors in `GridEditorPage.tsx`. eslint: 0 errors / 0 warnings (EXIT=0).

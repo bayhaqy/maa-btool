@@ -23,14 +23,14 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ArrowLeft, Plus, MoreVertical, Pencil, Trash2, Shield, GripVertical } from 'lucide-react';
+import { ArrowLeft, Plus, MoreVertical, Pencil, Trash2, Shield, GripVertical, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 
-const DATA_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT', 'MULTISELECT', 'EMAIL', 'URL', 'LOOKUP'];
+const DATA_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT', 'MULTISELECT', 'EMAIL', 'URL', 'LOOKUP', 'IMAGE'];
 const VALIDATION_TYPES = ['REGEX', 'MIN_LENGTH', 'MAX_LENGTH', 'MIN_VALUE', 'MAX_VALUE'];
 
 export default function ModuleDetailPage() {
-  const { token, selectedModuleId, navigate } = useAppStore();
+  const { token, selectedModuleId, navigate, user } = useAppStore();
   const [metaModule, setMetaModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
@@ -49,6 +49,11 @@ export default function ModuleDetailPage() {
 
   const [validationForm, setValidationForm] = useState({
     ruleType: 'REGEX', ruleValue: '', errorMessage: '',
+  });
+  const [editValidation, setEditValidation] = useState<any>(null);
+  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+  const [moduleForm, setModuleForm] = useState({
+    moduleName: '', description: '', requireApproval: false,
   });
 
   const loadModule = useCallback(async () => {
@@ -158,14 +163,19 @@ export default function ModuleDetailPage() {
     setSaving(true);
     try {
       const res = await fetch('/api/fields?action=validation', {
-        method: 'POST',
+        method: editValidation ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fieldId: selectedFieldId, ...validationForm }),
+        body: JSON.stringify(
+          editValidation
+            ? { id: editValidation.id, ...validationForm }
+            : { fieldId: selectedFieldId, ...validationForm },
+        ),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed'); return; }
-      toast.success('Validation added');
+      toast.success(editValidation ? 'Validation updated' : 'Validation added');
       setValidationDialogOpen(false);
+      setEditValidation(null);
       loadModule();
     } catch {
       toast.error('Network error');
@@ -186,6 +196,32 @@ export default function ModuleDetailPage() {
       loadModule();
     } catch {
       toast.error('Network error');
+    }
+  };
+
+  const handleSaveModule = async () => {
+    if (!token || !selectedModuleId) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/modules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id: selectedModuleId,
+          moduleName: moduleForm.moduleName,
+          description: moduleForm.description,
+          requireApproval: moduleForm.requireApproval,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed'); return; }
+      toast.success('Module updated');
+      setModuleDialogOpen(false);
+      loadModule();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -249,6 +285,21 @@ export default function ModuleDetailPage() {
         )}>
           {metaModule.requireApproval ? 'Approval Required' : 'Auto-approve'}
         </Badge>
+        {user?.roles?.includes('Super Admin') && (
+          <Button
+            className="bg-red-600 hover:bg-red-700 text-white h-9 ml-auto"
+            onClick={() => {
+              setModuleForm({
+                moduleName: metaModule.moduleName || '',
+                description: metaModule.description || '',
+                requireApproval: !!metaModule.requireApproval,
+              });
+              setModuleDialogOpen(true);
+            }}
+          >
+            <Settings className="w-4 h-4 mr-1" /> Edit Module
+          </Button>
+        )}
       </div>
 
       {metaModule.description && (
@@ -306,10 +357,27 @@ export default function ModuleDetailPage() {
                       <TableCell>
                         <div className="flex items-center gap-1 flex-wrap">
                           {f.validations?.map((v: any) => (
-                            <Badge key={v.id} variant="secondary" className="text-xs group/val">
+                            <Badge
+                              key={v.id}
+                              variant="secondary"
+                              className="text-xs group/val cursor-pointer hover:bg-secondary/80"
+                              onClick={() => {
+                                setSelectedFieldId(f.id);
+                                setEditValidation(v);
+                                setValidationForm({
+                                  ruleType: v.ruleType,
+                                  ruleValue: v.ruleValue || '',
+                                  errorMessage: v.errorMessage || '',
+                                });
+                                setValidationDialogOpen(true);
+                              }}
+                            >
                               {v.ruleType}
                               <button
-                                onClick={() => handleDeleteValidation(v.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteValidation(v.id);
+                                }}
                                 className="ml-1 opacity-0 group-hover/val:opacity-100 hover:text-destructive transition-opacity"
                               >
                                 ×
@@ -327,6 +395,7 @@ export default function ModuleDetailPage() {
                             className="h-6 w-6 p-0"
                             onClick={() => {
                               setSelectedFieldId(f.id);
+                              setEditValidation(null);
                               setValidationForm({ ruleType: 'REGEX', ruleValue: '', errorMessage: '' });
                               setValidationDialogOpen(true);
                             }}
@@ -506,7 +575,7 @@ export default function ModuleDetailPage() {
       <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Validation Rule</DialogTitle>
+            <DialogTitle>{editValidation ? 'Edit Validation Rule' : 'Add Validation Rule'}</DialogTitle>
             <DialogDescription>Define a validation rule for this field</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -540,7 +609,61 @@ export default function ModuleDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setValidationDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveValidation} disabled={saving || !validationForm.ruleValue} className="bg-red-600 hover:bg-red-700 text-white">
-              {saving ? 'Adding...' : 'Add Rule'}
+              {saving ? 'Saving...' : editValidation ? 'Update' : 'Add Rule'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Module Edit Dialog */}
+      <Dialog open={moduleDialogOpen} onOpenChange={setModuleDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Module</DialogTitle>
+            <DialogDescription>Update module metadata (code is immutable after creation)</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Module Name</Label>
+              <Input
+                placeholder="Module name"
+                value={moduleForm.moduleName}
+                onChange={(e) => setModuleForm({ ...moduleForm, moduleName: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Module Code</Label>
+              <Input value={metaModule.moduleCode || ''} disabled className="font-mono" />
+              <p className="text-[11px] text-muted-foreground">Module code is immutable after creation (unique identifier).</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Module description"
+                value={moduleForm.description}
+                onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <Label className="text-sm">Require Approval</Label>
+                <p className="text-[11px] text-muted-foreground">When off, edits auto-publish. When on, edits require approval.</p>
+              </div>
+              <Switch
+                checked={moduleForm.requireApproval}
+                onCheckedChange={(c) => setModuleForm({ ...moduleForm, requireApproval: c })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModuleDialogOpen(false)} disabled={saving}>Cancel</Button>
+            <Button
+              onClick={handleSaveModule}
+              disabled={saving || !moduleForm.moduleName}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {saving ? 'Saving...' : 'Update'}
             </Button>
           </DialogFooter>
         </DialogContent>

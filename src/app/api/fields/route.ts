@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
 }
 
 // PUT /api/fields - Update field (Super Admin only)
+// PUT /api/fields?action=validation - Update a field validation rule
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -157,7 +158,34 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Only Super Admin can update fields' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
     const body = await request.json();
+
+    // Handle validation update
+    if (action === 'validation') {
+      const { id: validationId, ruleType, ruleValue, errorMessage } = body;
+
+      if (!validationId || !ruleType || !ruleValue) {
+        return NextResponse.json(
+          { error: 'id, ruleType, and ruleValue are required' },
+          { status: 400 }
+        );
+      }
+
+      const existing = await db.fieldValidation.findUnique({ where: { id: validationId } });
+      if (!existing) {
+        return NextResponse.json({ error: 'Validation not found' }, { status: 404 });
+      }
+
+      const validation = await db.fieldValidation.update({
+        where: { id: validationId },
+        data: { ruleType, ruleValue, errorMessage },
+      });
+
+      return NextResponse.json({ validation });
+    }
+
     const {
       id, fieldCode, fieldName, dataType,
       isRequired, isUnique, defaultValue, placeholder,

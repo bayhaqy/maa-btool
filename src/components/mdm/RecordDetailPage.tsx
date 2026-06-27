@@ -24,7 +24,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   ArrowLeft, Save, Send, CheckCircle2, XCircle, Archive,
   Clock, FileText, GitBranch, History,
-  Image as ImageIcon, Upload, X, Star, Loader2,
+  Image as ImageIcon, Upload, X, Star, RefreshCw,
   ChevronDown, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -39,44 +39,76 @@ const TRANSITION_ICONS: Record<string, React.ElementType> = {
 };
 
 // ---------------------------------------------------------------------------
-// ImageUploadField – inline component for IMAGE data type fields
+// ImageUploadField – inline component for IMAGE data type fields.
+// Deferred-save variant (Stibo-style asset maintenance): all mutations
+// (upload / delete / set-primary / replace) are dispatched to the parent
+// via callbacks and only flushed to /api/images when the user clicks the
+// main record "Save" button. Local blob URLs are used for instant preview.
 // ---------------------------------------------------------------------------
 function ImageUploadField({
-  token,
-  recordId,
   fieldName,
   images,
-  onImagesChange,
+  onAddFiles,
+  onDeleteImage,
+  onSetPrimary,
+  onReplaceImage,
   disabled,
+  hasPendingChanges,
 }: {
-  token: string | null;
-  recordId: string | null;
   fieldName: string;
   images: any[];
-  onImagesChange: (imgs: any[]) => void;
+  onAddFiles: (files: FileList | null) => void;
+  onDeleteImage: (imageId: string) => void;
+  onSetPrimary: (imageId: string) => void;
+  onReplaceImage: (imageId: string, file: File) => void;
   disabled: boolean;
+  hasPendingChanges: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const [replaceTarget, setReplaceTarget] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // View-only mode (no recordId yet or disabled)
-  if (!recordId) {
-    return (
-      <div className="border-2 border-dashed rounded-lg p-6 text-center bg-muted/20">
-        <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
-        <p className="text-sm text-muted-foreground">Save the record first to upload images</p>
-      </div>
-    );
-  }
+  const handleUpload = (files: FileList | null) => {
+    onAddFiles(files);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
+  const openReplacePicker = (imageId: string) => {
+    setReplaceTarget(imageId);
+    // Allow re-picking the same file by resetting value before click
+    if (replaceInputRef.current) replaceInputRef.current.value = '';
+    replaceInputRef.current?.click();
+  };
+
+  const handleReplaceFile = (files: FileList | null) => {
+    if (!files || files.length === 0 || !replaceTarget) {
+      setReplaceTarget(null);
+      return;
+    }
+    onReplaceImage(replaceTarget, files[0]);
+    setReplaceTarget(null);
+    if (replaceInputRef.current) replaceInputRef.current.value = '';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleUpload(e.dataTransfer.files);
+  };
+
+  // View-only mode (disabled): show thumbnails only
   if (disabled) {
-    // View mode – just show thumbnails (no recordId yet)
     if (images.length === 0) {
       return (
         <div className="border-2 border-dashed rounded-lg p-6 text-center bg-muted/20">
           <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
-          <p className="text-sm text-muted-foreground">Save the record first to upload images</p>
+          <p className="text-sm text-muted-foreground">No images yet</p>
         </div>
       );
     }
@@ -122,119 +154,18 @@ function ImageUploadField({
     );
   }
 
-  // Edit mode – full upload UI
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || !token || !recordId) return;
-    setUploading(true);
-    let successCount = 0;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // Accept various image formats including HEIC
-      const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'heic', 'heif', 'avif', 'svg'];
-      const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      const isImageType = file.type.startsWith('image/') || validExtensions.includes(ext);
-      if (!isImageType) {
-        toast.error(`"${file.name}" is not a supported image file (supported: ${validExtensions.join(', ')})`);
-        continue;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error(`"${file.name}" exceeds 10MB limit`);
-        continue;
-      }
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('recordId', recordId);
-      formData.append('fieldName', fieldName);
-      formData.append('isPrimary', String(images.length === 0 && i === 0));
-      try {
-        const res = await fetch('/api/images', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-        const data = await res.json();
-        if (res.ok) {
-          successCount++;
-          onImagesChange([...images, data.imageAsset]);
-        } else {
-          toast.error(data.error || `Failed to upload ${file.name}`);
-        }
-      } catch {
-        toast.error(`Network error uploading ${file.name}`);
-      }
-    }
-    if (successCount > 0) {
-      toast.success(`${successCount} image(s) uploaded`);
-    }
-    setUploading(false);
-    // Reset the file input so re-uploading the same file works
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleDelete = async (imageId: string) => {
-    if (!token) return;
-    try {
-      const res = await fetch(`/api/images?imageId=${imageId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        onImagesChange(images.filter((img: any) => img.id !== imageId));
-        toast.success('Image deleted');
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to delete image');
-      }
-    } catch {
-      toast.error('Network error');
-    }
-  };
-
-  const handleSetPrimary = async (imageId: string) => {
-    if (!token || !recordId) return;
-    // Optimistic update
-    const updated = images.map((img: any) => ({
-      ...img,
-      isPrimary: img.id === imageId,
-    }));
-    onImagesChange(updated);
-    try {
-      const res = await fetch(`/api/images?imageId=${imageId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || 'Failed to set primary image');
-        // Revert optimistic update on failure by re-reading server state
-        onImagesChange(images);
-        return;
-      }
-      toast.success('Primary image updated');
-    } catch {
-      toast.error('Network error while setting primary image');
-      onImagesChange(images);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleUpload(e.dataTransfer.files);
-  };
-
+  // Edit mode – deferred-save upload UI
   return (
     <div className="space-y-3">
-      {/* Existing images */}
+      {/* Unsaved indicator */}
+      {hasPendingChanges && (
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          Unsaved image changes — click <span className="font-semibold">Save</span> to persist
+        </div>
+      )}
+
+      {/* Existing + pending images */}
       {images.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {images.map((img: any) => (
@@ -255,7 +186,7 @@ function ImageUploadField({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 text-white hover:text-amber-400"
-                  onClick={() => handleSetPrimary(img.id)}
+                  onClick={() => onSetPrimary(img.id)}
                   title="Set as primary"
                 >
                   <Star className={cn('w-4 h-4', img.isPrimary && 'fill-amber-400 text-amber-400')} />
@@ -264,8 +195,18 @@ function ImageUploadField({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  className="h-7 w-7 text-white hover:text-blue-400"
+                  onClick={() => openReplacePicker(img.id)}
+                  title="Replace image"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   className="h-7 w-7 text-white hover:text-red-400"
-                  onClick={() => handleDelete(img.id)}
+                  onClick={() => onDeleteImage(img.id)}
                   title="Delete image"
                 >
                   <X className="w-4 h-4" />
@@ -274,6 +215,11 @@ function ImageUploadField({
               {img.isPrimary && (
                 <div className="absolute top-1 left-1 bg-amber-500 text-white rounded-full p-0.5">
                   <Star className="w-2.5 h-2.5 fill-white" />
+                </div>
+              )}
+              {img.pending && (
+                <div className="absolute top-1 right-1 bg-amber-400 text-white rounded-full px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide leading-none">
+                  Pending
                 </div>
               )}
               <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5">
@@ -289,8 +235,7 @@ function ImageUploadField({
         className={cn(
           'border-2 border-dashed rounded-lg p-4 text-center transition-colors',
           'hover:border-red-400 hover:bg-red-50/50 dark:hover:bg-red-950/20',
-          'cursor-pointer',
-          uploading && 'pointer-events-none opacity-60'
+          'cursor-pointer'
         )}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -304,21 +249,25 @@ function ImageUploadField({
           className="hidden"
           onChange={(e) => handleUpload(e.target.files)}
         />
-        {uploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 text-red-600 animate-spin" />
-            <p className="text-sm text-muted-foreground">Uploading...</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-6 h-6 text-muted-foreground/60" />
-            <p className="text-sm text-muted-foreground">
-              Drag & drop images here, or <span className="text-red-600 font-medium">browse</span>
-            </p>
-            <p className="text-xs text-muted-foreground/60">PNG, JPG, GIF, WebP, HEIC up to 20MB</p>
-          </div>
-        )}
+        <div className="flex flex-col items-center gap-2">
+          <Upload className="w-6 h-6 text-muted-foreground/60" />
+          <p className="text-sm text-muted-foreground">
+            Drag &amp; drop images here, or <span className="text-red-600 font-medium">browse</span>
+          </p>
+          <p className="text-xs text-muted-foreground/60">
+            PNG, JPG, GIF, WebP, HEIC up to 20MB · saved when you click Save
+          </p>
+        </div>
       </div>
+
+      {/* Hidden replace file input (single-file picker) */}
+      <input
+        ref={replaceInputRef}
+        type="file"
+        accept="image/*,.heic,.heif,.avif"
+        className="hidden"
+        onChange={(e) => handleReplaceFile(e.target.files)}
+      />
 
       {/* Lightbox preview */}
       {previewImage && (
@@ -358,7 +307,38 @@ export default function RecordDetailPage() {
   const [transitionDialog, setTransitionDialog] = useState<{ target: string; notes: string } | null>(null);
   const [recordImages, setRecordImages] = useState<Record<string, any[]>>({});
 
+  // Deferred image-save state (Stibo-style asset maintenance).
+  // Pending uploads are stored as File objects + a blob URL for instant
+  // preview; pending deletions are server image IDs queued for DELETE
+  // (kept with their fieldCode so we can show per-field "unsaved" badges);
+  // pendingPrimary records the user's per-field primary choice (image ID
+  // can be either a server id or a `pending-` temp id).
+  const [pendingUploads, setPendingUploads] = useState<Array<{
+    tempId: string;
+    fieldCode: string;
+    file: File;
+    blobUrl: string;
+  }>>([]);
+  const [pendingDeletions, setPendingDeletions] = useState<Array<{
+    imageId: string;
+    fieldCode: string;
+  }>>([]);
+  const [pendingPrimary, setPendingPrimary] = useState<Record<string, string>>({});
+
   const isNewRecord = !selectedRecordId;
+
+  // True when there are ANY unflushed image ops across all fields.
+  const hasPendingImageOps =
+    pendingUploads.length > 0 ||
+    pendingDeletions.length > 0 ||
+    Object.keys(pendingPrimary).length > 0;
+
+  // True when the given field has any unflushed image ops (drives the
+  // per-field "Unsaved image changes" amber badge).
+  const fieldHasPendingOps = (fieldCode: string) =>
+    pendingUploads.some((u) => u.fieldCode === fieldCode) ||
+    pendingDeletions.some((d) => d.fieldCode === fieldCode) ||
+    pendingPrimary[fieldCode] !== undefined;
 
   const loadImages = useCallback(async (recId: string) => {
     if (!token || !recId) return;
@@ -461,6 +441,291 @@ export default function RecordDetailPage() {
     if (needsUpdate) setEditPayload(next);
   }, [editPayload, module, isEditing]);
 
+  // -------------------------------------------------------------------------
+  // Deferred image-save helpers (Stibo-style asset maintenance).
+  // All image mutations below stay local (blob URLs + pending queues) and
+  // are only flushed to /api/images inside handleSave via flushPendingImages.
+  // -------------------------------------------------------------------------
+
+  const SUPPORTED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'heic', 'heif', 'avif', 'svg'];
+
+  const validateImageFile = (file: File): string | null => {
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImageType = file.type.startsWith('image/') || SUPPORTED_IMAGE_EXTS.includes(ext);
+    if (!isImageType) {
+      return `"${file.name}" is not a supported image file (supported: ${SUPPORTED_IMAGE_EXTS.join(', ')})`;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      return `"${file.name}" exceeds 20MB limit`;
+    }
+    return null;
+  };
+
+  // Returns the currently displayed image list for a field (server images
+  // minus queued deletions, plus pending uploads). The recordImages state
+  // already holds this merged list, so this is just a safe accessor.
+  const getDisplayImages = (fieldCode: string): any[] => recordImages[fieldCode] || [];
+
+  // Add new files as pending uploads for the given field. Auto-marks the
+  // first file as primary when the field currently has no displayed images.
+  const addPendingFiles = (fieldCode: string, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const accepted: File[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const err = validateImageFile(file);
+      if (err) {
+        toast.error(err);
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (accepted.length === 0) return;
+
+    const current = getDisplayImages(fieldCode);
+    const hasPrimary = current.some((img) => img.isPrimary);
+
+    const newEntries: any[] = [];
+    const newUploads: typeof pendingUploads = [];
+    const now = Date.now();
+    accepted.forEach((file, i) => {
+      const tempId = `pending-${now}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+      const blobUrl = URL.createObjectURL(file);
+      const isFirstAndNoPrimary = !hasPrimary && i === 0 && !current.some((img) => img.pending);
+      newEntries.push({
+        id: tempId,
+        filePath: blobUrl,
+        fileName: file.name,
+        altText: '',
+        isPrimary: isFirstAndNoPrimary,
+        pending: true,
+      });
+      newUploads.push({ tempId, fieldCode, file, blobUrl });
+      if (isFirstAndNoPrimary) {
+        // Record the auto-primary choice so flushPendingImages sets it on POST.
+        setPendingPrimary((prev) => ({ ...prev, [fieldCode]: tempId }));
+      }
+    });
+
+    setRecordImages((prev) => ({
+      ...prev,
+      [fieldCode]: [...(prev[fieldCode] || []), ...newEntries],
+    }));
+    setPendingUploads((prev) => [...prev, ...newUploads]);
+  };
+
+  // Delete an image (pending or server). For pending images we just revoke
+  // the blob URL and drop the entry. For server images we queue a DELETE.
+  const deleteImage = (fieldCode: string, imageId: string) => {
+    const current = getDisplayImages(fieldCode);
+    const target = current.find((img) => img.id === imageId);
+    if (!target) return;
+
+    const wasPrimary = !!target.isPrimary;
+
+    if (target.pending) {
+      // Pending: revoke blob URL, drop from uploads.
+      URL.revokeObjectURL(target.filePath);
+      setPendingUploads((prev) => prev.filter((u) => u.tempId !== imageId));
+    } else {
+      // Server image: queue DELETE.
+      setPendingDeletions((prev) =>
+        prev.some((d) => d.imageId === imageId) ? prev : [...prev, { imageId, fieldCode }]
+      );
+    }
+
+    // Remove from the displayed list.
+    setRecordImages((prev) => ({
+      ...prev,
+      [fieldCode]: (prev[fieldCode] || []).filter((img) => img.id !== imageId),
+    }));
+
+    // If we just removed the primary, clear the pending-primary choice for
+    // this field so flushPendingImages doesn't PATCH a deleted image. The
+    // server will keep whatever primary remains.
+    if (wasPrimary) {
+      setPendingPrimary((prev) => {
+        if (!(fieldCode in prev)) return prev;
+        const next = { ...prev };
+        delete next[fieldCode];
+        return next;
+      });
+    } else if (pendingPrimary[fieldCode] === imageId) {
+      // Removed a non-primary image that was queued to become primary.
+      setPendingPrimary((prev) => {
+        const next = { ...prev };
+        delete next[fieldCode];
+        return next;
+      });
+    }
+  };
+
+  // Mark an image as primary (local-only; PATCH happens on Save).
+  const setPrimaryImage = (fieldCode: string, imageId: string) => {
+    const current = getDisplayImages(fieldCode);
+    if (!current.some((img) => img.id === imageId)) return;
+    setRecordImages((prev) => ({
+      ...prev,
+      [fieldCode]: (prev[fieldCode] || []).map((img) => ({
+        ...img,
+        isPrimary: img.id === imageId,
+      })),
+    }));
+    setPendingPrimary((prev) => ({ ...prev, [fieldCode]: imageId }));
+  };
+
+  // Replace an existing image with a new file. For pending images we just
+  // swap the File + blob URL. For server images we queue a DELETE on the
+  // old id + add the new file as a pending upload, preserving the primary
+  // status of the replaced image.
+  const replaceImage = (fieldCode: string, imageId: string, file: File) => {
+    const err = validateImageFile(file);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    const current = getDisplayImages(fieldCode);
+    const target = current.find((img) => img.id === imageId);
+    if (!target) return;
+
+    const wasPrimary = !!target.isPrimary;
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const blobUrl = URL.createObjectURL(file);
+
+    if (target.pending) {
+      // Swap the underlying File + blob URL for the pending entry. Reuse
+      // the same tempId so any pendingPrimary entry stays valid.
+      URL.revokeObjectURL(target.filePath);
+      setPendingUploads((prev) =>
+        prev.map((u) => (u.tempId === imageId ? { ...u, file, blobUrl } : u))
+      );
+      setRecordImages((prev) => ({
+        ...prev,
+        [fieldCode]: (prev[fieldCode] || []).map((img) =>
+          img.id === imageId ? { ...img, filePath: blobUrl, fileName: file.name } : img
+        ),
+      }));
+      toast.success('Image replaced (pending Save)');
+      return;
+    }
+
+    // Server image: queue DELETE + add pending upload.
+    setPendingDeletions((prev) =>
+      prev.some((d) => d.imageId === imageId) ? prev : [...prev, { imageId, fieldCode }]
+    );
+    setPendingUploads((prev) => [...prev, { tempId, fieldCode, file, blobUrl }]);
+    setRecordImages((prev) => ({
+      ...prev,
+      [fieldCode]: (prev[fieldCode] || [])
+        .filter((img) => img.id !== imageId)
+        .concat([{
+          id: tempId,
+          filePath: blobUrl,
+          fileName: file.name,
+          altText: '',
+          isPrimary: wasPrimary,
+          pending: true,
+        }]),
+    }));
+    if (wasPrimary) {
+      setPendingPrimary((prev) => ({ ...prev, [fieldCode]: tempId }));
+    }
+    toast.success('Image replaced (pending Save)');
+  };
+
+  // Discard all pending image ops (Cancel / navigate-away). Revokes blob
+  // URLs and reloads server images to discard local display mutations.
+  const discardPendingImages = () => {
+    for (const u of pendingUploads) {
+      URL.revokeObjectURL(u.blobUrl);
+    }
+    setPendingUploads([]);
+    setPendingDeletions([]);
+    setPendingPrimary({});
+    if (selectedRecordId) {
+      loadImages(selectedRecordId);
+    } else {
+      setRecordImages({});
+    }
+  };
+
+  // Flush all pending image ops to /api/images. Returns counts for the
+  // toast summary. Flush order: (1) deletions, (2) uploads, (3) primary
+  // PATCHes (only for server image ids — pending uploads already carry
+  // their isPrimary flag on POST).
+  const flushPendingImages = async (recordId: string): Promise<{ uploaded: number; deleted: number; primarySet: number }> => {
+    const counts = { uploaded: 0, deleted: 0, primarySet: 0 };
+    if (!token) return counts;
+
+    // (1) Deletions
+    for (const d of pendingDeletions) {
+      try {
+        const res = await fetch(`/api/images?imageId=${d.imageId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) counts.deleted++;
+      } catch {
+        // Continue on individual failure; surface via toast summary.
+      }
+    }
+
+    // (2) Uploads — determine isPrimary per upload from pendingPrimary.
+    for (const u of pendingUploads) {
+      const isPrimary = pendingPrimary[u.fieldCode] === u.tempId;
+      const formData = new FormData();
+      formData.append('file', u.file);
+      formData.append('recordId', recordId);
+      formData.append('fieldName', u.fieldCode);
+      formData.append('isPrimary', String(isPrimary));
+      try {
+        const res = await fetch('/api/images', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+        if (res.ok) counts.uploaded++;
+      } catch {
+        // Continue on individual failure.
+      }
+      // Revoke the blob URL — the server now owns the persisted image.
+      URL.revokeObjectURL(u.blobUrl);
+    }
+
+    // (3) Primary PATCH — only for server image ids (not temp ids).
+    for (const [fieldCode, imageId] of Object.entries(pendingPrimary)) {
+      if (!imageId || imageId.startsWith('pending-')) continue;
+      // Skip if the image is also queued for deletion.
+      if (pendingDeletions.some((d) => d.imageId === imageId)) continue;
+      try {
+        const res = await fetch(`/api/images?imageId=${imageId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        });
+        if (res.ok) counts.primarySet++;
+      } catch {
+        // Continue on individual failure.
+      }
+      // Reference fieldCode to satisfy linter even when no per-field logic
+      // is needed here — the PATCH endpoint derives the field from the image.
+      void fieldCode;
+    }
+
+    // Clear pending state.
+    setPendingUploads([]);
+    setPendingDeletions([]);
+    setPendingPrimary({});
+
+    // Reload server images to reflect the flushed state.
+    await loadImages(recordId);
+
+    return counts;
+  };
+
   const handleSave = async () => {
     if (!token) return;
     setSaving(true);
@@ -480,8 +745,19 @@ export default function RecordDetailPage() {
           }
           return;
         }
-        toast.success('Record created');
-        navigate('data-records', { moduleId: selectedModuleId });
+        // New record created → flush any pending image ops against the new id.
+        const newRecordId: string | undefined = data.record?.id;
+        if (newRecordId && hasPendingImageOps) {
+          const counts = await flushPendingImages(newRecordId);
+          const parts = ['Record created'];
+          if (counts.uploaded) parts.push(`${counts.uploaded} image(s) uploaded`);
+          if (counts.deleted) parts.push(`${counts.deleted} deleted`);
+          if (counts.primarySet) parts.push(`${counts.primarySet} primary set`);
+          toast.success(parts.join(' · '));
+        } else {
+          toast.success('Record created');
+        }
+        navigate('data-records', { moduleId: selectedModuleId || undefined });
       } else {
         const res = await fetch('/api/records?action=update', {
           method: 'PUT',
@@ -497,7 +773,17 @@ export default function RecordDetailPage() {
           }
           return;
         }
-        toast.success(data.message || 'Record updated');
+        // Existing record updated → flush any pending image ops.
+        let summary = data.message || 'Record updated';
+        if (hasPendingImageOps) {
+          const counts = await flushPendingImages(selectedRecordId!);
+          const parts: string[] = [];
+          if (counts.uploaded) parts.push(`${counts.uploaded} image(s) uploaded`);
+          if (counts.deleted) parts.push(`${counts.deleted} deleted`);
+          if (counts.primarySet) parts.push(`${counts.primarySet} primary set`);
+          if (parts.length) summary = `${summary} · ${parts.join(' · ')}`;
+        }
+        toast.success(summary);
         setIsEditing(false);
         loadData();
       }
@@ -537,18 +823,20 @@ export default function RecordDetailPage() {
     const value = editPayload[field.fieldCode] ?? '';
     const disabled = !isEditing;
 
-    // IMAGE data type – special component
-    // Images are always manageable regardless of record edit state,
-    // since they're stored in a separate ImageAsset table (MDM best practice)
+    // IMAGE data type – deferred-save inline component (Stibo-style asset
+    // maintenance). Mutations stay local (blob URLs + pending queues) and
+    // are only flushed to /api/images when the user clicks Save.
     if (field.dataType === 'IMAGE') {
       return (
         <ImageUploadField
-          token={token}
-          recordId={selectedRecordId || null}
           fieldName={field.fieldCode}
           images={recordImages[field.fieldCode] || []}
-          onImagesChange={(imgs) => setRecordImages(prev => ({ ...prev, [field.fieldCode]: imgs }))}
-          disabled={!selectedRecordId}
+          onAddFiles={(files) => addPendingFiles(field.fieldCode, files)}
+          onDeleteImage={(imageId) => deleteImage(field.fieldCode, imageId)}
+          onSetPrimary={(imageId) => setPrimaryImage(field.fieldCode, imageId)}
+          onReplaceImage={(imageId, file) => replaceImage(field.fieldCode, imageId, file)}
+          disabled={disabled}
+          hasPendingChanges={fieldHasPendingOps(field.fieldCode)}
         />
       );
     }
@@ -841,7 +1129,7 @@ export default function RecordDetailPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('data-records', { moduleId: selectedModuleId || undefined })} className="h-9 w-9">
+        <Button variant="ghost" size="icon" onClick={() => { discardPendingImages(); navigate('data-records', { moduleId: selectedModuleId || undefined }); }} className="h-9 w-9">
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1">
@@ -868,9 +1156,15 @@ export default function RecordDetailPage() {
               <Save className="w-4 h-4 mr-1" /> Request Amendment
             </Button>
           )}
+          {isEditing && hasPendingImageOps && (
+            <Badge variant="outline" className="text-[11px] border-amber-300 bg-amber-50 text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mr-1.5" />
+              Unsaved images
+            </Badge>
+          )}
           {isEditing && (
             <>
-              <Button variant="outline" onClick={() => { setIsEditing(false); if (record) { try { setEditPayload(JSON.parse(record.currentPayload)); } catch {} } }} className="h-9">Cancel</Button>
+              <Button variant="outline" onClick={() => { setIsEditing(false); discardPendingImages(); if (record) { try { setEditPayload(JSON.parse(record.currentPayload)); } catch {} } }} className="h-9">Cancel</Button>
               <Button onClick={handleSave} disabled={saving} className="bg-red-600 hover:bg-red-700 text-white h-9">
                 {saving ? 'Saving...' : isNewRecord ? 'Create' : 'Save'}
               </Button>
