@@ -84,6 +84,14 @@
       "memory": 1024,
       "maxDuration": 60
     },
+    "src/app/api/admin/reseed-map-data/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 120
+    },
+    "src/app/api/admin/migrate-cascading/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    },
     "src/app/api/documents/**/*.ts": {
       "memory": 1024,
       "maxDuration": 60
