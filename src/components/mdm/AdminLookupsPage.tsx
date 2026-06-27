@@ -34,6 +34,7 @@ interface LookupValue {
   description?: string;
   validFrom?: string | null;
   validTo?: string | null;
+  parentValueCode?: string | null;
 }
 
 interface LookupItem {
@@ -139,6 +140,7 @@ export default function AdminLookupsPage() {
               description: v.description || null,
               validFrom: v.validFrom || null,
               validTo: v.validTo || null,
+              parentValueCode: v.parentValueCode || null,
             })),
           }),
         });
@@ -158,6 +160,7 @@ export default function AdminLookupsPage() {
               description: v.description || null,
               validFrom: v.validFrom || null,
               validTo: v.validTo || null,
+              parentValueCode: v.parentValueCode || null,
             })),
           }),
         });
@@ -230,6 +233,7 @@ export default function AdminLookupsPage() {
         description: v.description || '',
         validFrom: v.validFrom ? toDateInputValue(v.validFrom) : '',
         validTo: v.validTo ? toDateInputValue(v.validTo) : '',
+        parentValueCode: v.parentValueCode || '',
       })) || [],
     });
     setDialogOpen(true);
@@ -239,7 +243,7 @@ export default function AdminLookupsPage() {
     setEditItem(null);
     setForm({
       lookupCode: '', lookupName: '', description: '', category: '',
-      values: [{ valueCode: '', displayValue: '', description: '', validFrom: '', validTo: '' }],
+      values: [{ valueCode: '', displayValue: '', description: '', validFrom: '', validTo: '', parentValueCode: '' }],
     });
     setDialogOpen(true);
   };
@@ -247,7 +251,7 @@ export default function AdminLookupsPage() {
   const addValueRow = () => {
     setForm({
       ...form,
-      values: [...form.values, { valueCode: '', displayValue: '', description: '', validFrom: '', validTo: '' }],
+      values: [...form.values, { valueCode: '', displayValue: '', description: '', validFrom: '', validTo: '', parentValueCode: '' }],
     });
   };
 
@@ -378,19 +382,31 @@ export default function AdminLookupsPage() {
                         <TableRow>
                           <TableHead>Code</TableHead>
                           <TableHead>Display Value</TableHead>
+                          <TableHead>Parent</TableHead>
                           <TableHead>Valid</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Order</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {l.values?.map((v: any, idx: number) => (
+                        {l.values?.map((v: any, idx: number) => {
+                          const parentValue = l.values?.find((p: any) => p.valueCode === v.parentValueCode);
+                          return (
                           <TableRow key={v.id}>
                             <TableCell className="font-mono text-xs">{v.valueCode}</TableCell>
                             <TableCell>
                               {v.displayValue}
                               {v.description && (
                                 <p className="text-xs text-muted-foreground mt-0.5">{v.description}</p>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {v.parentValueCode ? (
+                                <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-300 font-mono">
+                                  {parentValue?.displayValue || v.parentValueCode}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
                               )}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
@@ -411,7 +427,8 @@ export default function AdminLookupsPage() {
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </CardContent>
@@ -499,6 +516,26 @@ export default function AdminLookupsPage() {
                       placeholder="Description (optional)"
                       className="text-xs h-9"
                     />
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
+                        Parent Value
+                        <span className="text-[9px] normal-case text-violet-600">(untuk cascading dropdown)</span>
+                      </Label>
+                      <select
+                        value={v.parentValueCode || ''}
+                        onChange={(e) => updateValueRow(idx, 'parentValueCode', e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      >
+                        <option value="">— No parent (root value) —</option>
+                        {form.values
+                          .filter((p) => p.valueCode && p.valueCode !== v.valueCode)
+                          .map((p) => (
+                            <option key={p.valueCode} value={p.valueCode}>
+                              {p.valueCode} — {p.displayValue}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label className="text-[10px] text-muted-foreground uppercase">Valid From</Label>

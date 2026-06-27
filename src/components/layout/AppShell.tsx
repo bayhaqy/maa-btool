@@ -127,6 +127,7 @@ const DashboardPage = dynamic(() => import('@/components/mdm/DashboardPage'), { 
 const ModulesPage = dynamic(() => import('@/components/mdm/ModulesPage'), { loading: () => <PageSkeleton /> });
 const ModuleDetailPage = dynamic(() => import('@/components/mdm/ModuleDetailPage'), { loading: () => <PageSkeleton /> });
 const DataRecordsPage = dynamic(() => import('@/components/mdm/DataRecordsPage'), { loading: () => <PageSkeleton /> });
+const GridEditorPage = dynamic(() => import('@/components/mdm/GridEditorPage'), { loading: () => <PageSkeleton /> });
 const RecordDetailPage = dynamic(() => import('@/components/mdm/RecordDetailPage'), { loading: () => <PageSkeleton /> });
 const WorkflowPage = dynamic(() => import('@/components/mdm/WorkflowPage'), { loading: () => <PageSkeleton /> });
 const HierarchyPage = dynamic(() => import('@/components/mdm/HierarchyPage'), { loading: () => <PageSkeleton /> });
@@ -284,6 +285,7 @@ function PageContent() {
     modules: <ModulesPage />,
     'module-detail': <ModuleDetailPage />,
     'data-records': <DataRecordsPage />,
+    'grid-editor': <GridEditorPage />,
     'record-detail': <RecordDetailPage />,
     workflow: <WorkflowPage />,
     hierarchy: <HierarchyPage />,
@@ -546,6 +548,7 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     modules: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Modules' }],
     'module-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Modules', page: 'modules' as PageView }, { label: 'Module Builder' }],
     'data-records': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records' }],
+    'grid-editor': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Grid Editor' }],
     'record-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Record Detail' }],
     workflow: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Workflow' }],
     hierarchy: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Hierarchy Manager' }],
@@ -694,6 +697,7 @@ export default function AppShell() {
       modules: 'Modules',
       'module-detail': 'Module Builder',
       'data-records': 'Data Records',
+      'grid-editor': 'Grid Editor',
       'record-detail': 'Record Detail',
       workflow: 'Approval Workflow',
       hierarchy: 'Hierarchy Manager',

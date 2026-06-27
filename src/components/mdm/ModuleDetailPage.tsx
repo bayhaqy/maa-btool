@@ -44,6 +44,7 @@ export default function ModuleDetailPage() {
     fieldCode: '', fieldName: '', dataType: 'TEXT',
     isRequired: false, isUnique: false, defaultValue: '',
     placeholder: '', description: '', sortOrder: 0, lookupMasterId: '',
+    cascadesFromFieldCode: '',
   });
 
   const [validationForm, setValidationForm] = useState({
@@ -92,11 +93,26 @@ export default function ModuleDetailPage() {
     if (!token || !selectedModuleId) return;
     setSaving(true);
     try {
+      // Map form state to API field names. The form uses lookupMasterId but
+      // the API expects lookupId; also pass cascadesFromFieldCode through.
+      const payload: Record<string, unknown> = {
+        fieldCode: fieldForm.fieldCode,
+        fieldName: fieldForm.fieldName,
+        dataType: fieldForm.dataType,
+        isRequired: fieldForm.isRequired,
+        isUnique: fieldForm.isUnique,
+        defaultValue: fieldForm.defaultValue,
+        placeholder: fieldForm.placeholder,
+        description: fieldForm.description,
+        sortOrder: fieldForm.sortOrder,
+        lookupId: fieldForm.lookupMasterId || null,
+        cascadesFromFieldCode: fieldForm.cascadesFromFieldCode || null,
+      };
       if (editField) {
         const res = await fetch('/api/fields', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ id: editField.id, ...fieldForm }),
+          body: JSON.stringify({ id: editField.id, ...payload }),
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || 'Failed to update'); return; }
@@ -105,7 +121,7 @@ export default function ModuleDetailPage() {
         const res = await fetch('/api/fields', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ moduleId: selectedModuleId, ...fieldForm }),
+          body: JSON.stringify({ moduleId: selectedModuleId, ...payload }),
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || 'Failed to create'); return; }
@@ -179,7 +195,8 @@ export default function ModuleDetailPage() {
       fieldCode: f.fieldCode, fieldName: f.fieldName, dataType: f.dataType,
       isRequired: f.isRequired, isUnique: f.isUnique, defaultValue: f.defaultValue || '',
       placeholder: f.placeholder || '', description: f.description || '',
-      sortOrder: f.sortOrder, lookupMasterId: f.lookupMasterId || '',
+      sortOrder: f.sortOrder, lookupMasterId: f.lookupId || f.lookupMaster?.id || '',
+      cascadesFromFieldCode: f.cascadesFromFieldCode || '',
     });
     setFieldDialogOpen(true);
   };
@@ -191,6 +208,7 @@ export default function ModuleDetailPage() {
       isRequired: false, isUnique: false, defaultValue: '',
       placeholder: '', description: '', sortOrder: (metaModule?.fields?.length || 0) + 1,
       lookupMasterId: '',
+      cascadesFromFieldCode: '',
     });
     setFieldDialogOpen(true);
   };
@@ -390,7 +408,7 @@ export default function ModuleDetailPage() {
                 />
               </div>
             </div>
-            {(fieldForm.dataType === 'SELECT' || fieldForm.dataType === 'LOOKUP') && (
+            {(fieldForm.dataType === 'SELECT' || fieldForm.dataType === 'LOOKUP' || fieldForm.dataType === 'MULTISELECT') && (
               <div className="space-y-2">
                 <Label>Lookup Source</Label>
                 <Select value={fieldForm.lookupMasterId} onValueChange={(v) => setFieldForm({ ...fieldForm, lookupMasterId: v })}>
@@ -399,6 +417,34 @@ export default function ModuleDetailPage() {
                     {lookups.map((l: any) => <SelectItem key={l.id} value={l.id}>{l.lookupName} ({l.lookupCode})</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {(fieldForm.dataType === 'SELECT' || fieldForm.dataType === 'LOOKUP') && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  Cascades From
+                  <Badge variant="outline" className="text-[9px] bg-violet-50 text-violet-700 border-violet-300 px-1 py-0">cascading dropdown</Badge>
+                </Label>
+                <Select
+                  value={fieldForm.cascadesFromFieldCode}
+                  onValueChange={(v) => setFieldForm({ ...fieldForm, cascadesFromFieldCode: v === '__NONE__' ? '' : v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="— None (flat list) —" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__NONE__">— None (flat list) —</SelectItem>
+                    {metaModule?.fields
+                      ?.filter((f: any) => f.fieldCode !== fieldForm.fieldCode && (f.dataType === 'SELECT' || f.dataType === 'LOOKUP'))
+                      .map((f: any) => (
+                        <SelectItem key={f.id} value={f.fieldCode}>
+                          {f.fieldName} ({f.fieldCode})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Pilih field induk. Opsi lookup ini akan di-filter berdasarkan nilai field induk
+                  (menggunakan <span className="font-mono">parentValueCode</span> di lookup).
+                </p>
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">

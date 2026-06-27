@@ -39,6 +39,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'modules',
     'module-detail',
     'data-records',
+    'grid-editor',
     'record-detail',
     'workflow',
     'hierarchy',
@@ -60,6 +61,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
   Manager: [
     'dashboard',
     'data-records',
+    'grid-editor',
     'record-detail',
     'workflow',
     'hierarchy',
@@ -74,6 +76,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
   'Data Entry': [
     'dashboard',
     'data-records',
+    'grid-editor',
     'record-detail',
     'workflow',
     'hierarchy',
@@ -86,6 +89,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
   Viewer: [
     'dashboard',
     'data-records',
+    'grid-editor',
     'record-detail',
     'hierarchy',
     'hierarchy-detail',

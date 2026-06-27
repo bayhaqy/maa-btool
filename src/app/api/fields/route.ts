@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     const {
       moduleId, fieldCode, fieldName, dataType,
       isRequired, isUnique, defaultValue, placeholder,
-      description, sortOrder, lookupId,
+      description, sortOrder, lookupId, cascadesFromFieldCode,
     } = body;
 
     if (!moduleId || !fieldCode || !fieldName || !dataType) {
@@ -112,6 +112,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Field code already exists in this module' }, { status: 409 });
     }
 
+    // Validate cascadesFromFieldCode references an existing field in same module
+    if (cascadesFromFieldCode) {
+      const parentField = await db.metaField.findUnique({
+        where: { moduleId_fieldCode: { moduleId, fieldCode: cascadesFromFieldCode } },
+      });
+      if (!parentField) {
+        return NextResponse.json(
+          { error: `cascadesFromFieldCode '${cascadesFromFieldCode}' not found in this module` },
+          { status: 422 }
+        );
+      }
+    }
+
     const field = await db.metaField.create({
       data: {
         moduleId,
@@ -125,6 +138,7 @@ export async function POST(request: NextRequest) {
         description,
         sortOrder: sortOrder ?? 0,
         lookupId: lookupId || null,
+        cascadesFromFieldCode: cascadesFromFieldCode || null,
       },
     });
 
@@ -147,7 +161,7 @@ export async function PUT(request: NextRequest) {
     const {
       id, fieldCode, fieldName, dataType,
       isRequired, isUnique, defaultValue, placeholder,
-      description, sortOrder, isActive, lookupId,
+      description, sortOrder, isActive, lookupId, cascadesFromFieldCode,
     } = body;
 
     if (!id) {
@@ -168,6 +182,19 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Validate cascadesFromFieldCode references an existing field in same module
+    if (cascadesFromFieldCode) {
+      const parentField = await db.metaField.findFirst({
+        where: { moduleId: existing.moduleId, fieldCode: cascadesFromFieldCode, isActive: true },
+      });
+      if (!parentField) {
+        return NextResponse.json(
+          { error: `cascadesFromFieldCode '${cascadesFromFieldCode}' not found in this module` },
+          { status: 422 }
+        );
+      }
+    }
+
     const field = await db.metaField.update({
       where: { id },
       data: {
@@ -181,7 +208,8 @@ export async function PUT(request: NextRequest) {
         ...(description !== undefined && { description }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isActive !== undefined && { isActive }),
-        ...(lookupId !== undefined && { lookupId }),
+        ...(lookupId !== undefined && { lookupId: lookupId || null }),
+        ...(cascadesFromFieldCode !== undefined && { cascadesFromFieldCode: cascadesFromFieldCode || null }),
       },
     });
 

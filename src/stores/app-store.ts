@@ -6,6 +6,7 @@ export type PageView =
   | 'modules'
   | 'module-detail'
   | 'data-records'
+  | 'grid-editor'
   | 'record-detail'
   | 'workflow'
   | 'hierarchy'

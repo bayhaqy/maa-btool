@@ -446,6 +446,82 @@
   scrollbar-color: oklch(0.35 0.01 0) transparent;
 }
 
+/* ===== Excel-like Grid Editor (GridEditorPage) ===== */
+.grid-table {
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: oklch(0.97 0 0);
+  border-bottom: 1px solid oklch(0.85 0 0);
+  border-right: 1px solid oklch(0.9 0 0);
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  user-select: none;
+}
+.dark .grid-table thead th {
+  background: oklch(0.22 0.012 250);
+  border-bottom-color: oklch(0.32 0 0);
+  border-right-color: oklch(0.28 0 0);
+}
+.grid-table .grid-th-corner {
+  z-index: 40; /* above other th AND above first-col body cells */
+}
+.grid-table .grid-th {
+  position: relative; /* for the resize handle */
+}
+.grid-table tbody td {
+  border-right: 1px solid oklch(0.94 0 0);
+  border-bottom: 1px solid oklch(0.94 0 0);
+  position: relative;
+}
+.dark .grid-table tbody td {
+  border-right-color: oklch(0.28 0 0);
+  border-bottom-color: oklch(0.28 0 0);
+}
+.grid-table .grid-td-first {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: inherit; /* keep row striping visible through sticky col */
+  border-right: 2px solid oklch(0.85 0 0);
+}
+.dark .grid-table .grid-td-first {
+  border-right-color: oklch(0.32 0 0);
+}
+/* Ensure first cell of each row preserves its striping background when sticky */
+.grid-table tbody tr:nth-child(odd) .grid-td-first {
+  background: oklch(1 0 0);
+}
+.grid-table tbody tr:nth-child(even) .grid-td-first {
+  background: oklch(0.97 0 0);
+}
+.dark .grid-table tbody tr:nth-child(odd) .grid-td-first {
+  background: oklch(0.18 0.012 250);
+}
+.dark .grid-table tbody tr:nth-child(even) .grid-td-first {
+  background: oklch(0.22 0.012 250);
+}
+/* Read-only cells get a muted bg that wins over row striping */
+.grid-table tbody tr[data-editable='false'] .grid-td-first {
+  background: oklch(0.94 0 0) !important;
+}
+.dark .grid-table tbody tr[data-editable='false'] .grid-td-first {
+  background: oklch(0.26 0.012 250) !important;
+}
+/* Dirty row sticky-first-cell keeps amber tint */
+.grid-table tbody tr[data-dirty='true'] .grid-td-first {
+  background: oklch(0.97 0.92 80 / 0.5) !important;
+}
+.dark .grid-table tbody tr[data-dirty='true'] .grid-td-first {
+  background: oklch(0.7 0.13 80 / 0.18) !important;
+}
+
 /* ===== Smooth Transition Utilities ===== */
 .transition-smooth {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

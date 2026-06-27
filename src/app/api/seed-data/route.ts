@@ -554,44 +554,46 @@ export async function POST(request: NextRequest) {
     if ((counts['ARTICLE_MASTER'] ?? 0) === 0) {
       const articleModule = getModule('ARTICLE_MASTER');
       if (articleModule) {
+        // Indonesian retail catalog with cascading category/sub_category pairs
+        // and MULTISELECT tags stored as comma-separated valueCodes.
         const articleData = [
           {
             payload: {
-              article_code: 'ART-001', article_name: 'Nike Air Max 90', category: 'CLOTHING',
-              sub_category: '', brand: 'Nike', uom: 'PCS', purchase_price: 1200000,
-              selling_price: 1899000, description: 'Nike Air Max 90 classic running shoes', is_active: true,
+              article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'SEPATU',
+              sub_category: 'SEPATU_RUNNING', brand: 'Nike', uom: 'PCS', purchase_price: 1200000,
+              selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — sepatu lari ringan dengan respons cushioning terbaik', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-002', article_name: 'Starbucks Frappuccino', category: 'FOOD',
-              sub_category: '', brand: 'Starbucks', uom: 'PCS', purchase_price: 35000,
-              selling_price: 65000, description: 'Starbucks bottled Frappuccino coffee drink', is_active: true,
+              article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU',
+              sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000,
+              selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-003', article_name: 'Zara Slim Fit Shirt', category: 'CLOTHING',
-              sub_category: '', brand: 'Zara', uom: 'PCS', purchase_price: 350000,
-              selling_price: 599000, description: 'Zara slim fit cotton shirt for men', is_active: true,
+              article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU',
+              sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000,
+              selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-004', article_name: 'Lego Technic Set', category: 'ELECTRONICS',
-              sub_category: '', brand: 'Lego', uom: 'BOX', purchase_price: 800000,
-              selling_price: 1299000, description: 'Lego Technic advanced building set', is_active: true,
+              article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS',
+              sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000,
+              selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true,
             },
             status: 'DRAFT' as const,
           },
           {
             payload: {
-              article_code: 'ART-005', article_name: 'Marks & Spencer Tea', category: 'FOOD',
-              sub_category: '', brand: 'M&S', uom: 'PACK', purchase_price: 45000,
-              selling_price: 89000, description: 'Marks & Spencer premium English tea collection', is_active: true,
+              article_code: 'ART-005', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS',
+              sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000,
+              selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true,
             },
             status: 'IN_REVIEW' as const,
           },

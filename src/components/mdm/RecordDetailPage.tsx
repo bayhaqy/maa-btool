@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -23,6 +25,7 @@ import {
   ArrowLeft, Save, Send, CheckCircle2, XCircle, Archive,
   Clock, FileText, GitBranch, History,
   Image as ImageIcon, Upload, X, Star, Loader2,
+  ChevronDown, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -432,6 +435,32 @@ export default function RecordDetailPage() {
     loadData();
   }, [loadData]);
 
+  // Cascading dropdown safety: when a parent field's value changes, auto-clear
+  // any child field whose cascadesFromFieldCode points to it AND whose current
+  // value is no longer in the filtered option set. Prevents stale child values
+  // like "Sepatu Running" lingering after the user switches Category to "Tas".
+  useEffect(() => {
+    if (!module?.fields || !isEditing) return;
+    const fieldsList = module.fields as any[];
+    let needsUpdate = false;
+    const next = { ...editPayload };
+    for (const f of fieldsList) {
+      const parentCode = f.cascadesFromFieldCode;
+      if (!parentCode) continue;
+      const currentValue = next[f.fieldCode];
+      if (!currentValue) continue;
+      const parentValue = next[parentCode];
+      const options = (f.lookupMaster?.values || []) as any[];
+      const filtered = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+      const stillValid = filtered.some((o: any) => o.valueCode === currentValue);
+      if (!stillValid) {
+        next[f.fieldCode] = '';
+        needsUpdate = true;
+      }
+    }
+    if (needsUpdate) setEditPayload(next);
+  }, [editPayload, module, isEditing]);
+
   const handleSave = async () => {
     if (!token) return;
     setSaving(true);
@@ -525,6 +554,30 @@ export default function RecordDetailPage() {
     }
 
     if (disabled) {
+      // For MULTISELECT/SELECT in view mode, render displayValue badges instead
+      // of raw codes for a friendlier read-only experience.
+      if (field.dataType === 'MULTISELECT' || field.dataType === 'SELECT' || field.dataType === 'LOOKUP') {
+        const options = field.lookupMaster?.values || [];
+        const codes: string[] = String(value || '').split(',').map((s) => s.trim()).filter(Boolean);
+        if (codes.length === 0) {
+          return (
+            <div className="px-3 py-2 border rounded-md bg-muted/30 min-h-[38px] flex items-center">
+              <span className="text-sm text-muted-foreground">-</span>
+            </div>
+          );
+        }
+        const labels = codes
+          .map((c) => options.find((o: any) => o.valueCode === c)?.displayValue || c);
+        return (
+          <div className="px-3 py-2 border rounded-md bg-muted/30 min-h-[38px] flex flex-wrap items-center gap-1.5">
+            {labels.map((label, i) => (
+              <Badge key={i} variant="secondary" className="text-[11px] bg-red-50 text-red-700 border-red-200">
+                {label}
+              </Badge>
+            ))}
+          </div>
+        );
+      }
       return (
         <div className="px-3 py-2 border rounded-md bg-muted/30 min-h-[38px] flex items-center">
           <span className="text-sm">{String(value) || '-'}</span>
@@ -546,20 +599,133 @@ export default function RecordDetailPage() {
     }
 
     if (field.dataType === 'SELECT' || field.dataType === 'LOOKUP') {
-      const options = field.lookupMaster?.values || [];
+      // Cascading dropdown: if this field has cascadesFromFieldCode set,
+      // filter lookupMaster.values to those whose parentValueCode matches
+      // the current value of the parent field within the same module.
+      let options = field.lookupMaster?.values || [];
+      const parentCode = field.cascadesFromFieldCode;
+      let parentValue: string | undefined;
+      if (parentCode) {
+        parentValue = editPayload[parentCode];
+        options = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+      }
       return (
-        <Select
-          value={String(value)}
-          onValueChange={(v) => setEditPayload({ ...editPayload, [field.fieldCode]: v })}
-          disabled={disabled}
-        >
-          <SelectTrigger><SelectValue placeholder={field.placeholder || 'Select...'} /></SelectTrigger>
-          <SelectContent>
-            {options.map((o: any) => (
-              <SelectItem key={o.valueCode} value={o.valueCode}>{o.displayValue}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="space-y-1.5">
+          <Select
+            value={String(value)}
+            onValueChange={(v) => setEditPayload({ ...editPayload, [field.fieldCode]: v })}
+            disabled={disabled}
+          >
+            <SelectTrigger><SelectValue placeholder={field.placeholder || 'Select...'} /></SelectTrigger>
+            <SelectContent>
+              {options.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                  {parentCode && !parentValue
+                    ? `Pilih ${parentCode} terlebih dulu`
+                    : 'Tidak ada opsi'}
+                </div>
+              ) : (
+                options.map((o: any) => (
+                  <SelectItem key={o.valueCode} value={o.valueCode}>{o.displayValue}</SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          {parentCode && (
+            <p className="text-[11px] text-muted-foreground">
+              Opsi tergantung pada field <span className="font-mono font-medium">{parentCode}</span>
+              {parentValue ? ` (= ${parentValue})` : ' (belum dipilih)'}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    if (field.dataType === 'MULTISELECT') {
+      // Multi-value list field. Stored as comma-separated valueCodes in the
+      // payload. Renders as a chip + checkbox popover.
+      const options = field.lookupMaster?.values || [];
+      const selectedCodes: string[] = String(value || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const selectedSet = new Set(selectedCodes);
+      const toggleCode = (code: string) => {
+        const next = new Set(selectedSet);
+        if (next.has(code)) next.delete(code); else next.add(code);
+        const nextStr = Array.from(next).join(',');
+        setEditPayload({ ...editPayload, [field.fieldCode]: nextStr });
+      };
+      const selectedLabels = options
+        .filter((o: any) => selectedSet.has(o.valueCode))
+        .map((o: any) => o.displayValue);
+      return (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                'flex w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm shadow-sm',
+                'ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                'disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent/40 min-h-[38px]'
+              )}
+              disabled={disabled}
+            >
+              <span className={cn('flex-1 truncate', selectedLabels.length === 0 && 'text-muted-foreground')}>
+                {selectedLabels.length === 0
+                  ? (field.placeholder || 'Pilih beberapa...')
+                  : selectedLabels.join(', ')}
+              </span>
+              {selectedLabels.length > 0 && (
+                <Badge variant="secondary" className="shrink-0 h-5 px-1.5 text-[10px]">{selectedLabels.length}</Badge>
+              )}
+              <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[260px] p-0" align="start">
+            <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
+              {options.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted-foreground italic">Tidak ada opsi</div>
+              ) : (
+                options.map((o: any) => {
+                  const checked = selectedSet.has(o.valueCode);
+                  return (
+                    <label
+                      key={o.valueCode}
+                      className={cn(
+                        'flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm cursor-pointer',
+                        'hover:bg-accent/60 transition-colors',
+                        checked && 'bg-red-50/60'
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleCode(o.valueCode)}
+                        className="data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                      />
+                      <span className="flex-1">{o.displayValue}</span>
+                      {checked && <Check className="w-3.5 h-3.5 text-red-600" />}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            {selectedLabels.length > 0 && (
+              <div className="border-t px-2 py-1.5 flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground">{selectedLabels.length} dipilih</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={() => setEditPayload({ ...editPayload, [field.fieldCode]: '' })}
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
       );
     }
 

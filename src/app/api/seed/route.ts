@@ -301,19 +301,22 @@ export async function POST(request: NextRequest) {
     // 5. CREATE FIELDS FOR EACH MODULE (with IMAGE fields added)
     // ============================================================
 
-    // Article Master Fields (11 fields - added images)
+    // Article Master Fields (12 fields — added cascading sub_category + MULTISELECT tags)
+    // sub_category now uses cascadesFromFieldCode='category' so its options are
+    // filtered by the chosen category (e.g. Sepatu → Sepatu Running/Sneakers/Sekolah).
     const articleFields = await Promise.all([
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'article_code', fieldName: 'Article Code', dataType: 'TEXT', isRequired: true, isUnique: true, placeholder: 'e.g. ART-001', sortOrder: 1 } }),
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'article_name', fieldName: 'Article Name', dataType: 'TEXT', isRequired: true, isUnique: false, placeholder: 'Product name', sortOrder: 2 } }),
-      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'category', fieldName: 'Category', dataType: 'SELECT', isRequired: true, isUnique: false, placeholder: 'Select category', sortOrder: 3 } }),
-      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'sub_category', fieldName: 'Sub Category', dataType: 'SELECT', isRequired: false, isUnique: false, placeholder: 'Select sub-category', sortOrder: 4 } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'category', fieldName: 'Category', dataType: 'SELECT', isRequired: true, isUnique: false, placeholder: 'Select category', sortOrder: 3, description: 'Pilih kategori utama. Sub Category akan menyesuaikan pilihan.' } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'sub_category', fieldName: 'Sub Category', dataType: 'SELECT', isRequired: false, isUnique: false, placeholder: 'Select sub-category', sortOrder: 4, cascadesFromFieldCode: 'category', description: 'Pilihan sub-kategori tergantung pada Category yang dipilih.' } }),
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'brand', fieldName: 'Brand', dataType: 'TEXT', isRequired: false, isUnique: false, placeholder: 'Brand name', sortOrder: 5 } }),
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'uom', fieldName: 'Unit of Measure', dataType: 'SELECT', isRequired: true, isUnique: false, placeholder: 'e.g. PCS, KG, LTR', sortOrder: 6 } }),
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'purchase_price', fieldName: 'Purchase Price', dataType: 'NUMBER', isRequired: false, isUnique: false, placeholder: '0.00', sortOrder: 7 } }),
       db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'selling_price', fieldName: 'Selling Price', dataType: 'NUMBER', isRequired: false, isUnique: false, placeholder: '0.00', sortOrder: 8 } }),
-      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'description', fieldName: 'Description', dataType: 'TEXT', isRequired: false, isUnique: false, placeholder: 'Article description', sortOrder: 9 } }),
-      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'is_active', fieldName: 'Active', dataType: 'BOOLEAN', isRequired: false, isUnique: false, defaultValue: 'true', sortOrder: 10 } }),
-      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'images', fieldName: 'Product Images', dataType: 'IMAGE', isRequired: false, isUnique: false, placeholder: 'Upload product images', sortOrder: 11 } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'tags', fieldName: 'Tags', dataType: 'MULTISELECT', isRequired: false, isUnique: false, placeholder: 'Pick tags', sortOrder: 9, description: 'Multi-value list field (New Arrival, Best Seller, etc.)' } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'description', fieldName: 'Description', dataType: 'TEXT', isRequired: false, isUnique: false, placeholder: 'Article description', sortOrder: 10 } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'is_active', fieldName: 'Active', dataType: 'BOOLEAN', isRequired: false, isUnique: false, defaultValue: 'true', sortOrder: 11 } }),
+      db.metaField.create({ data: { moduleId: moduleArticle.id, fieldCode: 'images', fieldName: 'Product Images', dataType: 'IMAGE', isRequired: false, isUnique: false, placeholder: 'Upload product images', sortOrder: 12 } }),
     ]);
 
     // Budget Fields
@@ -457,14 +460,66 @@ export async function POST(request: NextRequest) {
       }),
       db.lookupMaster.create({
         data: {
-          lookupCode: 'CATEGORY', lookupName: 'Article Category', description: 'Product categories for articles',
+          lookupCode: 'CATEGORY', lookupName: 'Article Category', description: 'Kategori utama artikel (Indonesian retail taxonomy)',
           values: { create: [
-            { valueCode: 'FOOD', displayValue: 'Food & Beverage', sortOrder: 0 },
-            { valueCode: 'ELECTRONICS', displayValue: 'Electronics', sortOrder: 1 },
-            { valueCode: 'CLOTHING', displayValue: 'Clothing & Apparel', sortOrder: 2 },
-            { valueCode: 'HOUSEHOLD', displayValue: 'Household Items', sortOrder: 3 },
-            { valueCode: 'HEALTH', displayValue: 'Health & Beauty', sortOrder: 4 },
-            { valueCode: 'STATIONERY', displayValue: 'Stationery', sortOrder: 5 },
+            { valueCode: 'SEPATU', displayValue: 'Sepatu', sortOrder: 0 },
+            { valueCode: 'TAS', displayValue: 'Tas', sortOrder: 1 },
+            { valueCode: 'PAKAIAN', displayValue: 'Pakaian', sortOrder: 2 },
+            { valueCode: 'AKSESORIS', displayValue: 'Aksesoris', sortOrder: 3 },
+            { valueCode: 'MAKANAN', displayValue: 'Makanan & Minuman', sortOrder: 4 },
+            { valueCode: 'ELEKTRONIK', displayValue: 'Elektronik', sortOrder: 5 },
+          ] },
+        },
+      }),
+      // Sub-category lookup with parentValueCode → cascading dropdowns.
+      // Each child value points back to a CATEGORY value via parentValueCode,
+      // so the form filters sub_category options based on the chosen category.
+      db.lookupMaster.create({
+        data: {
+          lookupCode: 'SUB_CATEGORY', lookupName: 'Article Sub Category', description: 'Sub-kategori artikel dengan relasi ke Category (cascading)',
+          values: { create: [
+            // SEPATU children
+            { valueCode: 'SEPATU_RUNNING', displayValue: 'Sepatu Running', parentValueCode: 'SEPATU', sortOrder: 0 },
+            { valueCode: 'SEPATU_SEKOLAH', displayValue: 'Sepatu Sekolah', parentValueCode: 'SEPATU', sortOrder: 1 },
+            { valueCode: 'SEPATU_SNEAKERS', displayValue: 'Sepatu Sneakers', parentValueCode: 'SEPATU', sortOrder: 2 },
+            { valueCode: 'SEPATU_SANDAL', displayValue: 'Sepatu Sandal', parentValueCode: 'SEPATU', sortOrder: 3 },
+            { valueCode: 'SEPATU_BOOT', displayValue: 'Sepatu Boot', parentValueCode: 'SEPATU', sortOrder: 4 },
+            // TAS children
+            { valueCode: 'TAS_SEKOLAH', displayValue: 'Tas Sekolah', parentValueCode: 'TAS', sortOrder: 5 },
+            { valueCode: 'TAS_KERJA', displayValue: 'Tas Kerja', parentValueCode: 'TAS', sortOrder: 6 },
+            { valueCode: 'TAS_RANSEL', displayValue: 'Tas Ransel', parentValueCode: 'TAS', sortOrder: 7 },
+            { valueCode: 'TAS_TANGAN', displayValue: 'Tas Tangan', parentValueCode: 'TAS', sortOrder: 8 },
+            // PAKAIAN children
+            { valueCode: 'PAKAIAN_PRIA', displayValue: 'Pakaian Pria', parentValueCode: 'PAKAIAN', sortOrder: 9 },
+            { valueCode: 'PAKAIAN_WANITA', displayValue: 'Pakaian Wanita', parentValueCode: 'PAKAIAN', sortOrder: 10 },
+            { valueCode: 'PAKAIAN_ANAK', displayValue: 'Pakaian Anak', parentValueCode: 'PAKAIAN', sortOrder: 11 },
+            // AKSESORIS children
+            { valueCode: 'AKS_JAM_TANGAN', displayValue: 'Jam Tangan', parentValueCode: 'AKSESORIS', sortOrder: 12 },
+            { valueCode: 'AKS_KACAMATA', displayValue: 'Kacamata', parentValueCode: 'AKSESORIS', sortOrder: 13 },
+            { valueCode: 'AKS_TOPI', displayValue: 'Topi', parentValueCode: 'AKSESORIS', sortOrder: 14 },
+            { valueCode: 'AKS_SABUK', displayValue: 'Sabuk', parentValueCode: 'AKSESORIS', sortOrder: 15 },
+            // MAKANAN children
+            { valueCode: 'MAKANAN_RINGAN', displayValue: 'Makanan Ringan', parentValueCode: 'MAKANAN', sortOrder: 16 },
+            { valueCode: 'MINUMAN', displayValue: 'Minuman', parentValueCode: 'MAKANAN', sortOrder: 17 },
+            // ELEKTRONIK children
+            { valueCode: 'ELEK_HP', displayValue: 'Handphone', parentValueCode: 'ELEKTRONIK', sortOrder: 18 },
+            { valueCode: 'ELEK_LAPTOP', displayValue: 'Laptop', parentValueCode: 'ELEKTRONIK', sortOrder: 19 },
+            { valueCode: 'ELEK_AKSESORIS', displayValue: 'Aksesoris Elektronik', parentValueCode: 'ELEKTRONIK', sortOrder: 20 },
+          ] },
+        },
+      }),
+      // MULTISELECT source for the Article tags field
+      db.lookupMaster.create({
+        data: {
+          lookupCode: 'ARTICLE_TAGS', lookupName: 'Article Tags', description: 'Multi-select tag list for articles (New Arrival, Best Seller, etc.)',
+          values: { create: [
+            { valueCode: 'NEW_ARRIVAL', displayValue: 'New Arrival', sortOrder: 0 },
+            { valueCode: 'BEST_SELLER', displayValue: 'Best Seller', sortOrder: 1 },
+            { valueCode: 'SALE', displayValue: 'Sale', sortOrder: 2 },
+            { valueCode: 'FEATURED', displayValue: 'Featured', sortOrder: 3 },
+            { valueCode: 'LIMITED', displayValue: 'Limited Edition', sortOrder: 4 },
+            { valueCode: 'EXCLUSIVE', displayValue: 'Exclusive', sortOrder: 5 },
+            { valueCode: 'PREMIUM', displayValue: 'Premium', sortOrder: 6 },
           ] },
         },
       }),
@@ -684,8 +739,9 @@ export async function POST(request: NextRequest) {
     const fieldLookupUpdates: Array<{ fieldCode: string; lookupCode: string }> = [
       // Article Master
       { fieldCode: 'category', lookupCode: 'CATEGORY' },
-      { fieldCode: 'sub_category', lookupCode: 'CATEGORY' },
+      { fieldCode: 'sub_category', lookupCode: 'SUB_CATEGORY' }, // cascading child of category
       { fieldCode: 'uom', lookupCode: 'UOM' },
+      { fieldCode: 'tags', lookupCode: 'ARTICLE_TAGS' }, // MULTISELECT source
       // Budget
       { fieldCode: 'department', lookupCode: 'DEPARTMENT' },
       { fieldCode: 'status', lookupCode: 'BUDGET_STATUS' },
@@ -760,41 +816,78 @@ export async function POST(request: NextRequest) {
     // 10. CREATE SAMPLE DATA RECORDS
     // ============================================================
 
-    // ARTICLE_MASTER records in MAPI company
+    // ARTICLE_MASTER records in MAPI company — Indonesian retail catalog with
+    // cascading category/sub_category pairs (Sepatu→Running, Tas→Ransel, etc.)
+    // and MULTISELECT tags stored as comma-separated valueCodes.
     const articleRecords = await Promise.all([
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-001', article_name: 'Nike Air Max 90', category: 'CLOTHING', sub_category: '', brand: 'Nike', uom: 'PCS', purchase_price: 1200000, selling_price: 1899000, description: 'Nike Air Max 90 classic running shoes', is_active: true }),
+          currentPayload: JSON.stringify({ article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'SEPATU', sub_category: 'SEPATU_RUNNING', brand: 'Nike', uom: 'PCS', purchase_price: 1200000, selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — sepatu lari ringan dengan respons cushioning terbaik', is_active: true }),
           createdById: userSuperAdmin.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-002', article_name: 'Starbucks Frappuccino', category: 'FOOD', sub_category: '', brand: 'Starbucks', uom: 'PCS', purchase_price: 35000, selling_price: 65000, description: 'Starbucks bottled Frappuccino coffee drink', is_active: true }),
+          currentPayload: JSON.stringify({ article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU', sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000, selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true }),
           createdById: userDataEntryMAPI.id, updatedById: userDataEntryMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-003', article_name: 'Zara Slim Fit Shirt', category: 'CLOTHING', sub_category: '', brand: 'Zara', uom: 'PCS', purchase_price: 350000, selling_price: 599000, description: 'Zara slim fit cotton shirt for men', is_active: true }),
+          currentPayload: JSON.stringify({ article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU', sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000, selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true }),
+          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+        },
+      }),
+      db.dataRecord.create({
+        data: {
+          moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
+          currentPayload: JSON.stringify({ article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS', sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000, selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true }),
+          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+        },
+      }),
+      db.dataRecord.create({
+        data: {
+          moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
+          currentPayload: JSON.stringify({ article_code: 'ART-005', article_name: 'Consina Briefcase Kerja', category: 'TAS', sub_category: 'TAS_KERJA', brand: 'Consina', uom: 'PCS', purchase_price: 425000, selling_price: 750000, tags: 'PREMIUM', description: 'Tas kerja briefcase Consina kulit PU, muat laptop 15 inch', is_active: true }),
+          createdById: userDataEntryMAPI.id, updatedById: userManagerMAPI.id,
+        },
+      }),
+      db.dataRecord.create({
+        data: {
+          moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
+          currentPayload: JSON.stringify({ article_code: 'ART-006', article_name: 'Uniqlo Dry EZ Pria Kaos', category: 'PAKAIAN', sub_category: 'PAKAIAN_PRIA', brand: 'Uniqlo', uom: 'PCS', purchase_price: 79000, selling_price: 149000, tags: 'NEW_ARRIVAL', description: 'Kaos Uniqlo Dry EZ pria, material kering cepat & anti kusut', is_active: true }),
+          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+        },
+      }),
+      db.dataRecord.create({
+        data: {
+          moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
+          currentPayload: JSON.stringify({ article_code: 'ART-007', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS', sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000, selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true }),
           createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'DRAFT',
-          currentPayload: JSON.stringify({ article_code: 'ART-004', article_name: 'Lego Technic Set', category: 'ELECTRONICS', sub_category: '', brand: 'Lego', uom: 'BOX', purchase_price: 800000, selling_price: 1299000, description: 'Lego Technic advanced building set', is_active: true }),
+          currentPayload: JSON.stringify({ article_code: 'ART-008', article_name: 'Komachi Sandal Jepang Slide', category: 'SEPATU', sub_category: 'SEPATU_SANDAL', brand: 'Komachi', uom: 'PCS', purchase_price: 35000, selling_price: 79000, tags: 'SALE', description: 'Sandal jepang slide Komachi empuk, anti slip', is_active: true }),
           createdById: userDataEntryMAPI.id, updatedById: userDataEntryMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'IN_REVIEW',
-          currentPayload: JSON.stringify({ article_code: 'ART-005', article_name: 'Marks & Spencer Tea', category: 'FOOD', sub_category: '', brand: 'M&S', uom: 'PACK', purchase_price: 45000, selling_price: 89000, description: 'Marks & Spencer premium English tea collection', is_active: true }),
+          currentPayload: JSON.stringify({ article_code: 'ART-009', article_name: 'Timbuk2 Messenger Tas Tangan', category: 'TAS', sub_category: 'TAS_TANGAN', brand: 'Timbuk2', uom: 'PCS', purchase_price: 650000, selling_price: 1199000, tags: 'LIMITED,FEATURED', description: 'Tas tangan messenger Timbuk2 edisi terbatas, waterproof liner', is_active: true }),
           createdById: userDataEntryMAPI.id, updatedById: userManagerMAPI.id,
+        },
+      }),
+      db.dataRecord.create({
+        data: {
+          moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
+          currentPayload: JSON.stringify({ article_code: 'ART-010', article_name: 'Dr. Martens 1460 Boot', category: 'SEPATU', sub_category: 'SEPATU_BOOT', brand: 'Dr. Martens', uom: 'PCS', purchase_price: 1850000, selling_price: 2899000, tags: 'PREMIUM,EXCLUSIVE', description: 'Dr. Martens 1460 boot 8-eye klasik, kulit premium Made In England', is_active: true }),
+          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
     ]);

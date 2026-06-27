@@ -16,7 +16,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Building2, XCircle } from 'lucide-react';
+import { FileText, Plus, ChevronLeft, ChevronRight, Search, Building2, XCircle, LayoutGrid } from 'lucide-react';
 
 const STATUS_TABS = ['ALL', 'DRAFT', 'IN_REVIEW', 'ACTIVE', 'REVISION_PENDING', 'REJECTED', 'ARCHIVED'];
 
@@ -176,6 +176,19 @@ export default function DataRecordsPage() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            className="h-11"
+            onClick={() => {
+              if (activeModuleId) {
+                navigate('grid-editor', { moduleId: activeModuleId });
+              }
+            }}
+            disabled={!activeModuleId}
+            title="Switch to Excel-like grid editor"
+          >
+            <LayoutGrid className="w-4 h-4 mr-2" /> Grid View
+          </Button>
           <Button
             className="bg-red-600 hover:bg-red-700 text-white h-11"
             onClick={() => {

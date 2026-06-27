@@ -438,7 +438,121 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use ?action=update or ?action=transition' }, { status: 400 });
+    // ============================================================
+    // Handle bulk update (Excel-like grid editor)
+    // PUT /api/records?action=bulk-update
+    // Body: { changes: Array<{ id: string, payload: Record<string, unknown> }> }
+    // Only updates records that are in DRAFT or REVISION_PENDING status.
+    // ACTIVE records are skipped with a per-row error (amendment workflow
+    // should be used for those). Returns { updated: [...], errors: [...] }.
+    // ============================================================
+    if (action === 'bulk-update') {
+      if (!hasPermission(tokenPayload.roles, 'data:write')) {
+        return NextResponse.json({ error: 'Insufficient permissions to update records' }, { status: 403 });
+      }
+
+      const { changes } = body;
+      if (!Array.isArray(changes) || changes.length === 0) {
+        return NextResponse.json({ error: 'changes array is required and must not be empty' }, { status: 400 });
+      }
+      if (changes.length > 500) {
+        return NextResponse.json({ error: 'Too many changes in one request (max 500). Please save in smaller batches.' }, { status: 413 });
+      }
+
+      const isSA = checkSuperAdmin(tokenPayload.roles);
+      const updated: Array<{ id: string; status: string }> = [];
+      const errors: Array<{ id: string; error: string }> = [];
+
+      // Pre-fetch all records in one query for efficiency + RLS check
+      const recordIds = changes.map((c: { id: string }) => c.id);
+      const existingRecords = await db.dataRecord.findMany({
+        where: { id: { in: recordIds } },
+        select: { id: true, moduleId: true, companyId: true, status: true, currentPayload: true },
+      });
+      const recordMap = new Map(existingRecords.map((r) => [r.id, r]));
+
+      // Group by module so we can cache field validations per module
+      const moduleFieldsCache = new Map<string, Awaited<ReturnType<typeof db.metaField.findMany>>>();
+
+      for (const change of changes) {
+        const { id, payload } = change as { id: string; payload: Record<string, unknown> };
+        if (!id || !payload) {
+          errors.push({ id: id || '(missing)', error: 'id and payload are required' });
+          continue;
+        }
+        const record = recordMap.get(id);
+        if (!record) {
+          errors.push({ id, error: 'Record not found' });
+          continue;
+        }
+        // RLS check
+        if (!isSA && record.companyId !== tokenPayload.companyId) {
+          errors.push({ id, error: 'Access denied (company mismatch)' });
+          continue;
+        }
+        // Only DRAFT and REVISION_PENDING can be bulk-edited directly.
+        // ACTIVE records require the amendment workflow (single-record update).
+        if (record.status !== STATUS_DRAFT && record.status !== STATUS_REVISION_PENDING) {
+          errors.push({ id, error: `Cannot bulk-edit record in ${record.status} status. Use the single-record form to request an amendment.` });
+          continue;
+        }
+
+        // Cache module fields for validation
+        if (!moduleFieldsCache.has(record.moduleId)) {
+          moduleFieldsCache.set(record.moduleId, await db.metaField.findMany({
+            where: { moduleId: record.moduleId, isActive: true },
+            include: { validations: true },
+          }));
+        }
+
+        // Inline validation (mirrors validatePayload but uses cached fields)
+        const fields = moduleFieldsCache.get(record.moduleId)!;
+        const rowErrors: string[] = [];
+        for (const field of fields) {
+          const value = payload[field.fieldCode];
+          if (field.isRequired && (value === undefined || value === null || value === '')) {
+            rowErrors.push(`Field "${field.fieldName}" (${field.fieldCode}) is required`);
+            continue;
+          }
+          if (value === undefined || value === null || value === '') continue;
+          if (field.dataType === 'NUMBER' && isNaN(Number(value))) {
+            rowErrors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a number`);
+          }
+          if (field.dataType === 'EMAIL' && typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+            rowErrors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid email`);
+          }
+          if (field.dataType === 'URL' && typeof value === 'string' && !/^https?:\/\/.+/.test(value)) {
+            rowErrors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
+          }
+        }
+        if (rowErrors.length > 0) {
+          errors.push({ id, error: rowErrors.join('; ') });
+          continue;
+        }
+
+        try {
+          await db.dataRecord.update({
+            where: { id },
+            data: {
+              currentPayload: JSON.stringify(payload),
+              updatedById: tokenPayload.userId,
+            },
+          });
+          updated.push({ id, status: record.status });
+        } catch (err) {
+          errors.push({ id, error: err instanceof Error ? err.message : 'Update failed' });
+        }
+      }
+
+      return NextResponse.json({
+        updated,
+        errors,
+        updatedCount: updated.length,
+        errorCount: errors.length,
+      });
+    }
+
+    return NextResponse.json({ error: 'Invalid action. Use ?action=update, ?action=transition, or ?action=bulk-update' }, { status: 400 });
   } catch (error) {
     console.error('Records PUT error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

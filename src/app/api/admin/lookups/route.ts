@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
               description?: string;
               validFrom?: string;
               validTo?: string;
+              parentValueCode?: string;
             },
             index: number
           ) => ({
@@ -104,6 +105,7 @@ export async function POST(request: NextRequest) {
             description: v.description || null,
             validFrom: v.validFrom ? new Date(v.validFrom) : null,
             validTo: v.validTo ? new Date(v.validTo) : null,
+            parentValueCode: v.parentValueCode || null,
             sortOrder: index,
           })),
         },
@@ -179,8 +181,23 @@ export async function PUT(request: NextRequest) {
 
     // Upsert each value (preserves IDs, isActive, createdAt) — fixes destructive deleteMany+createMany bug
     if (values !== undefined) {
+      // Pre-fetch existing active values so we can resolve parentValueCode → parentValueId
+      // for cascading lookups. (parentValueCode is the stable, import-friendly reference.)
+      const existingValues = await db.lookupValue.findMany({
+        where: { lookupId: id },
+        select: { id: true, valueCode: true },
+      });
+      const valueCodeToId = new Map(existingValues.map((v) => [v.valueCode, v.id]));
+
       for (let i = 0; i < values.length; i++) {
         const v = values[i];
+        // Resolve parentValueCode → parentValueId (within same lookup)
+        let parentValueId: string | null = null;
+        if (v.parentValueCode) {
+          parentValueId = valueCodeToId.get(v.parentValueCode) ?? null;
+          // If the parent value is part of this same submitted batch but not yet upserted,
+          // we'll fall back to a lookup after the upsert loop completes.
+        }
         await db.lookupValue.upsert({
           where: { lookupId_valueCode: { lookupId: id, valueCode: v.valueCode } },
           create: {
@@ -190,6 +207,8 @@ export async function PUT(request: NextRequest) {
             description: v.description || null,
             validFrom: v.validFrom ? new Date(v.validFrom) : null,
             validTo: v.validTo ? new Date(v.validTo) : null,
+            parentValueCode: v.parentValueCode || null,
+            parentValueId: parentValueId,
             sortOrder: i,
             isActive: true,
           },
@@ -198,10 +217,30 @@ export async function PUT(request: NextRequest) {
             description: v.description || null,
             validFrom: v.validFrom ? new Date(v.validFrom) : null,
             validTo: v.validTo ? new Date(v.validTo) : null,
+            parentValueCode: v.parentValueCode || null,
+            parentValueId: parentValueId,
             sortOrder: i,
             isActive: true,
           },
         });
+      }
+      // Second pass: now that all values exist, re-link parentValueId for any value
+      // whose parent was inserted later in the batch.
+      const refreshedValues = await db.lookupValue.findMany({
+        where: { lookupId: id, isActive: true },
+        select: { id: true, valueCode: true, parentValueCode: true, parentValueId: true },
+      });
+      const codeToIdFresh = new Map(refreshedValues.map((v) => [v.valueCode, v.id]));
+      for (const rv of refreshedValues) {
+        if (rv.parentValueCode) {
+          const expectedParentId = codeToIdFresh.get(rv.parentValueCode) ?? null;
+          if (rv.parentValueId !== expectedParentId) {
+            await db.lookupValue.update({
+              where: { id: rv.id },
+              data: { parentValueId: expectedParentId },
+            });
+          }
+        }
       }
       // Soft-delete values not in the submitted array (deactivate instead of delete)
       const submittedCodes = values.map((v: { valueCode: string }) => v.valueCode);

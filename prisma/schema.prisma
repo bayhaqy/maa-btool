@@ -134,6 +134,11 @@ model MetaField {
   description  String?
   sortOrder    Int     @default(0)
   isActive     Boolean @default(true)
+  // Cascading dropdown: when set, this SELECT/LOOKUP field's options are filtered
+  // by the value of the field whose fieldCode === cascadesFromFieldCode (within
+  // the same module). The lookupMaster.values are filtered where parentValueCode
+  // matches the parent field's current value. Enables Category -> SubCategory.
+  cascadesFromFieldCode String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -176,6 +181,12 @@ model LookupValue {
   valueCode    String
   displayValue String
   description  String?
+  // Cascading lookup support: a child value (e.g. "Sepatu Running") can point
+  // to a parent value (e.g. "Sepatu") via parentValueId (FK) and parentValueCode
+  // (denormalized for fast filter & seed imports). Both nullable so existing
+  // flat lookups continue to work unchanged.
+  parentValueId   String?
+  parentValueCode String?
   validFrom    DateTime?
   validTo      DateTime?
   isActive     Boolean   @default(true)
@@ -184,6 +195,8 @@ model LookupValue {
   updatedAt    DateTime  @default(now()) @updatedAt
 
   lookup LookupMaster @relation(fields: [lookupId], references: [id], onDelete: Cascade)
+  parent LookupValue? @relation("LookupValueTree", fields: [parentValueId], references: [id], onDelete: SetNull)
+  children LookupValue[] @relation("LookupValueTree")
 
   @@unique([lookupId, valueCode])
 }
