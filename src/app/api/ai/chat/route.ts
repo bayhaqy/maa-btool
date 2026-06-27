@@ -310,7 +310,8 @@ export async function POST(request: NextRequest) {
       }
     } catch (aiError) {
       console.error('AI provider error (falling back to demo mode):', aiError);
-      aiResponse = generateFallbackResponse(message, false);
+      // AI is configured but failed (e.g. quota exceeded), pass true to avoid "not configured" message
+      aiResponse = generateFallbackResponse(message, aiConfigured);
     }
 
     const assistantMessage = await db.aiMessage.create({
@@ -441,7 +442,7 @@ export async function DELETE(request: NextRequest) {
 function generateFallbackResponse(userMessage: string, aiConfigured: boolean): string {
   const lower = userMessage.toLowerCase();
   const prefix = aiConfigured
-    ? ''
+    ? '_Note: The AI provider is temporarily unavailable (e.g., quota exceeded or network error). Showing a fallback response. Please try again later or check your API key in AI Settings._\n\n'
     : '_Note: AI service is not configured — showing a demo response. Once the API key is set, full AI responses will be available._\n\n';
 
   let body = '';
