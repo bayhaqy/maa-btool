@@ -2064,9 +2064,15 @@ function CellRenderer({
         {primary ? (
           <button
             type="button"
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              if (canOpenLightbox) onOpenLightbox?.();
+              e.preventDefault();
+              // Always open the lightbox when there's a primary image — the
+              // !isActive guard in canOpenLightbox is only for cursor styling,
+              // not for blocking the click (clicking must not depend on cell
+              // activation state, which flips on mousedown before onClick).
+              onOpenLightbox?.();
             }}
             className={cn(
               'w-7 h-7 rounded border border-border flex-shrink-0 overflow-hidden p-0',
@@ -2092,6 +2098,7 @@ function CellRenderer({
               'w-7 h-7 rounded border border-dashed border-muted-foreground/40 flex items-center justify-center flex-shrink-0',
               canOpenLightbox && 'cursor-zoom-in hover:border-red-400'
             )}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               if (!canOpenLightbox) return;
               e.stopPropagation();
