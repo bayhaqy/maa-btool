@@ -46,6 +46,7 @@ import {
   Zap,
   BookTemplate,
   CheckCheck,
+  Brain,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -150,6 +151,7 @@ const SystemHealthPage = dynamic(() => import('@/components/mdm/SystemHealthPage
 const BulkJobsPage = dynamic(() => import('@/components/mdm/BulkJobsPage'), { loading: () => <PageSkeleton /> });
 const AiPromptsPage = dynamic(() => import('@/components/mdm/AiPromptsPage'), { loading: () => <PageSkeleton /> });
 const AiReviewPage = dynamic(() => import('@/components/mdm/AiReviewPage'), { loading: () => <PageSkeleton /> });
+const AiSettingsPage = dynamic(() => import('@/components/mdm/AiSettingsPage'), { loading: () => <PageSkeleton /> });
 
 interface NavItem {
   label: string;
@@ -186,6 +188,7 @@ const toolsNav: NavItem[] = [
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles },
   { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate },
   { label: 'AI Review', page: 'ai-review', icon: CheckCheck },
+  { label: 'AI Settings', page: 'ai-settings', icon: Brain },
 ];
 
 const integrationsNav: NavItem[] = [
@@ -311,6 +314,7 @@ function PageContent() {
     'ai-assistant': <AiAssistantPage />,
     'ai-prompts': <AiPromptsPage />,
     'ai-review': <AiReviewPage />,
+    'ai-settings': <AiSettingsPage />,
     'api-management': <ApiManagementPage />,
     'brand-settings': <BrandSettingsPage />,
     'system-health': <SystemHealthPage />,
@@ -577,6 +581,7 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     'ai-assistant': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Assistant' }],
     'ai-prompts': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Prompts' }],
     'ai-review': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Review' }],
+    'ai-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI & Intelligence' }, { label: 'AI Settings' }],
     'api-management': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Integrations' }, { label: 'API Management' }],
     'brand-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Settings' }],
     'system-health': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'System Health' }],
@@ -611,6 +616,7 @@ const searchNavigationItems: SearchCommandItem[] = [
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles, keywords: ['chat', 'ai', 'assistant', 'bot'] },
   { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate, keywords: ['ai', 'prompt', 'template', 'stibo', 'genai', 'pttt', 'gaidgrp'] },
   { label: 'AI Review', page: 'ai-review', icon: CheckCheck, keywords: ['ai', 'review', 'queue', 'approve', 'reject', 'pending'] },
+  { label: 'AI Settings', page: 'ai-settings', icon: Brain, keywords: ['ai', 'settings', 'provider', 'api', 'key', 'gemini', 'openai', 'configuration'] },
   { label: 'API Management', page: 'api-management', icon: Key, keywords: ['api', 'keys', 'rest', 'integration'] },
   { label: 'Settings', page: 'brand-settings', icon: Palette, keywords: ['brand', 'customization', 'logo', 'theme', 'style', 'settings'] },
   { label: 'System Health', page: 'system-health', icon: Activity, keywords: ['status', 'health', 'monitoring', 'services', 'system', 'uptime'] },
@@ -732,6 +738,7 @@ export default function AppShell() {
       'ai-assistant': 'AI Assistant',
       'ai-prompts': 'AI Prompt Library',
       'ai-review': 'AI Review Queue',
+      'ai-settings': 'AI Settings',
       'api-management': 'API Management',
       'brand-settings': 'Settings',
       'system-health': 'System Health',

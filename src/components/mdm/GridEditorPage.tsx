@@ -62,6 +62,8 @@ import {
   Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ImageLightbox, { type LightboxImage } from '@/components/mdm/ImageLightbox';
+import GridImageCell, { type GridImageInfo } from '@/components/mdm/GridImageCell';
 
 // ============================================================================
 // Types
@@ -132,7 +134,9 @@ type FilterOperator =
   | 'greater_or_equal'
   | 'less_or_equal'
   | 'is_true'
-  | 'is_false';
+  | 'is_false'
+  | 'has_image'
+  | 'no_image';
 
 type FilterConnector = 'AND' | 'OR';
 
@@ -177,6 +181,8 @@ function getOperatorsForDataType(dataType: string): FilterOperator[] {
     case 'MULTISELECT':
     case 'LOOKUP':
       return ['equals', 'not_equals', 'is_empty', 'is_not_empty'];
+    case 'IMAGE':
+      return ['has_image', 'no_image', 'is_empty', 'is_not_empty'];
     default:
       return ['equals', 'is_empty', 'is_not_empty'];
   }
@@ -198,14 +204,16 @@ function formatOperator(op: FilterOperator): string {
     less_or_equal: '≤ (less or equal)',
     is_true: 'is true',
     is_false: 'is false',
+    has_image: 'has image',
+    no_image: 'no image',
   };
   return map[op] || op;
 }
 
 /** Returns true if the operator needs a value input (some operators like
- *  is_empty / is_true have no value). */
+ *  is_empty / is_true / has_image have no value). */
 function operatorNeedsValue(op: FilterOperator): boolean {
-  return !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(op);
+  return !['is_empty', 'is_not_empty', 'is_true', 'is_false', 'has_image', 'no_image'].includes(op);
 }
 
 /** Evaluate a single advanced-filter condition against a row's payload. */
@@ -213,7 +221,8 @@ function evaluateCondition(
   editedPayload: Record<string, unknown>,
   originalPayload: Record<string, unknown>,
   cond: AdvancedFilter,
-  fields: MetaField[]
+  fields: MetaField[],
+  row?: GridRow
 ): boolean {
   const field = fields.find((f) => f.fieldCode === cond.fieldCode);
   if (!field) return true; // unknown field → don't filter out
@@ -248,6 +257,16 @@ function evaluateCondition(
         strVal === '0' ||
         isEmpty
       );
+    case 'has_image': {
+      if (field.dataType !== 'IMAGE' || !row) return false;
+      const fieldImgs = row.imagesByField?.[cond.fieldCode] || [];
+      return fieldImgs.length > 0;
+    }
+    case 'no_image': {
+      if (field.dataType !== 'IMAGE' || !row) return true;
+      const fieldImgs = row.imagesByField?.[cond.fieldCode] || [];
+      return fieldImgs.length === 0;
+    }
     case 'contains':
       return (
         !isEmpty &&
@@ -300,18 +319,20 @@ function evaluateAdvancedFilters(
   editedPayload: Record<string, unknown>,
   originalPayload: Record<string, unknown>,
   conds: AdvancedFilter[],
-  fields: MetaField[]
+  fields: MetaField[],
+  row?: GridRow
 ): boolean {
   if (conds.length === 0) return true;
   let result = evaluateCondition(
     editedPayload,
     originalPayload,
     conds[0],
-    fields
+    fields,
+    row
   );
   for (let i = 1; i < conds.length; i++) {
     const c = conds[i];
-    const r = evaluateCondition(editedPayload, originalPayload, c, fields);
+    const r = evaluateCondition(editedPayload, originalPayload, c, fields, row);
     if (c.connector === 'AND') result = result && r;
     else result = result || r;
   }
@@ -513,7 +534,7 @@ export default function GridEditorPage() {
   /** Toggles visibility of the advanced-filter builder panel. */
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   /** Lightbox overlay state: holds the image list + current index. */
-  const [lightbox, setLightbox] = useState<{ images: ImageInfo[]; index: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
 
   // ── Saved Views state (STIBO User Configurable Views + Sharing Saved Searches) ──
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
@@ -729,7 +750,7 @@ export default function GridEditorPage() {
     }
     if (advancedFilters.length > 0) {
       result = result.filter((r) =>
-        evaluateAdvancedFilters(r.editedPayload, r.originalPayload, advancedFilters, fields)
+        evaluateAdvancedFilters(r.editedPayload, r.originalPayload, advancedFilters, fields, r)
       );
     }
     return result;
@@ -1803,7 +1824,7 @@ export default function GridEditorPage() {
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() => {
-                    const filterableFields = fields.filter((f) => f.dataType !== 'IMAGE');
+                    const filterableFields = fields;
                     const firstField = filterableFields[0];
                     setAdvancedFilters((prev) => [
                       ...prev,
@@ -1818,7 +1839,7 @@ export default function GridEditorPage() {
                       },
                     ]);
                   }}
-                  disabled={fields.filter((f) => f.dataType !== 'IMAGE').length === 0}
+                  disabled={fields.length === 0}
                 >
                   <Plus className="w-3 h-3 mr-1" />
                   Add Condition
@@ -1899,9 +1920,19 @@ export default function GridEditorPage() {
                           <th key={f.id} className="grid-th" title={f.description || f.fieldName}>
                             <div className="flex items-center justify-between gap-1 pr-2">
                               <div className="min-w-0">
-                                <div className="text-xs font-semibold truncate">
+                                <div className="text-xs font-semibold truncate flex items-center gap-1">
                                   {f.fieldName}
                                   {f.isRequired && <span className="text-red-600 ml-0.5">*</span>}
+                                  {f.dataType === 'IMAGE' && (() => {
+                                    const imgCount = rows.filter(
+                                      (r) => (r.imagesByField?.[f.fieldCode] || []).length > 0
+                                    ).length;
+                                    return imgCount > 0 ? (
+                                      <Badge variant="secondary" className="text-[9px] h-4 px-1 ml-0.5 flex-shrink-0">
+                                        🖼 {imgCount}
+                                      </Badge>
+                                    ) : null;
+                                  })()}
                                 </div>
                                 <div className="text-[10px] font-normal text-muted-foreground uppercase tracking-wide truncate">
                                   {f.dataType}
@@ -2029,7 +2060,17 @@ export default function GridEditorPage() {
                                         (i) => i.isPrimary
                                       );
                                       setLightbox({
-                                        images: cellImgs,
+                                        images: cellImgs.map((img) => ({
+                                          id: img.id,
+                                          fileName: img.fileName,
+                                          filePath: img.filePath,
+                                          altText: img.altText,
+                                          isPrimary: img.isPrimary,
+                                          sortOrder: img.sortOrder,
+                                          fileSize: img.pending ? undefined : undefined,
+                                          pending: img.pending,
+                                          variants: img.variants,
+                                        })),
                                         index: primaryIdx >= 0 ? primaryIdx : 0,
                                       });
                                     }}
@@ -2263,118 +2304,15 @@ export default function GridEditorPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Lightbox overlay (click-to-enlarge for IMAGE cells).
-          Shows the image full-screen with prev/next navigation if there are
-          multiple images. Works for both server images (filePath=/api/...)
-          and pending blob-URL images (filePath=blob:...). Closes on click
-          outside, X button, or Escape. */}
-      {lightbox && lightbox.images[lightbox.index] && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setLightbox(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setLightbox(null);
-            else if (e.key === 'ArrowLeft' && lightbox.images.length > 1) {
-              e.stopPropagation();
-              setLightbox({
-                ...lightbox,
-                index:
-                  (lightbox.index - 1 + lightbox.images.length) %
-                  lightbox.images.length,
-              });
-            } else if (e.key === 'ArrowRight' && lightbox.images.length > 1) {
-              e.stopPropagation();
-              setLightbox({
-                ...lightbox,
-                index: (lightbox.index + 1) % lightbox.images.length,
-              });
-            }
-          }}
-          tabIndex={-1}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Image lightbox"
-        >
-          <div
-            className="relative max-w-full max-h-full flex flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={lightbox.images[lightbox.index].filePath}
-              alt={
-                lightbox.images[lightbox.index].altText ||
-                lightbox.images[lightbox.index].fileName ||
-                'Image'
-              }
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.opacity = '0.3';
-              }}
-            />
-            {/* Caption: filename + index/total */}
-            <div className="mt-2 text-center text-white text-xs">
-              <span className="font-medium">
-                {lightbox.images[lightbox.index].fileName || 'image'}
-              </span>
-              {lightbox.images.length > 1 && (
-                <span className="text-white/70 ml-2">
-                  ({lightbox.index + 1} / {lightbox.images.length})
-                </span>
-              )}
-              {lightbox.images[lightbox.index].pending && (
-                <span className="ml-2 text-amber-300">(pending upload)</span>
-              )}
-            </div>
-            {/* Prev / next navigation (only when multiple images) */}
-            {lightbox.images.length > 1 && (
-              <>
-                <button
-                  type="button"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLightbox({
-                      ...lightbox,
-                      index:
-                        (lightbox.index - 1 + lightbox.images.length) %
-                        lightbox.images.length,
-                    });
-                  }}
-                  aria-label="Previous image"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-                <button
-                  type="button"
-                  className="absolute right-0 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLightbox({
-                      ...lightbox,
-                      index: (lightbox.index + 1) % lightbox.images.length,
-                    });
-                  }}
-                  aria-label="Next image"
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
-              </>
-            )}
-          </div>
-          {/* Close (X) button */}
-          <button
-            type="button"
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightbox(null);
-            }}
-            aria-label="Close lightbox"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      )}
+      {/* Lightbox overlay — replaced with the new ImageLightbox component
+          that supports zoom/pan, image info panel, download, and smooth
+          framer-motion animations. */}
+      <ImageLightbox
+        images={lightbox?.images || []}
+        initialIndex={lightbox?.index || 0}
+        open={!!lightbox}
+        onClose={() => setLightbox(null)}
+      />
     </div>
   );
 }
@@ -2484,118 +2422,31 @@ function CellRenderer({
   const cellBase =
     'w-full h-9 px-2 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 rounded-none';
 
-  // IMAGE → inline thumbnail strip + upload button (deferred save)
+  // IMAGE → GridImageCell component (thumbnail with hover preview, inline
+  // upload, delete with confirmation, and lightbox integration).
   if (field.dataType === 'IMAGE') {
-    const imgs = images || [];
-    const pendingCount = imgs.filter((i) => i.pending).length;
-    const primary = imgs.find((i) => i.isPrimary);
-    // Click-to-enlarge is disabled while the cell is being actively edited
-    // (e.g. when the user just clicked into it and is about to open the
-    // upload popover). The upload button (below) opens the popover instead.
-    const canOpenLightbox = !!onOpenLightbox && imgs.length > 0 && !isActive;
+    const gridImages: GridImageInfo[] = (images || []).map((img) => ({
+      id: img.id,
+      fileName: img.fileName,
+      filePath: img.filePath,
+      altText: img.altText,
+      isPrimary: img.isPrimary,
+      sortOrder: img.sortOrder,
+      pending: img.pending,
+      variants: img.variants,
+    }));
     return (
-      <div className="h-9 flex items-center gap-1 px-1.5 relative">
-        {/* Primary thumbnail (or placeholder) — click to enlarge via lightbox */}
-        {primary ? (
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              // Always open the lightbox when there's a primary image — the
-              // !isActive guard in canOpenLightbox is only for cursor styling,
-              // not for blocking the click (clicking must not depend on cell
-              // activation state, which flips on mousedown before onClick).
-              onOpenLightbox?.();
-            }}
-            className={cn(
-              'w-7 h-7 rounded border border-border flex-shrink-0 overflow-hidden p-0',
-              canOpenLightbox
-                ? 'cursor-zoom-in hover:ring-2 hover:ring-red-400 hover:border-red-400 transition-all'
-                : 'cursor-default'
-            )}
-            aria-label={canOpenLightbox ? 'Enlarge image' : 'Image'}
-            tabIndex={-1}
-          >
-            <img
-              // STIBO Image Conversion: use the 150px webp thumbnail variant
-              // for the ~26x26 cell thumbnail. Falls back to original on
-              // variant miss (legacy images) or on load error.
-              src={primary.variants?.thumbnail || primary.filePath}
-              alt={primary.altText || primary.fileName}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // Variant failed → retry with original filePath, then dim.
-                const imgEl = e.target as HTMLImageElement;
-                const fallback = primary.filePath;
-                if (imgEl.src !== fallback && !imgEl.dataset.fallback) {
-                  imgEl.dataset.fallback = '1';
-                  imgEl.src = fallback;
-                } else {
-                  imgEl.style.opacity = '0.3';
-                }
-              }}
-            />
-          </button>
-        ) : (
-          <div
-            className={cn(
-              'w-7 h-7 rounded border border-dashed border-muted-foreground/40 flex items-center justify-center flex-shrink-0',
-              canOpenLightbox && 'cursor-zoom-in hover:border-red-400'
-            )}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              if (!canOpenLightbox) return;
-              e.stopPropagation();
-              onOpenLightbox?.();
-            }}
-          >
-            <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/50" />
-          </div>
-        )}
-        {/* Count badge */}
-        {imgs.length > 0 && (
-          <span className="text-[10px] font-medium text-muted-foreground tabular-nums flex-shrink-0">
-            {imgs.length}
-            {pendingCount > 0 && <span className="text-amber-600">+{pendingCount}p</span>}
-          </span>
-        )}
-        {/* Open manager button */}
-        {editable && (
-          <Popover
-            open={imagePopoverOpen}
-            onOpenChange={(o) => {
-              if (o) onOpenImageManager?.();
-              else onCloseImagePopover?.();
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="h-7 px-1.5 text-xs flex items-center gap-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-                aria-label="Manage images"
-                tabIndex={-1}
-              >
-                <Upload className="w-3 h-3" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-72 p-3"
-              align="start"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ImageManagerPopover
-                images={imgs}
-                editable={editable}
-                onAddPendingImages={onAddPendingImages}
-                onRemoveImage={onRemoveImage}
-                onSetPrimaryImage={onSetPrimaryImage}
-              />
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
+      <GridImageCell
+        images={gridImages}
+        editable={editable}
+        isActive={isActive}
+        onAddPendingImages={onAddPendingImages}
+        onRemoveImage={onRemoveImage}
+        onOpenLightbox={onOpenLightbox}
+        onOpenImageManager={() => {
+          onOpenImageManager?.();
+        }}
+      />
     );
   }
 
@@ -3059,7 +2910,7 @@ function AdvancedFilterRow({
   onChange,
   onRemove,
 }: AdvancedFilterRowProps) {
-  const filterableFields = fields.filter((f) => f.dataType !== 'IMAGE');
+  const filterableFields = fields;
   const field = filterableFields.find((f) => f.fieldCode === filter.fieldCode);
   const dataType = field?.dataType || 'TEXT';
   const operators = getOperatorsForDataType(dataType);

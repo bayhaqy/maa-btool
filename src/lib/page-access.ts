@@ -51,6 +51,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'ai-assistant',
     'ai-prompts',
     'ai-review',
+    'ai-settings',
     'api-management',
     'admin-users',
     'admin-roles',
@@ -172,6 +173,7 @@ export const SENSITIVE_ADMIN_PAGES: PageView[] = [
   'system-health',
   'brand-settings',
   'about',
+  'ai-settings',
 ];
 
 /**

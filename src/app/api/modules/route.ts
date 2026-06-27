@@ -5,6 +5,8 @@ import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
 
 // GET /api/modules - List all modules (with field counts)
 // GET /api/modules?action=detail&id=xxx - Get module with fields, validations, and lookup data
+// GET /api/modules?action=stats - Get statistics for all modules
+// GET /api/modules?action=export&id=xxx - Export module as JSON
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -17,6 +19,7 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const id = searchParams.get('id');
 
+    // Module detail with fields
     if (action === 'detail' && id) {
       const metaModule = await db.metaModule.findUnique({
         where: { id },
@@ -41,19 +44,157 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ module: metaModule });
     }
 
-    // List all active modules with field counts
+    // Module statistics
+    if (action === 'stats') {
+      const modules = await db.metaModule.findMany({
+        where: { isActive: true },
+        include: {
+          _count: {
+            select: {
+              fields: { where: { isActive: true } },
+              dataRecords: true,
+            },
+          },
+          dataRecords: {
+            select: {
+              status: true,
+              updatedAt: true,
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { sortOrder: 'asc' },
+      });
+
+      const stats = modules.map((m) => ({
+        id: m.id,
+        moduleCode: m.moduleCode,
+        moduleName: m.moduleName,
+        moduleIcon: m.moduleIcon,
+        description: m.description,
+        requireApproval: m.requireApproval,
+        sortOrder: m.sortOrder,
+        fieldCount: m._count.fields,
+        recordCount: m._count.dataRecords,
+        lastModified: m.dataRecords.length > 0 ? m.dataRecords[0].updatedAt : null,
+        activeCount: 0,
+        draftCount: 0,
+      }));
+
+      // Get active/draft counts per module
+      for (const stat of stats) {
+        const statusCounts = await db.dataRecord.groupBy({
+          by: ['status'],
+          where: { moduleId: stat.id },
+          _count: { status: true },
+        });
+        for (const sc of statusCounts) {
+          if (sc.status === 'ACTIVE') stat.activeCount = sc._count.status;
+          if (sc.status === 'DRAFT') stat.draftCount = sc._count.status;
+        }
+      }
+
+      return NextResponse.json({ stats });
+    }
+
+    // Export module as JSON
+    if (action === 'export' && id) {
+      const metaModule = await db.metaModule.findUnique({
+        where: { id },
+        include: {
+          fields: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' },
+            include: {
+              validations: true,
+              lookupMaster: {
+                include: { values: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
+              },
+            },
+          },
+          businessRules: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
+        },
+      });
+
+      if (!metaModule) {
+        return NextResponse.json({ error: 'Module not found' }, { status: 404 });
+      }
+
+      // Build clean export JSON (strip internal IDs)
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        module: {
+          moduleCode: metaModule.moduleCode,
+          moduleName: metaModule.moduleName,
+          moduleIcon: metaModule.moduleIcon,
+          description: metaModule.description,
+          requireApproval: metaModule.requireApproval,
+          sortOrder: metaModule.sortOrder,
+        },
+        fields: metaModule.fields.map((f) => ({
+          fieldCode: f.fieldCode,
+          fieldName: f.fieldName,
+          dataType: f.dataType,
+          isRequired: f.isRequired,
+          isUnique: f.isUnique,
+          defaultValue: f.defaultValue,
+          placeholder: f.placeholder,
+          description: f.description,
+          sortOrder: f.sortOrder,
+          lookupCode: f.lookupMaster?.lookupCode || null,
+          cascadesFromFieldCode: f.cascadesFromFieldCode,
+          validations: f.validations.map((v) => ({
+            ruleType: v.ruleType,
+            ruleValue: v.ruleValue,
+            errorMessage: v.errorMessage,
+          })),
+        })),
+        businessRules: metaModule.businessRules.map((r) => ({
+          name: r.name,
+          description: r.description,
+          conditionType: r.conditionType,
+          conditionJson: r.conditionJson,
+          actionType: r.actionType,
+          actionJson: r.actionJson,
+          errorMessage: r.errorMessage,
+          trigger: r.trigger,
+          sortOrder: r.sortOrder,
+        })),
+      };
+
+      return NextResponse.json(exportData);
+    }
+
+    // List all active modules with field counts and record counts
     const modules = await db.metaModule.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
       include: {
-        _count: { select: { fields: { where: { isActive: true } } } },
+        _count: {
+          select: {
+            fields: { where: { isActive: true } },
+            dataRecords: true,
+          },
+        },
       },
     });
 
     return NextResponse.json({
       modules: modules.map((m) => ({
-        ...m,
+        id: m.id,
+        moduleCode: m.moduleCode,
+        moduleName: m.moduleName,
+        moduleIcon: m.moduleIcon,
+        description: m.description,
+        requireApproval: m.requireApproval,
+        sortOrder: m.sortOrder,
+        isActive: m.isActive,
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
         fieldCount: m._count.fields,
+        recordCount: m._count.dataRecords,
         _count: undefined,
       })),
     });
@@ -64,6 +205,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/modules - Create module (Super Admin only)
+// POST /api/modules?action=clone&sourceId=xxx - Clone a module
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -71,8 +213,95 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only Super Admin can create modules' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    const sourceId = searchParams.get('sourceId');
+
+    // Clone / duplicate a module
+    if (action === 'clone' && sourceId) {
+      const sourceModule = await db.metaModule.findUnique({
+        where: { id: sourceId },
+        include: {
+          fields: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' },
+            include: { validations: true },
+          },
+          businessRules: { where: { isActive: true } },
+        },
+      });
+
+      if (!sourceModule) {
+        return NextResponse.json({ error: 'Source module not found' }, { status: 404 });
+      }
+
+      const body = await request.json();
+      const newCode = body.moduleCode || `${sourceModule.moduleCode}_COPY`;
+      const newName = body.moduleName || `${sourceModule.moduleName} (Copy)`;
+
+      // Check for code uniqueness
+      const existing = await db.metaModule.findUnique({ where: { moduleCode: newCode } });
+      if (existing) {
+        return NextResponse.json({ error: 'Module code already exists' }, { status: 409 });
+      }
+
+      // Create the cloned module with fields, validations, and business rules
+      const clonedModule = await db.metaModule.create({
+        data: {
+          moduleCode: newCode,
+          moduleName: newName,
+          moduleIcon: body.moduleIcon || sourceModule.moduleIcon,
+          description: body.description || sourceModule.description,
+          requireApproval: body.requireApproval ?? sourceModule.requireApproval,
+          sortOrder: body.sortOrder ?? sourceModule.sortOrder + 1,
+          fields: {
+            create: sourceModule.fields.map((f) => ({
+              fieldCode: f.fieldCode,
+              fieldName: f.fieldName,
+              dataType: f.dataType,
+              isRequired: f.isRequired,
+              isUnique: f.isUnique,
+              defaultValue: f.defaultValue,
+              placeholder: f.placeholder,
+              description: f.description,
+              sortOrder: f.sortOrder,
+              lookupId: f.lookupId,
+              cascadesFromFieldCode: f.cascadesFromFieldCode,
+              validations: {
+                create: f.validations.map((v) => ({
+                  ruleType: v.ruleType,
+                  ruleValue: v.ruleValue,
+                  errorMessage: v.errorMessage,
+                })),
+              },
+            })),
+          },
+          businessRules: {
+            create: sourceModule.businessRules.map((r) => ({
+              name: r.name,
+              description: r.description,
+              conditionType: r.conditionType,
+              conditionJson: r.conditionJson,
+              actionType: r.actionType,
+              actionJson: r.actionJson,
+              errorMessage: r.errorMessage,
+              trigger: r.trigger,
+              sortOrder: r.sortOrder,
+            })),
+          },
+        },
+        include: {
+          fields: { include: { validations: true } },
+          businessRules: true,
+        },
+      });
+
+      return NextResponse.json({ module: clonedModule }, { status: 201 });
+    }
+
+    // Regular create
     const body = await request.json();
-    const { moduleCode, moduleName, moduleIcon, description, requireApproval } = body;
+    const { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
 
     if (!moduleCode || !moduleName) {
       return NextResponse.json({ error: 'moduleCode and moduleName are required' }, { status: 400 });
@@ -90,6 +319,8 @@ export async function POST(request: NextRequest) {
         moduleIcon: moduleIcon || 'Database',
         description,
         requireApproval: requireApproval ?? true,
+        sortOrder: sortOrder ?? 0,
+        isActive: isActive ?? true,
       },
     });
 
@@ -109,7 +340,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder } = body;
+    const { id, moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Module id is required' }, { status: 400 });
@@ -136,6 +367,7 @@ export async function PUT(request: NextRequest) {
         ...(description !== undefined && { description }),
         ...(requireApproval !== undefined && { requireApproval }),
         ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive }),
       },
     });
 

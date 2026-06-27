@@ -305,6 +305,178 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+// PUT /api/images - Batch image operations (deferred save pattern)
+// Body: { operations: Array<{ type: 'upload'|'delete'|'setPrimary'|'reorder', ...params }> }
+// This endpoint allows the grid to flush all pending image operations in a
+// single request when the user clicks "Save Changes" (STIBO deferred-save pattern).
+export async function PUT(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const operations: Array<Record<string, unknown>> = body.operations || [];
+
+    if (!Array.isArray(operations) || operations.length === 0) {
+      return NextResponse.json({ error: 'operations array is required' }, { status: 400 });
+    }
+
+    const results: Array<{ type: string; success: boolean; data?: unknown; error?: string }> = [];
+
+    for (const op of operations) {
+      const type = String(op.type || '');
+
+      try {
+        switch (type) {
+          case 'delete': {
+            const imageId = String(op.imageId || '');
+            if (!imageId) {
+              results.push({ type, success: false, error: 'imageId required' });
+              break;
+            }
+            const image = await db.imageAsset.findUnique({
+              where: { id: imageId },
+              include: { record: true },
+            });
+            if (!image) {
+              results.push({ type, success: false, error: 'Image not found' });
+              break;
+            }
+            // Access control
+            const isSA = tokenPayload.roles.includes('Super Admin');
+            if (!isSA && image.record.companyId !== tokenPayload.companyId) {
+              results.push({ type, success: false, error: 'Access denied' });
+              break;
+            }
+            // Clean up file assets
+            const fileId = image.filePath.split('/').pop() || '';
+            const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
+            if (isCuid) {
+              try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+            } else {
+              try { await unlink(join(process.cwd(), 'public', image.filePath)); } catch { /* ok */ }
+            }
+            // Clean up variant FileAssets
+            try {
+              const variants = await db.imageVariant.findMany({
+                where: { imageId },
+                select: { filePath: true },
+              });
+              const variantFileIds = variants
+                .map((v) => v.filePath.split('/').pop() || '')
+                .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
+              if (variantFileIds.length > 0) {
+                await db.fileAsset.deleteMany({ where: { id: { in: variantFileIds } } });
+              }
+            } catch { /* best-effort */ }
+            await db.imageAsset.delete({ where: { id: imageId } });
+            results.push({ type, success: true });
+            break;
+          }
+
+          case 'setPrimary': {
+            const imageId = String(op.imageId || '');
+            if (!imageId) {
+              results.push({ type, success: false, error: 'imageId required' });
+              break;
+            }
+            const image = await db.imageAsset.findUnique({
+              where: { id: imageId },
+              include: { record: true },
+            });
+            if (!image) {
+              results.push({ type, success: false, error: 'Image not found' });
+              break;
+            }
+            const isSA = tokenPayload.roles.includes('Super Admin');
+            if (!isSA && image.record.companyId !== tokenPayload.companyId) {
+              results.push({ type, success: false, error: 'Access denied' });
+              break;
+            }
+            let fieldName: string | null = image.fieldName;
+            if (typeof op.fieldName === 'string') fieldName = op.fieldName;
+            await db.$transaction([
+              db.imageAsset.updateMany({
+                where: { recordId: image.recordId, ...(fieldName ? { fieldName } : {}) },
+                data: { isPrimary: false },
+              }),
+              db.imageAsset.update({
+                where: { id: imageId },
+                data: { isPrimary: true },
+              }),
+            ]);
+            results.push({ type, success: true });
+            break;
+          }
+
+          case 'reorder': {
+            const recordId = String(op.recordId || '');
+            const fieldName = op.fieldName as string | null | undefined;
+            const order = op.order as Array<{ imageId: string; sortOrder: number }> | undefined;
+            if (!recordId || !order || !Array.isArray(order)) {
+              results.push({ type, success: false, error: 'recordId and order[] required' });
+              break;
+            }
+            const record = await db.dataRecord.findUnique({ where: { id: recordId } });
+            if (!record) {
+              results.push({ type, success: false, error: 'Record not found' });
+              break;
+            }
+            for (const item of order) {
+              await db.imageAsset.update({
+                where: { id: item.imageId },
+                data: { sortOrder: item.sortOrder },
+              });
+            }
+            results.push({ type, success: true });
+            break;
+          }
+
+          case 'updateAltText': {
+            const imageId = String(op.imageId || '');
+            const altText = op.altText as string | null | undefined;
+            if (!imageId) {
+              results.push({ type, success: false, error: 'imageId required' });
+              break;
+            }
+            await db.imageAsset.update({
+              where: { id: imageId },
+              data: { altText: altText || null },
+            });
+            results.push({ type, success: true });
+            break;
+          }
+
+          default:
+            results.push({ type, success: false, error: `Unknown operation type: ${type}` });
+        }
+      } catch (err) {
+        results.push({
+          type,
+          success: false,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.filter((r) => !r.success).length;
+
+    return NextResponse.json({
+      results,
+      summary: { total: results.length, success: successCount, failed: failCount },
+    });
+  } catch (error) {
+    console.error('Image batch PUT error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // PATCH /api/images?imageId=xxx - Mark an image as primary for its record
 // Body: {} (no payload needed; the imageId is enough)
 // Sets isPrimary=true for the target image and false for all other images

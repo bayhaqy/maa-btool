@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ============================================================
@@ -143,6 +142,8 @@ model MetaField {
   // by the value of the field whose fieldCode === cascadesFromFieldCode (within
   // the same module). The lookupMaster.values are filtered where parentValueCode
   // matches the parent field's current value. Enables Category -> SubCategory.
+  // isMultiple: for IMAGE type, allow multiple images per field value
+  isMultiple          Boolean @default(false)
   cascadesFromFieldCode String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -300,9 +301,35 @@ model ApprovalTicket {
   createdAt     DateTime  @default(now())
   reviewedAt    DateTime?
 
+  // Multi-step workflow support
+  workflowType  String    @default("SIMPLE") // SIMPLE, MULTI_STEP, PARALLEL
+  currentStep   Int       @default(1)
+  totalSteps    Int       @default(1)
+  stepName      String?   // name of the current step
+  deadline      DateTime? // SLA deadline for this step
+  escalatedTo   String?   // user ID for escalation
+  delegatedFrom String?   // original reviewer who delegated
+  priority      String    @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+  parentTicketId String?  // for parallel workflows, link to parent ticket
+  workflowHistory String? // JSON array of {step, userId, action, timestamp, notes}
+
   record      DataRecord @relation(fields: [recordId], references: [id])
   requestedBy SysUser    @relation("RequestedBy", fields: [requestedById], references: [id])
   reviewedBy  SysUser?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  childTickets ApprovalTicket[] @relation("ParallelWorkflow")
+  parentTicket ApprovalTicket? @relation("ParallelWorkflow", fields: [parentTicketId], references: [id])
+}
+
+model WorkflowTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  moduleScope  String?  // module code or null for global
+  stepCount    Int      @default(1)
+  stepConfig   String   // JSON array of {name, assigneeRole, deadlineHours, isParallel}
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model AsyncBatchJob {

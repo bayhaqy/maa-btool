@@ -26,7 +26,8 @@ export type PageView =
   | 'api-management'
   | 'brand-settings'
   | 'system-health'
-  | 'about';
+  | 'about'
+  | 'ai-settings';
 
 export interface AuthUser {
   userId: string;
@@ -89,7 +90,7 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
-      currentPage: 'dashboard',
+      currentPage: 'dashboard' as PageView,
       selectedModuleId: null,
       selectedRecordId: null,
       selectedHierarchyId: null,

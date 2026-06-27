@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
       moduleId, fieldCode, fieldName, dataType,
       isRequired, isUnique, defaultValue, placeholder,
       description, sortOrder, lookupId, cascadesFromFieldCode,
+      isMultiple,
     } = body;
 
     if (!moduleId || !fieldCode || !fieldName || !dataType) {
@@ -139,6 +140,7 @@ export async function POST(request: NextRequest) {
         sortOrder: sortOrder ?? 0,
         lookupId: lookupId || null,
         cascadesFromFieldCode: cascadesFromFieldCode || null,
+        isMultiple: isMultiple ?? false,
       },
     });
 
@@ -151,6 +153,7 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/fields - Update field (Super Admin only)
 // PUT /api/fields?action=validation - Update a field validation rule
+// PUT /api/fields?action=reorder - Batch reorder fields
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -161,6 +164,38 @@ export async function PUT(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const body = await request.json();
+
+    // Handle field reordering (batch)
+    if (action === 'reorder') {
+      const { orders } = body as { orders: { id: string; sortOrder: number }[] };
+
+      if (!orders || !Array.isArray(orders) || orders.length === 0) {
+        return NextResponse.json({ error: 'orders array is required' }, { status: 400 });
+      }
+
+      // Validate all field IDs exist
+      const fieldIds = orders.map((o) => o.id);
+      const fields = await db.metaField.findMany({
+        where: { id: { in: fieldIds } },
+        select: { id: true },
+      });
+
+      if (fields.length !== fieldIds.length) {
+        return NextResponse.json({ error: 'One or more field IDs not found' }, { status: 404 });
+      }
+
+      // Batch update sort orders in a transaction
+      await db.$transaction(
+        orders.map((o) =>
+          db.metaField.update({
+            where: { id: o.id },
+            data: { sortOrder: o.sortOrder },
+          })
+        )
+      );
+
+      return NextResponse.json({ message: 'Fields reordered successfully', count: orders.length });
+    }
 
     // Handle validation update
     if (action === 'validation') {
@@ -190,6 +225,7 @@ export async function PUT(request: NextRequest) {
       id, fieldCode, fieldName, dataType,
       isRequired, isUnique, defaultValue, placeholder,
       description, sortOrder, isActive, lookupId, cascadesFromFieldCode,
+      isMultiple,
     } = body;
 
     if (!id) {
@@ -238,6 +274,7 @@ export async function PUT(request: NextRequest) {
         ...(isActive !== undefined && { isActive }),
         ...(lookupId !== undefined && { lookupId: lookupId || null }),
         ...(cascadesFromFieldCode !== undefined && { cascadesFromFieldCode: cascadesFromFieldCode || null }),
+        ...(isMultiple !== undefined && { isMultiple }),
       },
     });
 

@@ -1,28 +1,50 @@
 /**
- * AI SDK Configuration — Secure Environment-Based Setup
+ * AI SDK Configuration — Multi-Provider Support
  *
- * SECURITY: This module reads AI API credentials from environment variables
- * (NOT from a .z-ai-config file). This is the secure approach for Vercel and
- * other serverless platforms where filesystem-based config is unreliable and
- * potentially insecure.
+ * Supports multiple AI providers (Z.AI, Google Gemini, OpenAI, Azure OpenAI, Custom)
+ * with configuration stored in the AppSettings database table, falling back to
+ * environment variables when DB settings are absent.
  *
- * The z-ai-web-dev-sdk's default ZAI.create() reads from a .z-ai-config JSON
- * file in cwd/homedir/etc. We bypass that by calling `new ZAI(config)` directly
- * with config from process.env — ensuring the API key never touches the filesystem.
+ * SECURITY: API keys are read from AppSettings (DB) or environment variables —
+ * never from filesystem config files. API keys returned via API are masked.
  *
- * Required env vars:
- *   ZAI_API_KEY   — The API key for the Z.AI service
- *   ZAI_BASE_URL  — The base URL for the Z.AI API (e.g. https://api.z.ai/api/paas/v4)
+ * Supported AppSettings keys:
+ *   AI_PROVIDER    — zai | gemini | openai | azure-openai | custom
+ *   AI_API_KEY     — API key for the chosen provider
+ *   AI_BASE_URL    — Base URL for custom provider endpoints
+ *   AI_MODEL       — Model name (e.g., gemini-2.0-flash, gpt-4o)
+ *   AI_MAX_TOKENS  — Max tokens per request
+ *   AI_TEMPERATURE — Temperature setting (0-2)
  *
- * Optional env vars:
- *   ZAI_CHAT_ID   — Default chat ID for conversation tracking
- *   ZAI_USER_ID   — Default user ID for analytics
- *   ZAI_TOKEN     — Optional bearer token (alternative to apiKey)
+ * Backward compatible with ZAI_API_KEY env var.
  */
 
 import ZAI from 'z-ai-web-dev-sdk';
 
-// ZAIConfig interface (re-declared here because the SDK's d.ts may not export it as a type)
+// ─── Types ───────────────────────────────────────────────────────────
+
+export type AIProvider = 'zai' | 'gemini' | 'openai' | 'azure-openai' | 'custom';
+
+export interface AIProviderConfig {
+  provider: AIProvider;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+  temperature: number;
+}
+
+export interface AIMaskedConfig {
+  provider: AIProvider;
+  apiKeyMasked: string;
+  apiKeySet: boolean;
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+  temperature: number;
+  configured: boolean;
+}
+
 interface ZAIConfig {
   baseUrl: string;
   apiKey: string;
@@ -31,11 +53,134 @@ interface ZAIConfig {
   token?: string;
 }
 
-let cachedInstance: ZAI | null = null;
+// ─── Provider defaults ───────────────────────────────────────────────
+
+export const PROVIDER_DEFAULTS: Record<AIProvider, { baseUrl: string; model: string; label: string }> = {
+  zai: {
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    model: 'glm-4-plus',
+    label: 'Z.AI',
+  },
+  gemini: {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    model: 'gemini-2.0-flash',
+    label: 'Google Gemini',
+  },
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    label: 'OpenAI',
+  },
+  'azure-openai': {
+    baseUrl: '',
+    model: 'gpt-4o',
+    label: 'Azure OpenAI',
+  },
+  custom: {
+    baseUrl: '',
+    model: '',
+    label: 'Custom Provider',
+  },
+};
+
+// ─── DB helper ───────────────────────────────────────────────────────
 
 /**
- * Get the AI SDK configuration from environment variables.
- * Throws if required vars are missing (fail-fast — better than silent failures).
+ * Read a single setting from AppSettings table.
+ * Returns null if not found (caller decides fallback).
+ */
+async function getSetting(key: string): Promise<string | null> {
+  try {
+    const { db } = await import('@/lib/db');
+    const row = await db.appSettings.findUnique({ where: { settingKey: key } });
+    return row?.settingValue ?? null;
+  } catch {
+    // DB not available (e.g. during migration) — fall back to env
+    return null;
+  }
+}
+
+// ─── Provider config from DB + env fallback ──────────────────────────
+
+let cachedConfig: AIProviderConfig | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 30_000; // 30-second TTL to pick up DB changes reasonably fast
+
+/**
+ * Get the full AI provider configuration.
+ * Reads from AppSettings DB first, then falls back to env vars.
+ */
+export async function getAIProviderConfig(): Promise<AIProviderConfig> {
+  // Return cached config if still fresh
+  const now = Date.now();
+  if (cachedConfig && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    return cachedConfig;
+  }
+
+  const [providerRaw, apiKey, baseUrl, model, maxTokensRaw, temperatureRaw] = await Promise.all([
+    getSetting('AI_PROVIDER'),
+    getSetting('AI_API_KEY'),
+    getSetting('AI_BASE_URL'),
+    getSetting('AI_MODEL'),
+    getSetting('AI_MAX_TOKENS'),
+    getSetting('AI_TEMPERATURE'),
+  ]);
+
+  const provider: AIProvider = (() => {
+    const p = providerRaw || process.env.AI_PROVIDER || 'zai';
+    if (['zai', 'gemini', 'openai', 'azure-openai', 'custom'].includes(p)) return p as AIProvider;
+    return 'zai';
+  })();
+
+  const resolvedApiKey = apiKey || process.env.AI_API_KEY || process.env.ZAI_API_KEY || '';
+  const defaults = PROVIDER_DEFAULTS[provider];
+  const resolvedBaseUrl = baseUrl || process.env.AI_BASE_URL || defaults.baseUrl;
+  const resolvedModel = model || process.env.AI_MODEL || defaults.model;
+  const resolvedMaxTokens = maxTokensRaw ? parseInt(maxTokensRaw, 10) : (process.env.AI_MAX_TOKENS ? parseInt(process.env.AI_MAX_TOKENS, 10) : 4096);
+  const resolvedTemperature = temperatureRaw ? parseFloat(temperatureRaw) : (process.env.AI_TEMPERATURE ? parseFloat(process.env.AI_TEMPERATURE) : 0.7);
+
+  cachedConfig = {
+    provider,
+    apiKey: resolvedApiKey,
+    baseUrl: resolvedBaseUrl,
+    model: resolvedModel,
+    maxTokens: isNaN(resolvedMaxTokens) ? 4096 : resolvedMaxTokens,
+    temperature: isNaN(resolvedTemperature) ? 0.7 : Math.min(2, Math.max(0, resolvedTemperature)),
+  };
+  cacheTimestamp = now;
+
+  return cachedConfig;
+}
+
+/**
+ * Get a masked version of the config (safe to send to the client).
+ */
+export async function getAIMaskedConfig(): Promise<AIMaskedConfig> {
+  const config = await getAIProviderConfig();
+  const apiKeySet = !!config.apiKey;
+  const apiKeyMasked = config.apiKey
+    ? '••••••••' + config.apiKey.slice(-4)
+    : '';
+
+  return {
+    provider: config.provider,
+    apiKeyMasked,
+    apiKeySet,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    maxTokens: config.maxTokens,
+    temperature: config.temperature,
+    configured: apiKeySet,
+  };
+}
+
+// ─── Legacy ZAI helpers (backward compatible) ───────────────────────
+
+let cachedZAIInstance: ZAI | null = null;
+
+/**
+ * Get the AI SDK configuration from environment variables (legacy).
+ * @deprecated Use getAIProviderConfig() instead.
  */
 export function getAIConfig(): ZAIConfig {
   const apiKey = process.env.ZAI_API_KEY;
@@ -44,8 +189,8 @@ export function getAIConfig(): ZAIConfig {
   if (!apiKey) {
     throw new Error(
       'ZAI_API_KEY environment variable is not set. ' +
-      'Please configure it in your Vercel project settings (Settings → Environment Variables). ' +
-      'Never commit the API key to git or .z-ai-config files.'
+      'Please configure it in your Vercel project settings (Settings → Environment Variables) ' +
+      'or via the AI Settings page. Never commit the API key to git or .z-ai-config files.'
     );
   }
 
@@ -60,32 +205,39 @@ export function getAIConfig(): ZAIConfig {
 
 /**
  * Get a cached ZAI instance (singleton per serverless invocation).
- * Creates a new instance if none exists or if env vars have changed.
- *
- * NOTE: We bypass the SDK's ZAI.create() (which reads from an insecure
- * .z-ai-config file) by calling the constructor directly with env-based config.
- * The constructor is marked private in the d.ts but is publicly accessible
- * at runtime — we use a type assertion to satisfy TypeScript.
+ * Uses the legacy ZAI_API_KEY env var for backward compatibility.
  */
 export async function getAIClient(): Promise<ZAI> {
-  if (!cachedInstance) {
+  if (!cachedZAIInstance) {
     const config = getAIConfig();
-    cachedInstance = new (ZAI as unknown as { new (config: ZAIConfig): ZAI })(config);
+    cachedZAIInstance = new (ZAI as unknown as { new (config: ZAIConfig): ZAI })(config);
   }
-  return cachedInstance;
+  return cachedZAIInstance;
 }
 
 /**
  * Check if AI is configured (for health checks / feature flags).
- * Does NOT throw — returns boolean.
+ * Checks both DB settings and env vars.
  */
 export function isAIConfigured(): boolean {
-  return !!process.env.ZAI_API_KEY;
+  // Synchronous check — only looks at env vars for immediate response.
+  // For DB-based check use getAIMaskedConfig() which is async.
+  return !!(process.env.ZAI_API_KEY || process.env.AI_API_KEY);
 }
 
 /**
- * Clear the cached instance (useful for testing or config rotation).
+ * Async version — checks DB settings too.
+ */
+export async function isAIConfiguredAsync(): Promise<boolean> {
+  const config = await getAIProviderConfig();
+  return !!config.apiKey;
+}
+
+/**
+ * Clear the cached instances (useful for config rotation).
  */
 export function clearAICache(): void {
-  cachedInstance = null;
+  cachedZAIInstance = null;
+  cachedConfig = null;
+  cacheTimestamp = 0;
 }
