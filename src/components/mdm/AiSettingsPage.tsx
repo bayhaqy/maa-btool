@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -38,12 +38,20 @@ import {
   Cpu,
   Zap,
   RefreshCw,
+  CloudUpload,
+  ShieldCheck,
+  Wifi,
+  WifiOff,
+  CircleDot,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
 type AIProvider = 'zai' | 'gemini' | 'openai' | 'azure-openai' | 'custom';
+
+type ConnectionStatus = 'disconnected' | 'testing' | 'connected' | 'error';
 
 interface AIConfigState {
   provider: AIProvider;
@@ -68,6 +76,8 @@ interface TestResult {
 const PROVIDER_INFO: Record<AIProvider, {
   label: string;
   icon: string;
+  color: string;
+  gradient: string;
   defaultBaseUrl: string;
   defaultModel: string;
   models: string[];
@@ -77,6 +87,8 @@ const PROVIDER_INFO: Record<AIProvider, {
   zai: {
     label: 'Z.AI',
     icon: '🤖',
+    color: 'from-blue-500 to-cyan-500',
+    gradient: 'bg-gradient-to-br from-blue-500 to-cyan-500',
     defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
     defaultModel: 'glm-4-plus',
     models: ['glm-4-plus', 'glm-4-flash', 'glm-4-long', 'glm-3-turbo'],
@@ -86,6 +98,8 @@ const PROVIDER_INFO: Record<AIProvider, {
   gemini: {
     label: 'Google Gemini',
     icon: '✨',
+    color: 'from-emerald-500 to-teal-500',
+    gradient: 'bg-gradient-to-br from-emerald-500 to-teal-500',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     defaultModel: 'gemini-2.0-flash',
     models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
@@ -95,6 +109,8 @@ const PROVIDER_INFO: Record<AIProvider, {
   openai: {
     label: 'OpenAI',
     icon: '🧠',
+    color: 'from-violet-500 to-purple-500',
+    gradient: 'bg-gradient-to-br from-violet-500 to-purple-500',
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
@@ -104,6 +120,8 @@ const PROVIDER_INFO: Record<AIProvider, {
   'azure-openai': {
     label: 'Azure OpenAI',
     icon: '☁️',
+    color: 'from-sky-500 to-blue-500',
+    gradient: 'bg-gradient-to-br from-sky-500 to-blue-500',
     defaultBaseUrl: '',
     defaultModel: 'gpt-4o',
     models: ['gpt-4o', 'gpt-4-turbo', 'gpt-35-turbo'],
@@ -113,6 +131,8 @@ const PROVIDER_INFO: Record<AIProvider, {
   custom: {
     label: 'Custom Provider',
     icon: '🔧',
+    color: 'from-orange-500 to-amber-500',
+    gradient: 'bg-gradient-to-br from-orange-500 to-amber-500',
     defaultBaseUrl: '',
     defaultModel: '',
     models: [],
@@ -143,7 +163,9 @@ export default function AiSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [savingToEnv, setSavingToEnv] = useState(false);
 
   // ─── Fetch config on mount ────────────────────────────────────────
   const fetchConfig = useCallback(async () => {
@@ -156,17 +178,24 @@ export default function AiSettingsPage() {
       if (res.ok) {
         const data = await res.json();
         const c = data.config;
+        const provider = c.provider || 'zai';
         setConfig({
-          provider: c.provider || 'zai',
+          provider,
           apiKey: '',
           apiKeyMasked: c.apiKeyMasked || '',
           apiKeySet: c.apiKeySet || false,
-          baseUrl: c.baseUrl || PROVIDER_INFO[c.provider || 'zai'].defaultBaseUrl,
-          model: c.model || PROVIDER_INFO[c.provider || 'zai'].defaultModel,
+          baseUrl: c.baseUrl || PROVIDER_INFO[provider].defaultBaseUrl,
+          model: c.model || PROVIDER_INFO[provider].defaultModel,
           maxTokens: c.maxTokens || 4096,
           temperature: c.temperature ?? 0.7,
           configured: c.configured || false,
         });
+        // Set initial connection status based on config
+        if (c.apiKeySet && c.configured) {
+          setConnectionStatus('connected');
+        } else {
+          setConnectionStatus('disconnected');
+        }
       }
     } catch {
       // Silent fail
@@ -191,6 +220,7 @@ export default function AiSettingsPage() {
     }));
     setTestResult(null);
     setSaveMessage(null);
+    setConnectionStatus('disconnected');
   };
 
   const handleSave = async () => {
@@ -223,7 +253,6 @@ export default function AiSettingsPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setSaveMessage({ type: 'success', text: 'AI configuration saved successfully.' });
-        // Refresh config
         const c = data.config;
         setConfig((prev) => ({
           ...prev,
@@ -252,6 +281,7 @@ export default function AiSettingsPage() {
     if (!token) return;
     setTesting(true);
     setTestResult(null);
+    setConnectionStatus('testing');
     try {
       const res = await fetch('/api/ai/config', {
         method: 'POST',
@@ -262,17 +292,100 @@ export default function AiSettingsPage() {
       const data = await res.json();
       if (data.result) {
         setTestResult(data.result);
+        setConnectionStatus(data.result.success ? 'connected' : 'error');
       } else {
         setTestResult({ success: false, message: data.error || 'Test failed unexpectedly.' });
+        setConnectionStatus('error');
       }
     } catch {
       setTestResult({ success: false, message: 'Network error during connection test.' });
+      setConnectionStatus('error');
     } finally {
       setTesting(false);
     }
   };
 
+  const handleSaveToEnvironment = async () => {
+    if (!token || !config.apiKey) {
+      toast.error('Please enter an API key before saving to environment');
+      return;
+    }
+    setSavingToEnv(true);
+    try {
+      const res = await fetch('/api/ai/env', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          provider: config.provider,
+          apiKey: config.apiKey,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success('AI configuration saved to environment variables. Changes will take effect on next deployment.');
+      } else {
+        toast.error(data.error || 'Failed to save to environment');
+      }
+    } catch {
+      toast.error('Network error saving to environment');
+    } finally {
+      setSavingToEnv(false);
+    }
+  };
+
   const providerInfo = PROVIDER_INFO[config.provider];
+
+  // Connection status display helper
+  const getStatusIndicator = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return (
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+            <Wifi className="w-4 h-4" />
+            <span className="text-sm font-medium">Connected</span>
+          </div>
+        );
+      case 'testing':
+        return (
+          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+            <CircleDot className="w-4 h-4 animate-pulse" />
+            <span className="text-sm font-medium">Testing...</span>
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <WifiOff className="w-4 h-4" />
+            <span className="text-sm font-medium">Disconnected</span>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <WifiOff className="w-4 h-4" />
+            <span className="text-sm font-medium">Not Connected</span>
+          </div>
+        );
+    }
+  };
+
+  // ─── Non-superadmin guard ─────────────────────────────────────────
+  if (!loading && !isSuperAdmin) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <Alert className="border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
+          <ShieldCheck className="h-4 w-4 text-red-600 dark:text-red-400" />
+          <AlertTitle className="text-red-800 dark:text-red-300">Access Restricted</AlertTitle>
+          <AlertDescription className="text-red-700 dark:text-red-400">
+            AI Settings is only accessible to Super Admin users. Contact your administrator to change the AI configuration.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   // ─── Loading skeleton ─────────────────────────────────────────────
   if (loading) {
@@ -289,7 +402,7 @@ export default function AiSettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 lg:p-6 max-w-4xl mx-auto space-y-6">
       {/* ── Page Header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
@@ -305,7 +418,11 @@ export default function AiSettingsPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* Connection Status */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+            {getStatusIndicator()}
+          </div>
           {config.configured ? (
             <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800">
               <CheckCircle2 className="w-3 h-3 mr-1" />
@@ -365,7 +482,7 @@ export default function AiSettingsPage() {
         )}
       </AnimatePresence>
 
-      {/* ── Provider Selection Card ──────────────────────────────── */}
+      {/* ── Provider Selection with Cards ────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -377,30 +494,49 @@ export default function AiSettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="provider">Provider</Label>
-            <Select
-              value={config.provider}
-              onValueChange={(v) => handleProviderChange(v as AIProvider)}
-              disabled={!isSuperAdmin}
-            >
-              <SelectTrigger className="w-full" id="provider">
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectLabel>AI Providers</SelectLabel>
-                  {(Object.entries(PROVIDER_INFO) as [AIProvider, typeof PROVIDER_INFO[AIProvider]][]).map(([key, info]) => (
-                    <SelectItem key={key} value={key}>
-                      <span className="flex items-center gap-2">
-                        <span>{info.icon}</span>
-                        <span>{info.label}</span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+          {/* Provider Cards Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {(Object.entries(PROVIDER_INFO) as [AIProvider, typeof PROVIDER_INFO[AIProvider]][]).map(([key, info]) => {
+              const isSelected = config.provider === key;
+              const isConnected = isSelected && connectionStatus === 'connected';
+              return (
+                <motion.button
+                  key={key}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleProviderChange(key)}
+                  disabled={!isSuperAdmin}
+                  className={`
+                    relative rounded-xl border-2 p-4 text-center transition-all duration-200 cursor-pointer
+                    focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    ${isSelected
+                      ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-950/20 shadow-md shadow-purple-500/10'
+                      : 'border-border bg-card hover:border-purple-300 hover:bg-purple-50/30 dark:hover:border-purple-700 dark:hover:bg-purple-950/10'
+                    }
+                  `}
+                >
+                  {/* Connection indicator dot */}
+                  {isSelected && (
+                    <div className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${
+                      isConnected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' :
+                      connectionStatus === 'error' ? 'bg-red-500 shadow-sm shadow-red-500/50' :
+                      'bg-muted-foreground'
+                    }`} />
+                  )}
+                  {/* Provider icon with gradient background */}
+                  <div className={`w-12 h-12 mx-auto rounded-xl bg-gradient-to-br ${info.color} flex items-center justify-center text-xl mb-2 shadow-lg`}>
+                    {info.icon}
+                  </div>
+                  <p className="font-semibold text-sm">{info.label}</p>
+                  {isSelected && (
+                    <Badge variant="secondary" className="mt-1.5 text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                      Active
+                    </Badge>
+                  )}
+                </motion.button>
+              );
+            })}
           </div>
 
           {/* Provider info card */}
@@ -408,6 +544,12 @@ export default function AiSettingsPage() {
             <div className="flex items-center gap-2">
               <span className="text-xl">{providerInfo.icon}</span>
               <span className="font-semibold">{providerInfo.label}</span>
+              {connectionStatus === 'connected' && config.provider === config.provider && (
+                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs ml-2">
+                  <Wifi className="w-3 h-3 mr-1" />
+                  Connected
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">{providerInfo.description}</p>
             {providerInfo.requiresBaseUrl && (
@@ -474,12 +616,10 @@ export default function AiSettingsPage() {
                   type={showApiKey ? 'text' : 'password'}
                   value={config.apiKey || config.apiKeyMasked}
                   onChange={(e) => {
-                    // If user types over the masked value, replace with actual input
                     if (config.apiKeyMasked && e.target.value === config.apiKeyMasked) return;
                     setConfig((prev) => ({ ...prev, apiKey: e.target.value }));
                   }}
                   onFocus={() => {
-                    // Clear masked value so user can type a new key
                     if (config.apiKeyMasked && !config.apiKey) {
                       setConfig((prev) => ({ ...prev, apiKey: '', apiKeyMasked: '' }));
                     }
@@ -608,23 +748,30 @@ export default function AiSettingsPage() {
             Connection Test
           </CardTitle>
           <CardDescription>
-            Verify that your AI provider configuration is working correctly.
+            Verify that your AI provider configuration is working correctly before saving.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            onClick={handleTestConnection}
-            disabled={testing || !isSuperAdmin}
-            variant="outline"
-            className="gap-2"
-          >
-            {testing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Zap className="w-4 h-4" />
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={handleTestConnection}
+              disabled={testing || !isSuperAdmin || !config.apiKeySet}
+              variant="outline"
+              className="gap-2"
+            >
+              {testing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Zap className="w-4 h-4" />
+              )}
+              {testing ? 'Testing Connection...' : 'Test Connection'}
+            </Button>
+            {!config.apiKeySet && (
+              <p className="text-xs text-muted-foreground">
+                Save your API key first before testing the connection.
+              </p>
             )}
-            {testing ? 'Testing Connection...' : 'Test Connection'}
-          </Button>
+          </div>
 
           {/* Test Result */}
           <AnimatePresence>
@@ -682,42 +829,66 @@ export default function AiSettingsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Save Button ──────────────────────────────────────────── */}
+      {/* ── Save Actions ──────────────────────────────────────────── */}
       {isSuperAdmin && (
-        <div className="flex items-center justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={fetchConfig}
-            disabled={saving}
-            className="gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Reset
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="gap-2 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-lg shadow-purple-500/20"
-          >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {saving ? 'Saving...' : 'Save Configuration'}
-          </Button>
-        </div>
-      )}
+        <div className="space-y-3">
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={fetchConfig}
+              disabled={saving}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reset
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="gap-2 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-lg shadow-purple-500/20"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {saving ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          </div>
 
-      {/* ── Non-superadmin notice ────────────────────────────────── */}
-      {!isSuperAdmin && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Read Only</AlertTitle>
-          <AlertDescription>
-            Only Super Admins can modify AI settings. Contact your administrator to change the configuration.
-          </AlertDescription>
-        </Alert>
+          {/* Save to Environment */}
+          <Card className="border-dashed">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-sky-50 dark:bg-sky-950/30">
+                    <CloudUpload className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm">Save to Environment Variables</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Writes AI_PROVIDER and AI_API_KEY to the database (AppSettings) and registers them as environment variables for the deployment. Requires a new API key to be entered.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveToEnvironment}
+                  disabled={savingToEnv || !config.apiKey || !isSuperAdmin}
+                  className="gap-2 shrink-0"
+                >
+                  {savingToEnv ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CloudUpload className="w-4 h-4" />
+                  )}
+                  {savingToEnv ? 'Saving...' : 'Save to Env'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

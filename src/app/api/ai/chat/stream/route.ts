@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { isAIConfigured } from '@/lib/ai';
+import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +30,269 @@ interface SSEEvent {
 
 function sseEncode(event: SSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+// ─── Multi-provider streaming AI call ─────────────────────────────
+
+type SendFn = (event: SSEEvent) => void;
+
+async function streamFromProvider(
+  provider: AIProvider,
+  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number },
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  send: SendFn,
+): Promise<{ fullResponse: string; tokensUsed: number }> {
+  switch (provider) {
+    case 'zai': {
+      // Use the ZAI SDK — supports streaming
+      const ZAIModule = await import('z-ai-web-dev-sdk');
+      const ZAIClass = ZAIModule.default;
+      interface ZAIConstructor {
+        new (c: { baseUrl: string; apiKey: string }): {
+          chat: {
+            completions: {
+              create: (opts: Record<string, unknown>) => Promise<unknown>;
+            };
+          };
+        };
+      }
+      const zai = new (ZAIClass as unknown as ZAIConstructor)({
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+      });
+      const response: unknown = await zai.chat.completions.create({
+        model: config.model,
+        messages,
+        max_tokens: config.maxTokens,
+        temperature: config.temperature,
+        stream: true,
+      });
+
+      let fullResponse = '';
+      let tokensUsed = 0;
+
+      const asyncIterable = response as AsyncIterable<{
+        choices?: Array<{ delta?: { content?: string } }>;
+      }>;
+      const responseObject = response as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { total_tokens?: number };
+      };
+
+      if (asyncIterable && typeof (asyncIterable as AsyncIterable<unknown>)[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of asyncIterable) {
+          const delta = chunk?.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullResponse += delta;
+            send({ type: 'delta', content: delta });
+          }
+        }
+      } else if (responseObject?.choices?.[0]?.message?.content) {
+        fullResponse = responseObject.choices[0].message.content;
+        tokensUsed = responseObject.usage?.total_tokens || 0;
+        // Simulate streaming
+        const chunkSize = 8;
+        for (let i = 0; i < fullResponse.length; i += chunkSize) {
+          const chunk = fullResponse.slice(i, i + chunkSize);
+          send({ type: 'delta', content: chunk });
+          await new Promise(r => setTimeout(r, 12));
+        }
+      } else {
+        fullResponse = 'I apologize, but I was unable to generate a response. Please try again.';
+        send({ type: 'delta', content: fullResponse });
+      }
+
+      return { fullResponse, tokensUsed };
+    }
+
+    case 'gemini': {
+      // Gemini REST API — streamGenerateContent
+      const url = `${config.baseUrl}/models/${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
+      const geminiContents = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+      const systemInstruction = messages.find(m => m.role === 'system');
+      const body: Record<string, unknown> = {
+        contents: geminiContents,
+        generationConfig: {
+          maxOutputTokens: config.maxTokens,
+          temperature: config.temperature,
+        },
+      };
+      if (systemInstruction) {
+        body.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+
+      let fullResponse = '';
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No readable stream from Gemini');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                fullResponse += text;
+                send({ type: 'delta', content: text });
+              }
+            } catch {
+              // Skip malformed SSE chunks
+            }
+          }
+        }
+      }
+
+      return { fullResponse, tokensUsed: 0 };
+    }
+
+    case 'openai':
+    case 'custom': {
+      // OpenAI-compatible streaming
+      const res = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+          stream: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+
+      let fullResponse = '';
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No readable stream from OpenAI');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed?.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullResponse += delta;
+                send({ type: 'delta', content: delta });
+              }
+            } catch {
+              // Skip malformed SSE chunks
+            }
+          }
+        }
+      }
+
+      return { fullResponse, tokensUsed: 0 };
+    }
+
+    case 'azure-openai': {
+      // Azure OpenAI streaming
+      const url = `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-06-01`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': config.apiKey,
+        },
+        body: JSON.stringify({
+          messages,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+          stream: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Azure OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+
+      let fullResponse = '';
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No readable stream from Azure OpenAI');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed?.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullResponse += delta;
+                send({ type: 'delta', content: delta });
+              }
+            } catch {
+              // Skip malformed SSE chunks
+            }
+          }
+        }
+      }
+
+      return { fullResponse, tokensUsed: 0 };
+    }
+
+    default:
+      throw new Error(`Unsupported AI provider for streaming: ${provider}`);
+  }
 }
 
 // POST /api/ai/chat/stream — Streaming chat via Server-Sent Events
@@ -122,58 +385,21 @@ export async function POST(request: NextRequest) {
           { role: 'user', content: message },
         ];
 
-        const aiConfigured = isAIConfigured();
         let fullResponse = '';
         let tokensUsed = 0;
+        let aiConfigured = false;
 
-        if (aiConfigured) {
-          // ---- Real AI streaming ----
-          try {
-            const { getAIClient } = await import('@/lib/ai');
-            const zai = await getAIClient();
-            const response: unknown = await zai.chat.completions.create({
-              model: 'glm-4-plus',
-              messages: aiMessages,
-              stream: true,
-            });
+        try {
+          const config = await getAIProviderConfig();
+          aiConfigured = !!config.apiKey;
 
-            // The SDK may return either an async iterable (true streaming) or a plain object.
-            // Handle both cases gracefully.
-            const asyncIterable = response as AsyncIterable<{
-              choices?: Array<{ delta?: { content?: string } }>;
-            }>;
-            const responseObject = response as {
-              choices?: Array<{ message?: { content?: string } }>;
-              usage?: { total_tokens?: number };
-            };
-
-            if (asyncIterable && typeof (asyncIterable as AsyncIterable<unknown>)[Symbol.asyncIterator] === 'function') {
-              for await (const chunk of asyncIterable) {
-                const delta = chunk?.choices?.[0]?.delta?.content;
-                if (delta) {
-                  fullResponse += delta;
-                  send({ type: 'delta', content: delta });
-                }
-              }
-            } else if (responseObject?.choices?.[0]?.message?.content) {
-              fullResponse = responseObject.choices[0].message.content;
-              tokensUsed = responseObject.usage?.total_tokens || 0;
-              // Simulate streaming by chunking the full response
-              const chunkSize = 8;
-              for (let i = 0; i < fullResponse.length; i += chunkSize) {
-                const chunk = fullResponse.slice(i, i + chunkSize);
-                send({ type: 'delta', content: chunk });
-                await new Promise(r => setTimeout(r, 12));
-              }
-            } else {
-              fullResponse = 'I apologize, but I was unable to generate a response. Please try again.';
-              send({ type: 'delta', content: fullResponse });
-            }
-          } catch (aiError) {
-            // Silently fall back to demo response — no scary error messages shown to user
-            console.error('AI SDK stream error (falling back to demo mode):', aiError);
+          if (aiConfigured) {
+            const result = await streamFromProvider(config.provider, config, aiMessages, send);
+            fullResponse = result.fullResponse;
+            tokensUsed = result.tokensUsed;
+          } else {
+            // Demo mode fallback
             fullResponse = generateFallbackResponse(message, false);
-            // Stream the fallback
             const chunkSize = 8;
             for (let i = 0; i < fullResponse.length; i += chunkSize) {
               const chunk = fullResponse.slice(i, i + chunkSize);
@@ -181,8 +407,8 @@ export async function POST(request: NextRequest) {
               await new Promise(r => setTimeout(r, 12));
             }
           }
-        } else {
-          // ---- Demo mode fallback (streamed) ----
+        } catch (aiError) {
+          console.error('AI stream error (falling back to demo mode):', aiError);
           fullResponse = generateFallbackResponse(message, false);
           const chunkSize = 8;
           for (let i = 0; i < fullResponse.length; i += chunkSize) {
@@ -239,7 +465,7 @@ function generateFallbackResponse(userMessage: string, aiConfigured: boolean): s
   const lower = userMessage.toLowerCase();
   const prefix = aiConfigured
     ? ''
-    : '_Note: AI service is not configured (`ZAI_API_KEY` env var missing) — showing a demo response. Once the API key is set in Vercel, full AI responses will be available._\n\n';
+    : '_Note: AI service is not configured — showing a demo response. Once the API key is set, full AI responses will be available._\n\n';
 
   let body = '';
 
@@ -249,7 +475,7 @@ function generateFallbackResponse(userMessage: string, aiConfigured: boolean): s
 1. Navigate to **Data Records**
 2. Select the target module (e.g. Article Master)
 3. Click the **Create** button
-4. Fill in the required fields (marked with \`\*\`)
+4. Fill in the required fields (marked with \`*\`)
 5. Save as **Draft** or **Submit for Review**
 
 \`\`\`text
@@ -266,7 +492,7 @@ Required fields are marked with an asterisk. The approval workflow will depend o
 4. Click **Approve** or **Reject**
 5. Add review notes if needed
 
-Only users with the **Manager** or **Super Admin** role can approve records. Use the **"Lihat Detail Perubahan"** button to see a full field-by-field breakdown of the proposed changes.`;
+Only users with the **Manager** or **Super Admin** role can approve records.`;
   } else if (lower.includes('import') || lower.includes('bulk') || lower.includes('export')) {
     body = `For bulk operations:
 
@@ -296,17 +522,6 @@ Authorization: Bearer YOUR_API_KEY
 \`\`\`
 
 Production keys have **1000 req/min**, testing keys have **100 req/min**.`;
-  } else if (lower.includes('sftp') || lower.includes('sync')) {
-    body = `To set up SFTP sync:
-
-1. Navigate to **SFTP Configuration**
-2. Click **Add New Configuration**
-3. Enter host, port, credentials
-4. Set sync direction (\`INBOUND\` / \`OUTBOUND\` / \`BIDIRECTIONAL\`)
-5. Configure schedule and file pattern
-6. Test the connection before enabling
-
-**SFTP Manager** role is required for this operation.`;
   } else if (lower.includes('image') || lower.includes('photo') || lower.includes('upload')) {
     body = `To upload images:
 
@@ -316,7 +531,7 @@ Production keys have **1000 req/min**, testing keys have **100 req/min**.`;
 4. Select your image file
 5. Set as primary if needed
 
-Supported formats: **PNG, JPG, GIF, WebP**. Images are stored in \`/public/uploads/\`.`;
+Supported formats: **PNG, JPG, GIF, WebP**.`;
   } else if (lower.includes('status') || lower.includes('draft') || lower.includes('lifecycle')) {
     body = `Record status workflow:
 

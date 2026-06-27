@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { isAIConfigured } from '@/lib/ai';
+import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +23,148 @@ You can help with:
 - Providing recommendations for data management
 
 Format your responses using Markdown when helpful: use **bold** for emphasis, bullet lists, numbered steps, and fenced code blocks (\`\`\`) for code or commands. Be concise but thorough.`;
+
+// ─── Multi-provider AI call (non-streaming) ──────────────────────
+
+interface AIChatResponse {
+  content: string;
+  tokensUsed: number;
+}
+
+async function callAIProvider(
+  provider: AIProvider,
+  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number },
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+): Promise<AIChatResponse> {
+  switch (provider) {
+    case 'zai': {
+      // Use the ZAI SDK
+      const ZAIModule = await import('z-ai-web-dev-sdk');
+      const ZAIClass = ZAIModule.default;
+      interface ZAIConstructor {
+        new (c: { baseUrl: string; apiKey: string }): {
+          chat: {
+            completions: {
+              create: (opts: Record<string, unknown>) => Promise<{
+                choices?: Array<{ message?: { content?: string } }>;
+                usage?: { total_tokens?: number };
+              }>;
+            };
+          };
+        };
+      }
+      const zai = new (ZAIClass as unknown as ZAIConstructor)({
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+      });
+      const response = await zai.chat.completions.create({
+        model: config.model,
+        messages,
+        max_tokens: config.maxTokens,
+        temperature: config.temperature,
+        stream: false,
+      });
+      return {
+        content: response?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.',
+        tokensUsed: response?.usage?.total_tokens || 0,
+      };
+    }
+
+    case 'gemini': {
+      // Gemini REST API: POST {baseUrl}/models/{model}:generateContent?key={apiKey}
+      const url = `${config.baseUrl}/models/${config.model}:generateContent?key=${config.apiKey}`;
+      const geminiContents = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+      const systemInstruction = messages.find(m => m.role === 'system');
+      const body: Record<string, unknown> = {
+        contents: geminiContents,
+        generationConfig: {
+          maxOutputTokens: config.maxTokens,
+          temperature: config.temperature,
+        },
+      };
+      if (systemInstruction) {
+        body.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const tokensUsed = data?.usageMetadata?.totalTokenCount || 0;
+      return {
+        content: content || 'I apologize, but I was unable to generate a response. Please try again.',
+        tokensUsed,
+      };
+    }
+
+    case 'openai':
+    case 'custom': {
+      // OpenAI-compatible REST API
+      const res = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      return {
+        content: data?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.',
+        tokensUsed: data?.usage?.total_tokens || 0,
+      };
+    }
+
+    case 'azure-openai': {
+      // Azure OpenAI REST API
+      const url = `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-06-01`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': config.apiKey,
+        },
+        body: JSON.stringify({
+          messages,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Azure OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      return {
+        content: data?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.',
+        tokensUsed: data?.usage?.total_tokens || 0,
+      };
+    }
+
+    default:
+      throw new Error(`Unsupported AI provider: ${provider}`);
+  }
+}
 
 // GET /api/ai/chat?userId=xxx                    → list conversations for user
 // GET /api/ai/chat?conversationId=xxx            → full conversation with all messages
@@ -153,26 +295,21 @@ export async function POST(request: NextRequest) {
 
     let aiResponse: string;
     let tokensUsed = 0;
-    const aiConfigured = isAIConfigured();
+    let aiConfigured = false;
 
-    if (aiConfigured) {
-      try {
-        const { getAIClient } = await import('@/lib/ai');
-        const zai = await getAIClient();
-        const response = await zai.chat.completions.create({
-          model: 'glm-4-plus',
-          messages: aiMessages,
-          stream: false,
-        });
-        aiResponse = response?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
-        tokensUsed = response?.usage?.total_tokens || 0;
-      } catch (aiError) {
-        // Silently fall back to demo response — no scary error messages shown to user
-        console.error('AI SDK error (falling back to demo mode):', aiError);
+    try {
+      const config = await getAIProviderConfig();
+      aiConfigured = !!config.apiKey;
+
+      if (aiConfigured) {
+        const result = await callAIProvider(config.provider, config, aiMessages);
+        aiResponse = result.content;
+        tokensUsed = result.tokensUsed;
+      } else {
         aiResponse = generateFallbackResponse(message, false);
       }
-    } else {
-      // AI not configured — use fallback (demo mode)
+    } catch (aiError) {
+      console.error('AI provider error (falling back to demo mode):', aiError);
       aiResponse = generateFallbackResponse(message, false);
     }
 
@@ -292,7 +429,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Cascade delete on AiMessage is configured in schema
     await db.aiConversation.delete({ where: { id: conversationId } });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -306,7 +442,7 @@ function generateFallbackResponse(userMessage: string, aiConfigured: boolean): s
   const lower = userMessage.toLowerCase();
   const prefix = aiConfigured
     ? ''
-    : '_Note: AI service is not configured (`ZAI_API_KEY` env var missing) — showing a demo response. Once the API key is set in Vercel, full AI responses will be available._\n\n';
+    : '_Note: AI service is not configured — showing a demo response. Once the API key is set, full AI responses will be available._\n\n';
 
   let body = '';
 
@@ -316,7 +452,7 @@ function generateFallbackResponse(userMessage: string, aiConfigured: boolean): s
 1. Navigate to **Data Records**
 2. Select the target module (e.g. Article Master)
 3. Click the **Create** button
-4. Fill in the required fields (marked with \`\*\`)
+4. Fill in the required fields (marked with \`*\`)
 5. Save as **Draft** or **Submit for Review**
 
 \`\`\`text
@@ -363,17 +499,6 @@ Authorization: Bearer YOUR_API_KEY
 \`\`\`
 
 Production keys have **1000 req/min**, testing keys have **100 req/min**.`;
-  } else if (lower.includes('sftp') || lower.includes('sync')) {
-    body = `To set up SFTP sync:
-
-1. Navigate to **SFTP Configuration**
-2. Click **Add New Configuration**
-3. Enter host, port, credentials
-4. Set sync direction (\`INBOUND\` / \`OUTBOUND\` / \`BIDIRECTIONAL\`)
-5. Configure schedule and file pattern
-6. Test the connection before enabling
-
-**SFTP Manager** role is required for this operation.`;
   } else if (lower.includes('image') || lower.includes('photo') || lower.includes('upload')) {
     body = `To upload images:
 
@@ -383,7 +508,7 @@ Production keys have **1000 req/min**, testing keys have **100 req/min**.`;
 4. Select your image file
 5. Set as primary if needed
 
-Supported formats: **PNG, JPG, GIF, WebP**. Images are stored in \`/public/uploads/\`.`;
+Supported formats: **PNG, JPG, GIF, WebP**. Images are stored via the API upload route.`;
   } else if (lower.includes('status') || lower.includes('draft') || lower.includes('lifecycle')) {
     body = `Record status workflow:
 

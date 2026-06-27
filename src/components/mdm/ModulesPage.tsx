@@ -24,6 +24,7 @@ import {
   Database, Plus, MoreVertical, Pencil, Trash2, ArrowRight,
   Package, DollarSign, Building2, Store, Truck, Tag, Gift,
   Copy, Download, Clock, FileText, BarChart3, Users, ToggleLeft,
+  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -56,6 +57,12 @@ export default function ModulesPage() {
   const [editModule, setEditModule] = useState<any>(null);
   const [form, setForm] = useState({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
   const [saving, setSaving] = useState(false);
+
+  // Quick edit dialog (name, description, requireApproval)
+  const [quickEditOpen, setQuickEditOpen] = useState(false);
+  const [quickEditModule, setQuickEditModule] = useState<any>(null);
+  const [quickEditForm, setQuickEditForm] = useState({ moduleName: '', description: '', requireApproval: true });
+  const [quickEditSaving, setQuickEditSaving] = useState(false);
 
   // Clone dialog
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
@@ -215,6 +222,47 @@ export default function ModulesPage() {
     setDialogOpen(true);
   };
 
+  const openQuickEdit = (m: any) => {
+    setQuickEditModule(m);
+    setQuickEditForm({
+      moduleName: m.moduleName || '',
+      description: m.description || '',
+      requireApproval: m.requireApproval ?? true,
+    });
+    setQuickEditOpen(true);
+  };
+
+  const handleQuickEditSave = async () => {
+    if (!token || !quickEditModule) return;
+    setQuickEditSaving(true);
+    try {
+      const res = await fetch('/api/modules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id: quickEditModule.id,
+          moduleCode: quickEditModule.moduleCode,
+          moduleName: quickEditForm.moduleName,
+          moduleIcon: quickEditModule.moduleIcon,
+          description: quickEditForm.description,
+          requireApproval: quickEditForm.requireApproval,
+          sortOrder: quickEditModule.sortOrder ?? 0,
+          isActive: quickEditModule.isActive ?? true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed to update'); return; }
+      toast.success('Module updated successfully');
+      setQuickEditOpen(false);
+      setQuickEditModule(null);
+      loadModules();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setQuickEditSaving(false);
+    }
+  };
+
   const openCreate = () => {
     setEditModule(null);
     setForm({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
@@ -340,39 +388,56 @@ export default function ModulesPage() {
                         <CardDescription className="text-xs font-mono">{m.moduleCode}</CardDescription>
                       </div>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <MoreVertical className="w-4 h-4" />
+                    <div className="flex items-center gap-1">
+                      {canManage && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                          onClick={() => openQuickEdit(m)}
+                        >
+                          <Pencil className="w-4 h-4" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => navigate('module-detail', { moduleId: m.id })}>
-                          <ArrowRight className="w-4 h-4 mr-2" /> Open Builder
-                        </DropdownMenuItem>
-                        {canManage && (
-                          <DropdownMenuItem onClick={() => openEdit(m)}>
-                            <Pencil className="w-4 h-4 mr-2" /> Edit
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => navigate('module-detail', { moduleId: m.id })}>
+                            <ArrowRight className="w-4 h-4 mr-2" /> Open Builder
                           </DropdownMenuItem>
-                        )}
-                        {canManage && (
-                          <DropdownMenuItem onClick={() => openClone(m)}>
-                            <Copy className="w-4 h-4 mr-2" /> Duplicate
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => handleExport(m)}>
-                          <Download className="w-4 h-4 mr-2" /> Export JSON
-                        </DropdownMenuItem>
-                        {canManage && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(m.id)}>
-                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                          {canManage && (
+                            <DropdownMenuItem onClick={() => openQuickEdit(m)}>
+                              <Pencil className="w-4 h-4 mr-2" /> Quick Edit
                             </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          )}
+                          {canManage && (
+                            <DropdownMenuItem onClick={() => openEdit(m)}>
+                              <Settings2 className="w-4 h-4 mr-2" /> Full Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canManage && (
+                            <DropdownMenuItem onClick={() => openClone(m)}>
+                              <Copy className="w-4 h-4 mr-2" /> Duplicate
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => handleExport(m)}>
+                            <Download className="w-4 h-4 mr-2" /> Export JSON
+                          </DropdownMenuItem>
+                          {canManage && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(m.id)}>
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0 space-y-3">
@@ -583,6 +648,56 @@ export default function ModulesPage() {
             <Button variant="outline" onClick={() => setCloneDialogOpen(false)} disabled={cloneSaving}>Cancel</Button>
             <Button onClick={handleClone} disabled={cloneSaving || !cloneForm.moduleCode || !cloneForm.moduleName} className="bg-red-600 hover:bg-red-700 text-white">
               {cloneSaving ? 'Cloning...' : 'Clone Module'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Edit Dialog — name, description, require approval */}
+      <Dialog open={quickEditOpen} onOpenChange={setQuickEditOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4" />
+              Quick Edit Module
+            </DialogTitle>
+            <DialogDescription>
+              Update &quot;{quickEditModule?.moduleName}&quot; — name, description, and approval setting
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Module Name</Label>
+              <Input
+                placeholder="e.g. Article Master"
+                value={quickEditForm.moduleName}
+                onChange={(e) => setQuickEditForm({ ...quickEditForm, moduleName: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Brief description of this module"
+                value={quickEditForm.description}
+                onChange={(e) => setQuickEditForm({ ...quickEditForm, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <Label className="text-sm">Require Approval</Label>
+                <p className="text-[10px] text-muted-foreground">Records need approval before activation</p>
+              </div>
+              <Switch
+                checked={quickEditForm.requireApproval}
+                onCheckedChange={(checked) => setQuickEditForm({ ...quickEditForm, requireApproval: checked })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickEditOpen(false)} disabled={quickEditSaving}>Cancel</Button>
+            <Button onClick={handleQuickEditSave} disabled={quickEditSaving || !quickEditForm.moduleName} className="bg-red-600 hover:bg-red-700 text-white">
+              {quickEditSaving ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

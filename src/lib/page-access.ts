@@ -70,14 +70,8 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'workflow',
     'hierarchy',
     'hierarchy-detail',
-    'bulk-import',
-    'bulk-jobs',
-    'audit-log',
     'documentation',
     'ai-assistant',
-    'ai-prompts',
-    'ai-review',
-    'api-management',
     'settings',
   ],
   'Data Entry': [
@@ -166,6 +160,7 @@ export function isSuperAdmin(roles: string[] | undefined | null): boolean {
  * Used by the AppShell to hide the entire Admin section.
  */
 export const SENSITIVE_ADMIN_PAGES: PageView[] = [
+  'modules',
   'admin-users',
   'admin-roles',
   'admin-companies',
