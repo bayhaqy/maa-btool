@@ -983,3 +983,83 @@ Stage Summary:
 - Files modified: prisma/schema.prisma, src/app/api/seed/route.ts, src/app/api/seed-data/route.ts, src/app/api/fields/route.ts, src/app/api/admin/lookups/route.ts, src/app/api/records/route.ts, src/components/mdm/RecordDetailPage.tsx, src/components/mdm/AdminLookupsPage.tsx, src/components/mdm/ModuleDetailPage.tsx, src/components/mdm/DataRecordsPage.tsx, src/stores/app-store.ts, src/lib/page-access.ts, src/components/layout/AppShell.tsx, src/app/globals.css, eslint.config.mjs.
 - Files created: src/components/mdm/GridEditorPage.tsx.
 - Schema is reverted to postgresql for Vercel/Supabase production. Ready to commit + push (auto-deploys to Vercel + runs prisma db push).
+
+---
+Task ID: 22-DATA
+Agent: Data Reseed Subagent (Task 22)
+Task: Create `/api/admin/reseed-map-data` endpoint that replaces all sample master data with realistic MAP Active (PT Mitra Adiperkasa Tbk) e-commerce data inspired by mapclub.com — also seeds ImageAsset records so images appear immediately in the grid editor + record detail page.
+
+Work Log:
+
+**Context gathering**:
+- Read `/home/z/my-project/worklog.md` (Tasks 7-21) to understand the project state — particularly Task 21 (cascading dropdown + grid editor) which established the Indonesian retail taxonomy (SEPATU/TAS/PAKAIAN/AKSSESORIS/MAKANAN/ELEKTRONIK + 21 cascading sub-categories).
+- Read the existing `migrate-cascading/route.ts` (the pattern to mirror — POST endpoint, Super Admin auth via `getTokenFromHeaders` + `isSuperAdmin`, upserts + soft-delete for idempotency, `logAudit` at the end).
+- Read `prisma/schema.prisma` to confirm model shapes: DataRecord has `moduleId`/`companyId`/`status`/`currentPayload`/`version`; DataVersion has `versionNumber`/`status`/`changeReason`/`payloadSnapshot`; ApprovalTicket has `requestedById`/`status`/`deltaPayload`; ImageAsset has `recordId`/`fieldName`/`fileName`/`filePath`/`mimeType`/`isPrimary`/`sortOrder`; HierarchyNode has `parentNodeId` (nullable) + `materializedPath` (default `""`); LookupValue has `parentValueId` (self-FK) + `parentValueCode` (denormalized) for cross-lookup cascading.
+- Read `src/app/api/seed/route.ts` to confirm module codes (ARTICLE_MASTER, STORE_MASTER, SUPPLIER_MASTER, PRICING_MASTER, PROMOTION_MASTER), company code (`MAPI`), superadmin username (`superadmin`), and existing lookup codes (CATEGORY, SUB_CATEGORY, ARTICLE_TAGS, UOM, REGION, STORE_TYPE, SUPPLIER_TYPE, PAYMENT_TERMS, PRICE_TYPE, PROMO_TYPE, DISCOUNT_TYPE). Confirmed `brand` field on Article Master is `TEXT` (not SELECT) — per task spec, kept as TEXT.
+- Confirmed `logAudit` signature (`{ userId, action, entityType, entityId?, moduleName?, description, oldValues?, newValues?, companyId? }`) and `getTokenFromHeaders` returns `{ userId, username, email, companyId, companyCode, roles }`.
+
+**File created**: `/home/z/my-project/src/app/api/admin/reseed-map-data/route.ts` (~1130 lines including comments + inline seed data).
+
+**Endpoint structure**:
+1. Top comment block explaining what the endpoint does (idempotent reseed, 6 steps, Super Admin only, works on both SQLite + PostgreSQL).
+2. Inline typed seed data arrays (declared at module level so they're cheap to evaluate):
+   - `ARTICLE_SEEDS`: 50 articles — 12 SEPATU + 7 TAS + 8 PAKAIAN + 6 AKSESORIS + 6 KOSMETIK + 4 MAKANAN + 4 ELEKTRONIK + 3 OLAHRAGA. Real MAP-carried brands (Nike, Adidas, Converse, Skechers, Levi's, Tommy Hilfiger, Calvin Klein, Nautica, Cole Haan, Puma, New Balance, Vans, Dr. Martens, Eiger, Consina, Sephora, Victoria's Secret, Starbucks, Foodhall, Samsung, Apple, Anker, Sony, Polygon, Speedo, Casio, Wizard). Statuses distributed: 35 ACTIVE (ART-001..035) + 8 DRAFT (ART-036..043) + 5 IN_REVIEW (ART-044..048) + 2 REVISION_PENDING (ART-049..050). Each entry has realistic IDR pricing (selling ~1.3-1.8× purchase), 1-3 comma-joined tags from ARTICLE_TAGS, and a 1-sentence Indonesian description.
+   - `STORE_SEEDS`: 12 MAP mall locations (Grand Indonesia, Pondok Indah Mall, Tunjungan Plaza, Starbucks Pacific Place, Sephora Senayan City, Nike Plaza Indonesia, Mal Taman Anggrek, Bandung Indah Plaza, Victoria's Secret Lippo Mall Kemang, Mal Kelapa Gading, Levi's Bali Collection, Trans Studio Mall Makassar) — all ACTIVE. Regions distributed across JABODETABEK, WEST_JAVA, EAST_JAVA, BALI_NT, SULAWESI.
+   - `SUPPLIER_SEEDS`: 12 brand distributors (PT Nike Indonesia, PT Adidas Indonesia, PT Converse Indonesia, PT Skechers SEA, PT Levi Strauss Indonesia, PT Tommy Hilfiger Asia, PT Calvin Klein Indonesia, PT Sephora Indonesia, PT Victoria's Secret Indonesia, PT Starbucks Coffee Indonesia, PT Cole Haan Asia, CV Eiger Adventure) — 9 ACTIVE + 2 IN_REVIEW + 1 DRAFT. Mix of supplier types (MANUFACTURER, DISTRIBUTOR, WHOLESALER, LOCAL) and payment terms (NET_30, NET_60, NET_90, COD, CBD).
+   - `PRICING_SEEDS`: 15 pricing records linking to ART-001 through ART-015. Mix of REGULAR, PROMOTIONAL, COST, WHOLESALE price types. Varied store_type (HYPERMARKET, SUPERMARKET, SPECIALTY) and region (JABODETABEK, WEST_JAVA, EAST_JAVA, SUMATRA, BALI_NT).
+   - `PROMOTION_SEEDS`: 8 MAP-style promotions (Summer Sale 2024, Buy 1 Get 1 Coffee, Back to School Bundle, Flash Sale Electronics, Year End Clearance, Sephora Beauty Festival, Nike Running Week, Ramadan Special Bundle) — 6 ACTIVE + 1 IN_REVIEW + 1 DRAFT. Mix of DISCOUNT, BOGO, BUNDLE, FLASH_SALE promo types.
+   - 8 photo-pool arrays (SHOE_PHOTOS, BAG_PHOTOS, CLOTHING_PHOTOS, ACCESSORY_PHOTOS, BEAUTY_PHOTOS, FOOD_PHOTOS, ELECTRONICS_PHOTOS, SPORTS_PHOTOS) plus STORE_PHOTOS — all stable Unsplash URLs (the ones specified in the task spec).
+3. Main `POST` handler with all 6 steps:
+   - **Auth**: Super Admin only (mirrors migrate-cascading).
+   - **Module resolution**: proper `moduleMap[code] = id` loop (NOT the buggy `moduleMap.moduleCode]` syntax from seed-data/route.ts that the task explicitly told me to avoid).
+   - **Step 1 (Wipe)**: `db.$transaction` with `deleteMany` for ImageAsset → ApprovalTicket → DataVersion → DataRecord → FileAsset(category='image') → HierarchyNode(hierarchy.moduleId=ARTICLE_MASTER) → HierarchyModel(moduleId=ARTICLE_MASTER). Uses Prisma relation filter syntax (`{ record: { moduleId: { in: ... } } }`) — works on both SQLite + PostgreSQL. Returns counts in `deletionStats`.
+   - **Step 2 (Lookups)**: 
+     - CATEGORY: upserts 8 Indonesian categories (added KOSMETIK + OLAHRAGA which weren't in the existing seed). Soft-deletes stale category codes.
+     - SUB_CATEGORY: upserts 35 cascading child values (added new ones: SEPATU_FORMAL, TAS_TRAVEL, AKS_DOMPET, AKS_PERHIASAN, KOS_WAJAH, KOS_BIBIR, KOS_MATA, KOS_PARFUM, MAKANAN_KUE, ELEK_AUDIO, OLA_FITNESS, OLA_SEPEDA, OLA_RENANG). Resolves `parentValueId` correctly — fetches CATEGORY lookup values to build code→id map (cross-lookup parent reference, as the task spec emphasized).
+     - ARTICLE_TAGS: ensures the 7 existing tag values exist.
+     - BRAND: creates new LookupMaster (`lookupCode='BRAND'`, `lookupName='Article Brand'`) + upserts 20 MAP-carried brand values (NIKE, ADIDAS, CONVERSE, SKECHERS, LEVIS, TOMMY_HILFIGER, CALVIN_KLEIN, NAUTICA, WIZARD, CUPCAKES, PAYLESS, SEPHORA, VICTORIA_SECRET, COLE_HAAN, PUMA, NEW_BALANCE, VANS, DR_MARTENS, EIGER, CONSINA). Per task spec, the `brand` field on Article Master is NOT changed to SELECT — it stays TEXT so existing data isn't broken.
+   - **Step 3 (Hierarchy)**: Creates new HierarchyModel "MAP Article Hierarchy" with 3-level tree: 4 roots (Pria/Wanita/Anak/Unisex) → 16 level-1 nodes (Sepatu Pria/Wanita/Anak/Olahraga, Pakaian Pria/Wanita/Anak, Aksesoris Pria/Wanita, Tas Pria/Wanita, Kosmetik & Beauty, Mainan & Aksesoris, Elektronik, Makanan & Minuman) → 29 level-2 nodes (Running/Sneakers/Formal/Boot under each Sepatu; Atasan/Bawahan/Outerwear under each Pakaian; Wajah/Bibir/Mata/Parfum under Kosmetik & Beauty). Total: 4+16+29 = 49 nodes. `materializedPath` = parent.id (or empty for root); `depthLevel` = 0/1/2; `sortOrder` sequential within each parent; `status`='ACTIVE'.
+   - **Step 4 (Records)**: Creates all 50 articles + 12 stores + 12 suppliers + 15 pricings + 8 promotions = 97 records. Status-dependent side effects:
+     - ACTIVE → DataVersion(version=1, status=ACTIVE, reason="Initial creation (auto-approved)").
+     - IN_REVIEW → ApprovalTicket(status=PENDING, deltaPayload=currentPayload).
+     - REVISION_PENDING → DataVersion(version=1, ACTIVE) + ApprovalTicket(PENDING) — simulates an active record that was edited and is pending re-approval.
+     - DRAFT → no version / no ticket.
+     All records use `createdById`/`updatedById` = superadmin.id.
+   - **Step 5 (Images)**: Creates 1 primary ImageAsset per article (50) + 1 primary ImageAsset per store (12) = 62 images. Photo URL picked by cycling through the appropriate category pool via `photoPoolForCategory(category)` helper — uses `categoryPhotoIndex[category]` to advance per category so different articles in the same category get different photos. `fieldName`='images' for articles, 'store_photos' for stores. `fileName`=`${code}.jpg`. `filePath`=FULL Unsplash URL (https://images.unsplash.com/... — NOT prefixed with /api/uploads/). `mimeType`='image/jpeg'. `fileSize`=0. `altText`=article_name/store_name. `isPrimary`=true. `sortOrder`=0. Per task spec, NO images created for PRICING/PROMOTION/SUPPLIER records.
+   - **Step 6 (Summary + Audit)**: Returns JSON `{ articlesCreated, storesCreated, suppliersCreated, pricingsCreated, promotionsCreated, imagesCreated, hierarchyNodesCreated, lookupsUpdated, deletedRecords, deletedImages, success, message, startedAt, completedAt, steps[] }`. Logs `logAudit({ action: 'RESEED_MAP_DATA', entityType: 'DataRecord', moduleName: 'Migration', newValues: summary, ... })`.
+
+**Type-safety improvement**: The existing `migrate-cascading/route.ts` uses `const summary: Record<string, unknown> = { steps: [] as string[] }` then calls `summary.steps.push(...)` — which produces TS18046 errors ("'summary.steps' is of type 'unknown'") that the project tolerates as pre-existing noise. My new file uses a typed summary interface (`{ startedAt: string; completedAt?; success?; message?; steps: string[]; articlesCreated?; ... }`) so `.push()` calls type-check cleanly. Verified: zero TypeScript errors in `reseed-map-data/route.ts` (compared to 13 errors in migrate-cascading/route.ts from the same `summary.steps.push` pattern — but those are pre-existing and out of scope).
+
+**Idempotency & DB compatibility**:
+- All lookup operations use `upsert` (`lookupId_valueCode` unique key) + `updateMany` for soft-delete — safe to re-run.
+- All record operations use `create` (safe because Step 1 wiped existing records first).
+- All image operations use `create` (no unique constraint on ImageAsset recordId/fileName — multiple files per record allowed).
+- All hierarchy operations use `create` (Step 1 wiped existing Article Hierarchy first).
+- No DB-specific syntax — uses standard Prisma `deleteMany`/`upsert`/`create`/`update`/`findMany`/`findFirst`/`findUnique` + relation filters + `$transaction`. Works on SQLite (local dev) and PostgreSQL (Vercel/Supabase prod).
+
+**Verification (all passed)**:
+1. `bunx tsc --noEmit --skipLibCheck` → **0 errors in `reseed-map-data/route.ts`** (verified by grepping the tsc output for `reseed-map-data` — no matches). The 66 remaining errors in the project are all pre-existing in unrelated files (migrate-cascading/route.ts summary.steps pattern, seed-data/route.ts missing-bracket bug, pinecone.ts, resend.ts, etc.).
+2. `bun run lint` → **0 errors, 0 warnings** (exit 0). My new file passes the project's ESLint config (which has 4 experimental react-hooks rules disabled per Task 21-GRID's eslint.config.mjs update — none of which affect server-side route files anyway).
+3. Dev server runs clean — checked `/home/z/my-project/dev.log`, no compilation errors related to the new route. Only pre-existing 404 for `/map-active-logo.png` (known sandbox issue from Task 13-B/Task 20).
+
+**Notes for the main agent (Task 22)**:
+- The endpoint is ready to call: `POST /api/admin/reseed-map-data` with `Authorization: Bearer <superadmin-jwt>`.
+- It expects `/api/seed` to have already run (so modules/fields/users/lookups exist). If a required module or `MAPI` company is missing, it returns HTTP 400 with a clear error message ("Required module 'X' not found. Run /api/seed first.").
+- The endpoint is **idempotent** — safe to call multiple times. Each call wipes and re-creates the sample data.
+- Total expected output on success: 50 articles + 12 stores + 12 suppliers + 15 pricings + 8 promotions + 62 images + 49 hierarchy nodes + 70 lookup values upserted (8 CATEGORY + 35 SUB_CATEGORY + 7 ARTICLE_TAGS + 20 BRAND).
+- After running this endpoint, the grid editor (Task 21-GRID) will show 50 articles with real product images (instead of placeholder), and the record detail page will display the primary image inline. The cascade filter (Category → Sub Category) will work end-to-end with the expanded 8-category × 35-subcategory taxonomy.
+- Pre-existing TS errors (66 across the project) are out of scope per the task spec ("DO NOT modify" seed endpoints; "production is at https://maa-btool.vercel.app"). The new file itself contributes 0 errors.
+
+Stage Summary:
+- ✅ Created `/home/z/my-project/src/app/api/admin/reseed-map-data/route.ts` (~1130 lines, fully commented, production-quality).
+- ✅ Step 1 (Wipe): Atomic `db.$transaction` deletes ImageAsset, ApprovalTicket, DataVersion, DataRecord (where moduleId in 5 retail modules), FileAsset (category='image'), HierarchyNode, HierarchyModel — returns counts.
+- ✅ Step 2 (Lookups): CATEGORY upserted to 8 Indonesian categories (added KOSMETIK + OLAHRAGA); SUB_CATEGORY upserted to 35 cascading child values with cross-lookup `parentValueId` resolved; ARTICLE_TAGS ensured (7 values); BRAND lookup created fresh with 20 MAP-carried brands (brand field left as TEXT).
+- ✅ Step 3 (Hierarchy): "MAP Article Hierarchy" with 4 roots + 16 L1 + 29 L2 = 49 nodes (Pria/Wanita/Anak/Unisex → Sepatu/Pakaian/Aksesoris/Tas/Kosmetik/Elektronik/Makanan → Running/Sneakers/Formal/Boot/Atasan/Bawahan/Outerwear/Wajah/Bibir/Mata/Parfum).
+- ✅ Step 4 (Records): 50 articles + 12 stores + 12 suppliers + 15 pricings + 8 promotions = 97 records. Status distribution: 35+12+9+15+6=77 ACTIVE, 8+0+0+0+1=9 DRAFT, 5+0+2+0+1=8 IN_REVIEW, 2+0+0+0+0=2 REVISION_PENDING. Proper DataVersion + ApprovalTicket side effects per status.
+- ✅ Step 5 (Images): 62 primary ImageAsset records (50 articles + 12 stores) using stable Unsplash URLs. Cycling per-category photo pool so different articles in the same category get different photos.
+- ✅ Step 6 (Summary + Audit): Returns counts JSON + logs `RESEED_MAP_DATA` audit entry.
+- ✅ TypeScript strict mode: 0 errors in the new file (typed `summary` interface avoids the TS18046 trap that plagues migrate-cascading/route.ts).
+- ✅ ESLint: 0 errors, 0 warnings.
+- ✅ Idempotent: all lookups use upsert; all records/images/hierarchy use create (after wipe). Safe to re-run.
+- ✅ DB-portable: standard Prisma syntax, no SQLite/PostgreSQL-specific code.
+- Files created: `src/app/api/admin/reseed-map-data/route.ts`. No existing files modified.

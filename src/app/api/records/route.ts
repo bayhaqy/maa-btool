@@ -460,7 +460,12 @@ export async function PUT(request: NextRequest) {
       }
 
       const isSA = checkSuperAdmin(tokenPayload.roles);
-      const updated: Array<{ id: string; status: string }> = [];
+      // Each result entry now carries an optional `amendment` flag so the
+      // grid editor can show the user that an ACTIVE record was moved into
+      // the amendment/approval workflow (Stibo "Linking Assets & Products"
+      // pattern — editing an active asset creates a revision ticket rather
+      // than mutating the live record silently).
+      const updated: Array<{ id: string; status: string; amendment?: boolean }> = [];
       const errors: Array<{ id: string; error: string }> = [];
 
       // Pre-fetch all records in one query for efficiency + RLS check
@@ -490,10 +495,20 @@ export async function PUT(request: NextRequest) {
           errors.push({ id, error: 'Access denied (company mismatch)' });
           continue;
         }
-        // Only DRAFT and REVISION_PENDING can be bulk-edited directly.
-        // ACTIVE records require the amendment workflow (single-record update).
-        if (record.status !== STATUS_DRAFT && record.status !== STATUS_REVISION_PENDING) {
-          errors.push({ id, error: `Cannot bulk-edit record in ${record.status} status. Use the single-record form to request an amendment.` });
+        // Editable statuses: DRAFT, REVISION_PENDING, and ACTIVE.
+        // - DRAFT / REVISION_PENDING → update in place (direct save).
+        // - ACTIVE → amendment workflow: create a DataVersion snapshot of the
+        //   proposed changes, move the record to REVISION_PENDING, and open
+        //   an ApprovalTicket so a reviewer can approve/reject the change.
+        //   This mirrors the Stibo Systems asset-maintenance flow where
+        //   editing a live asset submits a change request for approval.
+        // IN_REVIEW, REJECTED, ARCHIVED records remain non-editable here.
+        if (
+          record.status !== STATUS_DRAFT &&
+          record.status !== STATUS_REVISION_PENDING &&
+          record.status !== STATUS_ACTIVE
+        ) {
+          errors.push({ id, error: `Cannot edit record in ${record.status} status. Wait for review to complete or use the single-record form.` });
           continue;
         }
 
@@ -531,24 +546,76 @@ export async function PUT(request: NextRequest) {
         }
 
         try {
-          await db.dataRecord.update({
-            where: { id },
-            data: {
-              currentPayload: JSON.stringify(payload),
-              updatedById: tokenPayload.userId,
-            },
-          });
-          updated.push({ id, status: record.status });
+          if (record.status === STATUS_ACTIVE) {
+            // ── Amendment workflow for ACTIVE records ──
+            // Stibo "Linking Assets & Products": editing a live asset creates
+            // a revision (not a silent mutation). We snapshot the proposed
+            // new payload as a DataVersion, flip the record to
+            // REVISION_PENDING, and open an ApprovalTicket that stores the
+            // original payload as `deltaPayload` so reviewers can diff.
+            const maxVersion = await db.dataVersion.findFirst({
+              where: { recordId: id },
+              orderBy: { versionNumber: 'desc' },
+              select: { versionNumber: true },
+            });
+            const newVersionNumber = (maxVersion?.versionNumber ?? 0) + 1;
+
+            await db.dataVersion.create({
+              data: {
+                recordId: id,
+                payloadSnapshot: JSON.stringify(payload),
+                versionNumber: newVersionNumber,
+                changedById: tokenPayload.userId,
+                changeReason: 'Amendment requested via grid editor (pending approval)',
+                status: STATUS_REVISION_PENDING,
+              },
+            });
+
+            const updatedRecord = await db.dataRecord.update({
+              where: { id },
+              data: {
+                currentPayload: JSON.stringify(payload),
+                status: STATUS_REVISION_PENDING,
+                updatedById: tokenPayload.userId,
+              },
+            });
+
+            await db.approvalTicket.create({
+              data: {
+                recordId: id,
+                requestedById: tokenPayload.userId,
+                status: 'PENDING',
+                deltaPayload: record.currentPayload, // original payload for diff
+              },
+            });
+
+            updated.push({ id, status: updatedRecord.status, amendment: true });
+          } else {
+            // DRAFT or REVISION_PENDING → update in place
+            const updatedRecord = await db.dataRecord.update({
+              where: { id },
+              data: {
+                currentPayload: JSON.stringify(payload),
+                updatedById: tokenPayload.userId,
+              },
+            });
+            updated.push({ id, status: updatedRecord.status, amendment: false });
+          }
         } catch (err) {
           errors.push({ id, error: err instanceof Error ? err.message : 'Update failed' });
         }
       }
+
+      // Summarise how many records went into the amendment workflow so the
+      // grid editor can surface a clear toast to the user.
+      const amendmentCount = updated.filter((u) => u.amendment).length;
 
       return NextResponse.json({
         updated,
         errors,
         updatedCount: updated.length,
         errorCount: errors.length,
+        amendmentCount,
       });
     }
 

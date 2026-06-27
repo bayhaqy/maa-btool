@@ -39,6 +39,10 @@ import {
   Loader2,
   PencilLine,
   ListFilter,
+  Upload,
+  Star,
+  X,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -53,6 +57,21 @@ interface LookupValue {
   parentValueId?: string | null;
   parentValueCode?: string | null;
   sortOrder: number;
+}
+
+interface ImageInfo {
+  id: string;
+  fileName: string;
+  filePath: string;
+  altText?: string | null;
+  isPrimary: boolean;
+  sortOrder: number;
+  /** The fieldCode this image belongs to (matches a MetaField with
+   *  dataType=IMAGE). May be null for legacy images. */
+  fieldName?: string | null;
+  /** True when this image only exists locally (pending upload) — the `id`
+   *  is a synthetic client-side id and `filePath` is a blob URL. */
+  pending?: boolean;
 }
 
 interface MetaField {
@@ -86,17 +105,35 @@ interface GridRow {
   originalPayload: Record<string, unknown>;
   editedPayload: Record<string, unknown>;
   isDirty: boolean;
+  /** Images per IMAGE-typed fieldCode. Loaded lazily from /api/images when an
+   *  IMAGE cell is first interacted with (or when a row becomes dirty).
+   *  Stored at the row level so it survives cell re-renders. */
+  imagesByField?: Record<string, ImageInfo[]>;
+  /** Tracks whether images have been loaded from the server for this row.
+   *  Prevents redundant fetches. */
+  imagesLoaded?: boolean;
+  /** Pending image deletions — executed when the user clicks Save Changes.
+   *  Each entry is the server-side imageId to delete. */
+  pendingImageDeletions?: string[];
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const EDITABLE_STATUSES = new Set<string>(['DRAFT', 'REVISION_PENDING']);
+// Editable statuses now include ACTIVE per the Stibo "Linking Assets &
+// Products" pattern: editing an ACTIVE record submits an amendment that
+// moves the record into REVISION_PENDING and opens an approval ticket,
+// rather than mutating the live record silently. The grid editor marks
+// such rows with an "amendment pending" visual cue.
+const EDITABLE_STATUSES = new Set<string>(['DRAFT', 'REVISION_PENDING', 'ACTIVE']);
+// Records that, when edited, trigger the amendment workflow (approval).
+const AMENDMENT_STATUSES = new Set<string>(['ACTIVE']);
 
-const STATUS_FILTER_TABS: Array<{ value: 'ALL' | 'DRAFT' | 'REVISION_PENDING'; label: string }> = [
+const STATUS_FILTER_TABS: Array<{ value: 'ALL' | 'DRAFT' | 'ACTIVE' | 'REVISION_PENDING'; label: string }> = [
   { value: 'ALL', label: 'All' },
   { value: 'DRAFT', label: 'Draft' },
+  { value: 'ACTIVE', label: 'Active' },
   { value: 'REVISION_PENDING', label: 'Revision Pending' },
 ];
 
@@ -134,6 +171,18 @@ function safeParsePayload(raw: string | null | undefined): Record<string, unknow
   } catch {
     return {};
   }
+}
+
+/** Group a flat list of images by their fieldName. Images with no fieldName
+ *  are placed under the 'images' key (the default IMAGE fieldCode convention). */
+function groupImagesByField(images: ImageInfo[]): Record<string, ImageInfo[]> {
+  const out: Record<string, ImageInfo[]> = {};
+  for (const img of images) {
+    const key = img.fieldName || 'images';
+    if (!out[key]) out[key] = [];
+    out[key].push(img);
+  }
+  return out;
 }
 
 /** Build a payload that passes API validation for a brand-new row.
@@ -206,7 +255,7 @@ export default function GridEditorPage() {
   const [saving, setSaving] = useState(false);
   const [addingRow, setAddingRow] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'REVISION_PENDING'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'ACTIVE' | 'REVISION_PENDING'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -215,12 +264,20 @@ export default function GridEditorPage() {
 
   const [saveErrors, setSaveErrors] = useState<Array<{ id: string; error: string }>>([]);
   const [showErrors, setShowErrors] = useState(false);
+  /** Popover anchor for the IMAGE cell popover (in-grid image manager). */
+  const [imagePopover, setImagePopover] = useState<{ rowId: string; fieldCode: string } | null>(null);
 
   // Refs for column resize drag
   const dragRef = useRef<{ fieldCode: string; startX: number; startWidth: number } | null>(null);
 
   // Refs to focus inputs
   const inputRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
+
+  // ── Pending image upload state (kept in refs, not React state, because
+  //    File objects are not serialisable and would trigger wasteful
+  //    re-renders). These maps are drained when the user clicks Save. ──
+  const pendingFilesRef = useRef<Map<string, File>>(new Map());
+  const primaryChangesRef = useRef<Map<string, string>>(new Map());
 
   // ----------------------------------------------------------------
   // Data loaders
@@ -310,7 +367,18 @@ export default function GridEditorPage() {
   // ----------------------------------------------------------------
   // Derived state
   // ----------------------------------------------------------------
-  const dirtyCount = useMemo(() => rows.filter((r) => r.isDirty).length, [rows]);
+  // A row is "dirty" if either (a) its payload fields have been edited, or
+  // (b) it has pending image uploads/deletions that haven't been flushed yet.
+  const dirtyCount = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          r.isDirty ||
+          (r.imagesByField && Object.values(r.imagesByField).some((imgs) => imgs.some((i) => i.pending))) ||
+          (r.pendingImageDeletions && r.pendingImageDeletions.length > 0)
+      ).length,
+    [rows]
+  );
 
   const filteredRows = useMemo(() => {
     let result = rows;
@@ -332,6 +400,153 @@ export default function GridEditorPage() {
     () => rows.filter((r) => EDITABLE_STATUSES.has(r.status)).length,
     [rows]
   );
+
+  // ----------------------------------------------------------------
+  // Image management (in-grid, deferred save)
+  // ----------------------------------------------------------------
+  /** Lazily load server-side images for a row the first time an IMAGE cell
+   *  is opened. Stored at the row level so it survives cell re-renders. */
+  const ensureRowImages = useCallback(
+    async (rowId: string) => {
+      // Check if already loaded (read current state via setRows callback to
+      // avoid stale closure issues).
+      let needFetch = false;
+      setRows((prev) => {
+        const row = prev.find((r) => r.id === rowId);
+        if (!row) return prev;
+        if (row.imagesLoaded) return prev;
+        needFetch = true;
+        // Mark as loaded immediately to prevent duplicate fetches
+        return prev.map((r) => (r.id === rowId ? { ...r, imagesLoaded: true } : r));
+      });
+      if (!needFetch || !token) return;
+      try {
+        const res = await fetch(`/api/images?recordId=${rowId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        const imgs: ImageInfo[] = (data.images || []).map((img: Record<string, unknown>) => ({
+          id: String(img.id),
+          fileName: String(img.fileName || ''),
+          filePath: String(img.filePath || ''),
+          altText: (img.altText as string) || null,
+          isPrimary: Boolean(img.isPrimary),
+          sortOrder: Number(img.sortOrder || 0),
+          fieldName: (img.fieldName as string) || null,
+        }));
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === rowId
+              ? { ...r, imagesByField: groupImagesByField(imgs) }
+              : r
+          )
+        );
+      } catch {
+        // silent — the cell will just show "no images"
+        setRows((prev) =>
+          prev.map((r) => (r.id === rowId ? { ...r, imagesLoaded: false } : r))
+        );
+      }
+    },
+    [token]
+  );
+
+  /** Add pending image uploads to a row. The files are converted to blob URLs
+   *  for instant preview; they are NOT sent to the server until the user
+   *  clicks Save Changes. This fixes the user's complaint that images were
+   *  "saved before I clicked Save". */
+  const addPendingImages = useCallback(
+    (rowId: string, fieldCode: string, files: FileList | File[]) => {
+      const fileArr = Array.from(files);
+      if (fileArr.length === 0) return;
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== rowId) return row;
+          const existing = row.imagesByField || {};
+          const fieldImgs = existing[fieldCode] || [];
+          const newPending: ImageInfo[] = fileArr.map((file, i) => ({
+            id: `pending-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            fileName: file.name,
+            filePath: URL.createObjectURL(file),
+            altText: file.name,
+            isPrimary: fieldImgs.length === 0 && i === 0,
+            sortOrder: fieldImgs.length + i,
+            fieldName: fieldCode,
+            pending: true,
+          }));
+          // Keep the File objects around for the save step — attach via a
+          // module-level Map (not React state, since File isn't serializable
+          // and would bloat re-renders).
+          for (const p of newPending) {
+            const file = fileArr[newPending.indexOf(p)];
+            pendingFilesRef.current.set(p.id, file);
+          }
+          return {
+            ...row,
+            imagesByField: { ...existing, [fieldCode]: [...fieldImgs, ...newPending] },
+            isDirty: true, // mark row dirty so Save button enables
+          };
+        })
+      );
+    },
+    []
+  );
+
+  /** Queue an image for deletion (executed on Save). Pending images are
+   *  removed immediately (no server call needed). */
+  const removeImage = useCallback((rowId: string, fieldCode: string, imageId: string) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const existing = row.imagesByField || {};
+        const fieldImgs = existing[fieldCode] || [];
+        const target = fieldImgs.find((i) => i.id === imageId);
+        const remaining = fieldImgs.filter((i) => i.id !== imageId);
+        const nextImagesByField = { ...existing, [fieldCode]: remaining };
+        if (target?.pending) {
+          // Pending image — just drop it locally (revoke blob URL)
+          URL.revokeObjectURL(target.filePath);
+          pendingFilesRef.current.delete(imageId);
+        } else {
+          // Server image — queue for deletion on Save
+          const pendingDeletions = row.pendingImageDeletions || [];
+          if (!pendingDeletions.includes(imageId)) {
+            pendingDeletions.push(imageId);
+          }
+          return {
+            ...row,
+            imagesByField: nextImagesByField,
+            pendingImageDeletions: pendingDeletions,
+            isDirty: true,
+          };
+        }
+        return { ...row, imagesByField: nextImagesByField, isDirty: true };
+      })
+    );
+  }, []);
+
+  /** Mark an image as primary (executed on Save via PATCH). For now, just
+   *  updates the local state optimistically. */
+  const setPrimaryImage = useCallback((rowId: string, fieldCode: string, imageId: string) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const existing = row.imagesByField || {};
+        const fieldImgs = existing[fieldCode] || [];
+        const updated = fieldImgs.map((img) => ({
+          ...img,
+          isPrimary: img.id === imageId,
+        }));
+        // Track the primary change for the save step
+        primaryChangesRef.current.set(`${rowId}:${fieldCode}`, imageId);
+        return {
+          ...row,
+          imagesByField: { ...existing, [fieldCode]: updated },
+          isDirty: true,
+        };
+      })
+    );
+  }, []);
 
   // ----------------------------------------------------------------
   // Cell editing helpers
@@ -378,17 +593,35 @@ export default function GridEditorPage() {
   }, []);
 
   const discardAll = useCallback(() => {
+    // Revoke any pending blob URLs + clear the pending file/primary maps
+    for (const row of rows) {
+      if (!row.imagesByField) continue;
+      for (const imgs of Object.values(row.imagesByField)) {
+        for (const img of imgs) {
+          if (img.pending) URL.revokeObjectURL(img.filePath);
+        }
+      }
+    }
+    pendingFilesRef.current.clear();
+    primaryChangesRef.current.clear();
     setRows((prev) =>
       prev.map((row) =>
         row.isDirty
-          ? { ...row, editedPayload: { ...row.originalPayload }, isDirty: false }
+          ? {
+              ...row,
+              editedPayload: { ...row.originalPayload },
+              isDirty: false,
+              imagesByField: undefined, // force re-fetch from server
+              imagesLoaded: false,
+              pendingImageDeletions: [],
+            }
           : row
       )
     );
     setSaveErrors([]);
     setShowErrors(false);
     toast.info('Unsaved changes discarded');
-  }, []);
+  }, [rows]);
 
   // ----------------------------------------------------------------
   // Keyboard navigation
@@ -634,27 +867,138 @@ export default function GridEditorPage() {
     setSaveErrors([]);
     setShowErrors(false);
     try {
+      // ── Step 1: Flush pending image operations (uploads + deletions +
+      //    primary-image changes) for every dirty row. This runs BEFORE the
+      //    record payload save so that the "deferred save" model holds:
+      //    images are only persisted when the user clicks Save Changes, not
+      //    when they pick a file. (Stibo best practice: asset maintenance
+      //    is part of the record's change transaction.) ──
+      let imageOpsOk = 0;
+      let imageOpsFail = 0;
+      for (const row of rows) {
+        if (!row.isDirty) continue;
+        // 1a. Upload pending files
+        const pendingUploads = Object.values(row.imagesByField || {})
+          .flat()
+          .filter((img) => img.pending);
+        for (const img of pendingUploads) {
+          const file = pendingFilesRef.current.get(img.id);
+          if (!file) continue;
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('recordId', row.id);
+          formData.append('fieldName', img.fieldName || 'images');
+          formData.append('isPrimary', String(img.isPrimary));
+          if (img.altText) formData.append('altText', img.altText);
+          try {
+            const upRes = await fetch('/api/images', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            });
+            if (upRes.ok) {
+              imageOpsOk++;
+              pendingFilesRef.current.delete(img.id);
+            } else {
+              imageOpsFail++;
+              const d = await upRes.json().catch(() => ({}));
+              console.error('Image upload failed:', d);
+            }
+          } catch {
+            imageOpsFail++;
+          }
+        }
+        // 1b. Execute pending deletions
+        for (const imageId of row.pendingImageDeletions || []) {
+          try {
+            const delRes = await fetch(`/api/images?imageId=${imageId}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (delRes.ok) imageOpsOk++;
+            else imageOpsFail++;
+          } catch {
+            imageOpsFail++;
+          }
+        }
+        // 1c. Execute primary-image changes
+        for (const [key, imageId] of primaryChangesRef.current.entries()) {
+          if (!key.startsWith(row.id + ':')) continue;
+          try {
+            const pRes = await fetch(`/api/images?imageId=${imageId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({}),
+            });
+            if (pRes.ok) {
+              imageOpsOk++;
+              primaryChangesRef.current.delete(key);
+            } else {
+              imageOpsFail++;
+            }
+          } catch {
+            imageOpsFail++;
+          }
+        }
+      }
+
+      // ── Step 2: Save the record payload changes (text/number/select/etc.)
+      //    Only rows where the payload actually changed (excluding IMAGE
+      //    fields, which are managed separately) are sent. A row may be
+      //    dirty solely due to image ops — in that case it's skipped here. ──
       const changes = rows
-        .filter((r) => r.isDirty)
+        .filter((r) => {
+          if (!r.isDirty) return false;
+          // Compare payloads excluding IMAGE fields
+          const payloadFields = fields.filter((f) => f.dataType !== 'IMAGE');
+          for (const f of payloadFields) {
+            const a = r.originalPayload[f.fieldCode];
+            const b = r.editedPayload[f.fieldCode];
+            if (String(a ?? '') !== String(b ?? '')) return true;
+          }
+          return false;
+        })
         .map((r) => ({ id: r.id, payload: r.editedPayload }));
-      const res = await fetch('/api/records?action=bulk-update', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ changes }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Save failed');
-        return;
+
+      let updatedCount = 0;
+      let errorCount = 0;
+      let amendmentCount = 0;
+      let errList: Array<{ id: string; error: string }> = [];
+
+      if (changes.length > 0) {
+        const res = await fetch('/api/records?action=bulk-update', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ changes }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.error || 'Save failed');
+          return;
+        }
+        updatedCount = data.updatedCount ?? 0;
+        errorCount = data.errorCount ?? 0;
+        amendmentCount = data.amendmentCount ?? 0;
+        errList = data.errors || [];
       }
-      const updatedCount: number = data.updatedCount ?? 0;
-      const errorCount: number = data.errorCount ?? 0;
-      const errList: Array<{ id: string; error: string }> = data.errors || [];
-      if (updatedCount > 0) {
-        toast.success(`${updatedCount} record${updatedCount !== 1 ? 's' : ''} saved`);
+
+      // Add image-op failures to the error list
+      if (imageOpsFail > 0) {
+        errList = [
+          ...errList,
+          { id: '(images)', error: `${imageOpsFail} image operation(s) failed (see console)` },
+        ];
+        errorCount += imageOpsFail;
       }
+
+      // Build the toast message
+      const parts: string[] = [];
+      if (updatedCount > 0) parts.push(`${updatedCount} record${updatedCount !== 1 ? 's' : ''} saved`);
+      if (amendmentCount > 0) parts.push(`${amendmentCount} amendment${amendmentCount !== 1 ? 's' : ''} pending approval`);
+      if (imageOpsOk > 0) parts.push(`${imageOpsOk} image op${imageOpsOk !== 1 ? 's' : ''}`);
+      if (parts.length > 0) toast.success(parts.join(' · '));
       if (errorCount > 0) {
-        toast.error(`${errorCount} record${errorCount !== 1 ? 's' : ''} failed`);
+        toast.error(`${errorCount} error${errorCount !== 1 ? 's' : ''}`);
         setSaveErrors(errList);
         setShowErrors(true);
       }
@@ -946,6 +1290,14 @@ export default function GridEditorPage() {
                                 >
                                   {STATUS_LABELS[row.status] || row.status}
                                 </Badge>
+                                {AMENDMENT_STATUSES.has(row.status) && row.isDirty && (
+                                  <span
+                                    className="text-[9px] font-medium text-violet-700 bg-violet-100 border border-violet-300 rounded px-1 py-0 whitespace-nowrap"
+                                    title="Editing this ACTIVE record will submit an amendment for approval (Stibo asset-maintenance pattern)"
+                                  >
+                                    amend
+                                  </span>
+                                )}
                                 {row.isDirty && (
                                   <span
                                     className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-200"
@@ -986,12 +1338,26 @@ export default function GridEditorPage() {
                                     inputRef={(el) => {
                                       inputRefs.current[inputKey] = el;
                                     }}
-                                    onManageImages={() =>
-                                      navigate('record-detail', {
-                                        moduleId: activeModuleId,
-                                        recordId: row.id,
-                                      })
+                                    // ── In-grid image management (deferred save) ──
+                                    images={row.imagesByField?.[field.fieldCode]}
+                                    onOpenImageManager={() => {
+                                      ensureRowImages(row.id);
+                                      setImagePopover({ rowId: row.id, fieldCode: field.fieldCode });
+                                    }}
+                                    imagePopoverOpen={
+                                      imagePopover?.rowId === row.id &&
+                                      imagePopover?.fieldCode === field.fieldCode
                                     }
+                                    onAddPendingImages={(files) =>
+                                      addPendingImages(row.id, field.fieldCode, files)
+                                    }
+                                    onRemoveImage={(imageId) =>
+                                      removeImage(row.id, field.fieldCode, imageId)
+                                    }
+                                    onSetPrimaryImage={(imageId) =>
+                                      setPrimaryImage(row.id, field.fieldCode, imageId)
+                                    }
+                                    onCloseImagePopover={() => setImagePopover(null)}
                                     allFields={fields}
                                     editedPayload={row.editedPayload}
                                   />
@@ -1051,8 +1417,12 @@ export default function GridEditorPage() {
           <kbd className="px-1 py-0.5 bg-background border rounded text-[10px]">Ctrl</kbd>+
           <kbd className="px-1 py-0.5 bg-background border rounded text-[10px]">⌫</kbd> clear
         </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded bg-violet-400" />
+          <span className="text-violet-700">amend</span> = ACTIVE edit submits approval
+        </span>
         <span className="ml-auto">
-          Only DRAFT and REVISION_PENDING rows are editable
+          DRAFT · REVISION_PENDING · ACTIVE rows are editable (ACTIVE → amendment workflow)
         </span>
       </div>
     </div>
@@ -1123,9 +1493,16 @@ interface CellRendererProps {
   onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void;
   onFocus: () => void;
   inputRef: (el: HTMLInputElement | HTMLSelectElement | null) => void;
-  onManageImages: () => void;
   allFields: MetaField[];
   editedPayload: Record<string, unknown>;
+  // ── In-grid image management (deferred save) ──
+  images?: ImageInfo[];
+  onOpenImageManager?: () => void;
+  imagePopoverOpen?: boolean;
+  onAddPendingImages?: (files: FileList | File[]) => void;
+  onRemoveImage?: (imageId: string) => void;
+  onSetPrimaryImage?: (imageId: string) => void;
+  onCloseImagePopover?: () => void;
 }
 
 function CellRenderer({
@@ -1138,27 +1515,82 @@ function CellRenderer({
   onKeyDown,
   onFocus,
   inputRef,
-  onManageImages,
   allFields,
   editedPayload,
+  images,
+  onOpenImageManager,
+  imagePopoverOpen,
+  onAddPendingImages,
+  onRemoveImage,
+  onSetPrimaryImage,
+  onCloseImagePopover,
 }: CellRendererProps) {
   const cellBase =
     'w-full h-9 px-2 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 rounded-none';
 
-  // IMAGE → Manage button
+  // IMAGE → inline thumbnail strip + upload button (deferred save)
   if (field.dataType === 'IMAGE') {
+    const imgs = images || [];
+    const pendingCount = imgs.filter((i) => i.pending).length;
+    const primary = imgs.find((i) => i.isPrimary);
     return (
-      <div className="px-2 h-9 flex items-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={onManageImages}
-          disabled={!editable}
-        >
-          <ImageIcon className="w-3.5 h-3.5 mr-1" />
-          Manage
-        </Button>
+      <div className="h-9 flex items-center gap-1 px-1.5 relative">
+        {/* Primary thumbnail (or placeholder) */}
+        {primary ? (
+          <img
+            src={primary.filePath}
+            alt={primary.altText || primary.fileName}
+            className="w-7 h-7 rounded object-cover border border-border flex-shrink-0"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.opacity = '0.3';
+            }}
+          />
+        ) : (
+          <div className="w-7 h-7 rounded border border-dashed border-muted-foreground/40 flex items-center justify-center flex-shrink-0">
+            <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/50" />
+          </div>
+        )}
+        {/* Count badge */}
+        {imgs.length > 0 && (
+          <span className="text-[10px] font-medium text-muted-foreground tabular-nums flex-shrink-0">
+            {imgs.length}
+            {pendingCount > 0 && <span className="text-amber-600">+{pendingCount}p</span>}
+          </span>
+        )}
+        {/* Open manager button */}
+        {editable && (
+          <Popover
+            open={imagePopoverOpen}
+            onOpenChange={(o) => {
+              if (o) onOpenImageManager?.();
+              else onCloseImagePopover?.();
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="h-7 px-1.5 text-xs flex items-center gap-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                aria-label="Manage images"
+                tabIndex={-1}
+              >
+                <Upload className="w-3 h-3" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-72 p-3"
+              align="start"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ImageManagerPopover
+                images={imgs}
+                editable={editable}
+                onAddPendingImages={onAddPendingImages}
+                onRemoveImage={onRemoveImage}
+                onSetPrimaryImage={onSetPrimaryImage}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     );
   }
@@ -1354,5 +1786,161 @@ function CellRenderer({
       aria-label={field.fieldName}
       data-active={isActive ? 'true' : undefined}
     />
+  );
+}
+
+// ============================================================================
+// Image Manager Popover — shown when the user clicks the upload button on an
+// IMAGE cell. Lets the user add new images (queued for deferred upload),
+// delete existing ones (queued for deferred delete), and set the primary
+// image. Nothing is sent to the server until the user clicks "Save Changes".
+// ============================================================================
+
+interface ImageManagerPopoverProps {
+  images: ImageInfo[];
+  editable: boolean;
+  onAddPendingImages?: (files: FileList | File[]) => void;
+  onRemoveImage?: (imageId: string) => void;
+  onSetPrimaryImage?: (imageId: string) => void;
+}
+
+function ImageManagerPopover({
+  images,
+  editable,
+  onAddPendingImages,
+  onRemoveImage,
+  onSetPrimaryImage,
+}: ImageManagerPopoverProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onAddPendingImages?.(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onAddPendingImages?.(e.dataTransfer.files);
+    }
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">Images</span>
+        <span className="text-[10px] text-muted-foreground">
+          {images.length} total · {images.filter((i) => i.pending).length} pending
+        </span>
+      </div>
+
+      {images.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+          {images.map((img) => (
+            <div
+              key={img.id}
+              className={cn(
+                'relative group w-full aspect-square rounded border-2 overflow-hidden bg-muted/30',
+                img.isPrimary ? 'border-amber-400 ring-1 ring-amber-300' : 'border-border'
+              )}
+            >
+              <img
+                src={img.filePath}
+                alt={img.altText || img.fileName}
+                className="w-full h-full object-cover cursor-pointer"
+                onClick={() => setPreview(img.filePath)}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.opacity = '0.2';
+                }}
+              />
+              {img.pending && (
+                <span className="absolute top-0.5 left-0.5 bg-amber-500 text-white text-[8px] font-medium rounded px-1">
+                  new
+                </span>
+              )}
+              {img.isPrimary && (
+                <span className="absolute top-0.5 right-0.5 bg-amber-500 text-white rounded-full p-0.5">
+                  <Star className="w-2 h-2 fill-white" />
+                </span>
+              )}
+              {editable && (
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-0.5">
+                  {!img.isPrimary && (
+                    <button
+                      type="button"
+                      className="p-1 rounded bg-white/20 hover:bg-amber-500 text-white"
+                      onClick={() => onSetPrimaryImage?.(img.id)}
+                      title="Set as primary"
+                    >
+                      <Star className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="p-1 rounded bg-white/20 hover:bg-red-500 text-white"
+                    onClick={() => onRemoveImage?.(img.id)}
+                    title="Delete image"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editable && (
+        <div
+          className="border-2 border-dashed rounded-md p-2 text-center cursor-pointer hover:border-red-400 hover:bg-red-50/50 dark:hover:bg-red-950/20 transition-colors"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.heic,.heif,.avif"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <Upload className="w-3.5 h-3.5 mx-auto text-muted-foreground mb-0.5" />
+          <p className="text-[10px] text-muted-foreground">
+            Drop or <span className="text-red-600 font-medium">browse</span>
+          </p>
+          <p className="text-[9px] text-muted-foreground/70 mt-0.5">Saved on Save Changes</p>
+        </div>
+      )}
+
+      {!editable && images.length === 0 && (
+        <p className="text-[10px] text-muted-foreground text-center py-2">No images</p>
+      )}
+
+      {/* Lightbox preview */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setPreview(null)}
+        >
+          <img
+            src={preview}
+            alt="Preview"
+            className="max-w-full max-h-full rounded-lg shadow-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/40 text-white"
+            onClick={() => setPreview(null)}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
