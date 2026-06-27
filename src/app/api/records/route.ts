@@ -3,8 +3,26 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STATUS_ACTIVE, STATUS_ARCHIVED, STATUS_REVISION_PENDING, STATUS_REJECTED } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 
-// Validate a record's payload against META_FIELDS
-async function validatePayload(moduleId: string, payload: Record<string, unknown>) {
+// ============================================================
+// Validation rule type constants (STIBO-aligned per-field
+// validation rules). The `__NONE__` sentinel is used by the
+// frontend for rule types that don't take a value
+// (REQUIRED, UNIQUE, EMAIL_FORMAT, URL_FORMAT).
+// ============================================================
+const NO_VALUE_RULE_TYPES = new Set(['REQUIRED', 'UNIQUE', 'EMAIL_FORMAT', 'URL_FORMAT']);
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const URL_REGEX = /^https?:\/\/.+/;
+
+function isEmptyValue(v: unknown): boolean {
+  return v === undefined || v === null || v === '';
+}
+
+// Validate a record's payload against META_FIELDS + FieldValidation rules
+async function validatePayload(
+  moduleId: string,
+  payload: Record<string, unknown>,
+  existingRecordId?: string,
+): Promise<string[]> {
   const fields = await db.metaField.findMany({
     where: { moduleId, isActive: true },
     include: { validations: true },
@@ -14,59 +32,305 @@ async function validatePayload(moduleId: string, payload: Record<string, unknown
 
   for (const field of fields) {
     const value = payload[field.fieldCode];
+    const isEmpty = isEmptyValue(value);
 
-    if (field.isRequired && (value === undefined || value === null || value === '')) {
+    if (field.isRequired && isEmpty) {
       errors.push(`Field "${field.fieldName}" (${field.fieldCode}) is required`);
       continue;
     }
 
-    if (value === undefined || value === null || value === '') continue;
+    // Built-in type checks
+    if (!isEmpty) {
+      if (field.dataType === 'NUMBER' && isNaN(Number(value))) {
+        errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a number`);
+      }
+      if (field.dataType === 'EMAIL' && typeof value === 'string' && !EMAIL_REGEX.test(value)) {
+        errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid email`);
+      }
+      if (field.dataType === 'URL' && typeof value === 'string' && !URL_REGEX.test(value)) {
+        errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
+      }
+    }
 
-    if (field.dataType === 'NUMBER' && isNaN(Number(value))) {
-      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a number`);
-    }
-    if (field.dataType === 'EMAIL' && typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid email`);
-    }
-    if (field.dataType === 'URL' && typeof value === 'string' && !/^https?:\/\/.+/.test(value)) {
-      errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
-    }
-
+    // Per-field validation rules
     for (const validation of field.validations) {
-      if (validation.ruleType === 'REGEX') {
+      const vType = validation.ruleType;
+      const vValue = validation.ruleValue;
+      const customErr = validation.errorMessage;
+
+      // No-value rules — fire even when value is empty (REQUIRED/UNIQUE)
+      if (vType === 'REQUIRED') {
+        if (isEmpty) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) is required`);
+        }
+        continue;
+      }
+
+      if (vType === 'UNIQUE') {
+        // Case-insensitive unique within module (skip if empty)
+        if (!isEmpty && typeof value === 'string') {
+          const allRecords = await db.dataRecord.findMany({
+            where: {
+              moduleId,
+              status: { not: STATUS_ARCHIVED },
+              ...(existingRecordId ? { id: { not: existingRecordId } } : {}),
+            },
+            select: { currentPayload: true },
+          });
+          const needle = String(value).toLowerCase();
+          const clash = allRecords.some((r) => {
+            try {
+              const other = JSON.parse(r.currentPayload || '{}') as Record<string, unknown>;
+              const ov = other[field.fieldCode];
+              return typeof ov === 'string' && ov.toLowerCase() === needle;
+            } catch {
+              return false;
+            }
+          });
+          if (clash) {
+            errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be unique — value already exists`);
+          }
+        }
+        continue;
+      }
+
+      // All remaining rules: skip when value is empty
+      if (isEmpty) continue;
+      // Skip parsing `__NONE__` sentinels defensively
+      if (vValue === '__NONE__' && NO_VALUE_RULE_TYPES.has(vType)) continue;
+
+      if (vType === 'REGEX') {
         try {
-          const regex = new RegExp(validation.ruleValue);
+          const regex = new RegExp(vValue);
           if (typeof value === 'string' && !regex.test(value)) {
-            errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) does not match pattern`);
+            errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) does not match pattern`);
           }
         } catch {
           // Invalid regex, skip
         }
-      }
-      if (validation.ruleType === 'MIN_LENGTH' && typeof value === 'string') {
-        if (value.length < parseInt(validation.ruleValue)) {
-          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${validation.ruleValue} characters`);
+      } else if (vType === 'MIN_LENGTH' && typeof value === 'string') {
+        if (value.length < parseInt(vValue)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${vValue} characters`);
         }
-      }
-      if (validation.ruleType === 'MAX_LENGTH' && typeof value === 'string') {
-        if (value.length > parseInt(validation.ruleValue)) {
-          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${validation.ruleValue} characters`);
+      } else if (vType === 'MAX_LENGTH' && typeof value === 'string') {
+        if (value.length > parseInt(vValue)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${vValue} characters`);
         }
-      }
-      if (validation.ruleType === 'MIN_VALUE') {
-        if (Number(value) < Number(validation.ruleValue)) {
-          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${validation.ruleValue}`);
+      } else if (vType === 'MIN_VALUE') {
+        if (!isNaN(Number(value)) && Number(value) < Number(vValue)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be at least ${vValue}`);
         }
-      }
-      if (validation.ruleType === 'MAX_VALUE') {
-        if (Number(value) > Number(validation.ruleValue)) {
-          errors.push(validation.errorMessage || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${validation.ruleValue}`);
+      } else if (vType === 'MAX_VALUE') {
+        if (!isNaN(Number(value)) && Number(value) > Number(vValue)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be at most ${vValue}`);
+        }
+      } else if (vType === 'ENUM') {
+        const allowed = vValue.split(',').map((s) => s.trim()).filter(Boolean);
+        if (!allowed.includes(String(value))) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be one of: ${allowed.join(', ')}`);
+        }
+      } else if (vType === 'RANGE') {
+        const parts = vValue.split(',').map((s) => s.trim());
+        if (parts.length === 2) {
+          const min = Number(parts[0]);
+          const max = Number(parts[1]);
+          const num = Number(value);
+          if (!isNaN(min) && !isNaN(max) && !isNaN(num) && (num < min || num > max)) {
+            errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be between ${min} and ${max}`);
+          }
+        }
+      } else if (vType === 'EMAIL_FORMAT') {
+        if (typeof value === 'string' && !EMAIL_REGEX.test(value)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be a valid email address`);
+        }
+      } else if (vType === 'URL_FORMAT') {
+        if (typeof value === 'string' && !URL_REGEX.test(value)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
+        }
+      } else if (vType === 'DATE_AFTER') {
+        const target = vValue === 'today' ? new Date() : new Date(vValue);
+        const d = new Date(String(value));
+        if (!isNaN(target.getTime()) && !isNaN(d.getTime()) && !(d > target)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be after ${vValue}`);
+        }
+      } else if (vType === 'DATE_BEFORE') {
+        const target = vValue === 'today' ? new Date() : new Date(vValue);
+        const d = new Date(String(value));
+        if (!isNaN(target.getTime()) && !isNaN(d.getTime()) && !(d < target)) {
+          errors.push(customErr || `Field "${field.fieldName}" (${field.fieldCode}) must be before ${vValue}`);
         }
       }
     }
   }
 
   return errors;
+}
+
+// ============================================================
+// Cross-field Business Rules engine (STIBO Business Rules User
+// Guide). Loads all active BusinessRules for a module where
+// trigger matches the SAVE event, evaluates each condition
+// against the payload, and applies the configured action.
+// Returns { errors, warnings, modifiedPayload }.
+// ============================================================
+
+interface BusinessCondition {
+  leftFieldCode: string;
+  operator: string;
+  rightFieldCode?: string;
+  constantValue?: unknown;
+}
+
+interface SetActionPayload {
+  targetFieldCode: string;
+  expression: string;
+}
+
+function coerceNumber(v: unknown): number {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function compareValues(left: unknown, operator: string, right: unknown): boolean {
+  const leftStr = left === undefined || left === null ? '' : String(left);
+  const rightStr = right === undefined || right === null ? '' : String(right);
+
+  switch (operator) {
+    case '=':
+      // Numeric compare if both look numeric, else string compare (case-insensitive)
+      if (!isNaN(Number(left)) && !isNaN(Number(right)) && left !== '' && right !== '') {
+        return Number(left) === Number(right);
+      }
+      return leftStr.toLowerCase() === rightStr.toLowerCase();
+    case '!=':
+      return !compareValues(left, '=', right);
+    case '>':
+      return coerceNumber(left) > coerceNumber(right);
+    case '<':
+      return coerceNumber(left) < coerceNumber(right);
+    case '>=':
+      return coerceNumber(left) >= coerceNumber(right);
+    case '<=':
+      return coerceNumber(left) <= coerceNumber(right);
+    case 'contains':
+      return leftStr.toLowerCase().includes(rightStr.toLowerCase());
+    case 'starts_with':
+      return leftStr.toLowerCase().startsWith(rightStr.toLowerCase());
+    case 'ends_with':
+      return leftStr.toLowerCase().endsWith(rightStr.toLowerCase());
+    case 'is_empty':
+      return leftStr === '';
+    case 'is_not_empty':
+      return leftStr !== '';
+    default:
+      return false;
+  }
+}
+
+// Safe expression evaluator for SET_VALUE actions. Substitutes
+// {{fieldCode}} placeholders with payload values, then evaluates
+// basic arithmetic/logic expressions. Only allows numeric
+// characters, operators, parentheses, and the substituted values.
+function evaluateExpression(expr: string, payload: Record<string, unknown>): unknown {
+  // Replace {{fieldCode}} with the corresponding payload value
+  let substituted = expr.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, code: string) => {
+    const v = payload[code];
+    if (v === undefined || v === null || v === '') return '0';
+    const n = Number(v);
+    if (!isNaN(n)) return String(n);
+    // String values are quoted to keep them as string literals
+    return JSON.stringify(String(v));
+  });
+
+  // If the substituted expression still contains a placeholder,
+  // return the raw substituted string as a literal value.
+  if (/\{\{.*\}\}/.test(substituted)) {
+    return substituted;
+  }
+
+  // If there are no arithmetic operators, return the literal string
+  if (!/[+\-*/%()<>=!]/.test(substituted)) {
+    // Numeric literal?
+    const n = Number(substituted.trim().replace(/^"|"$/g, ''));
+    if (!isNaN(n) && substituted.trim() !== '') return n;
+    return substituted.replace(/^"|"$/g, '');
+  }
+
+  // Sanitize: allow only numbers, operators, parentheses, whitespace
+  // and string literals (already quoted). Reject anything else.
+  if (!/^[0-9+\-*/%()<>=!?:\s,"'.]+$/.test(substituted)) {
+    return substituted;
+  }
+
+  try {
+    const fn = new Function(`"use strict"; return (${substituted});`);
+    const result = (fn as () => unknown)();
+    return result;
+  } catch {
+    return substituted;
+  }
+}
+
+async function evaluateBusinessRules(
+  moduleId: string,
+  payload: Record<string, unknown>,
+  existingRecordId?: string,
+): Promise<{ errors: string[]; warnings: string[]; modifiedPayload: Record<string, unknown> }> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const modifiedPayload: Record<string, unknown> = { ...payload };
+
+  const rules = await db.businessRule.findMany({
+    where: { moduleId, isActive: true, trigger: 'SAVE' },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  for (const rule of rules) {
+    let condition: BusinessCondition;
+    try {
+      condition = JSON.parse(rule.conditionJson) as BusinessCondition;
+    } catch {
+      // Skip malformed rule
+      continue;
+    }
+
+    const leftValue = modifiedPayload[condition.leftFieldCode];
+    const rightValue = condition.rightFieldCode
+      ? modifiedPayload[condition.rightFieldCode]
+      : condition.constantValue;
+
+    const conditionMet = compareValues(leftValue, condition.operator, rightValue);
+    if (!conditionMet) continue;
+
+    const defaultMessage = `Business rule "${rule.name}" failed`;
+
+    if (rule.actionType === 'BLOCK') {
+      errors.push(rule.errorMessage || defaultMessage);
+    } else if (rule.actionType === 'WARN') {
+      warnings.push(rule.errorMessage || `Warning from rule "${rule.name}"`);
+    } else if (rule.actionType === 'SET_VALUE') {
+      if (rule.actionJson) {
+        try {
+          const action = JSON.parse(rule.actionJson) as SetActionPayload;
+          if (action.targetFieldCode && action.expression) {
+            const evaluated = evaluateExpression(action.expression, modifiedPayload);
+            modifiedPayload[action.targetFieldCode] = evaluated;
+          }
+        } catch {
+          // Skip malformed action — not a hard error
+          warnings.push(`Business rule "${rule.name}" could not apply SET_VALUE (invalid actionJson)`);
+        }
+      }
+    } else if (rule.actionType === 'SEND_EMAIL') {
+      // MVP: no actual email send; surface as warning so caller can log
+      warnings.push(`Email queued by rule "${rule.name}" (MVP: not actually sent)`);
+    }
+  }
+
+  // Avoid unused param lint warning
+  void existingRecordId;
+
+  return { errors, warnings, modifiedPayload };
 }
 
 // GET /api/records?moduleId=xxx&status=xxx&page=1&limit=20
@@ -196,6 +460,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Validation failed', errors }, { status: 422 });
     }
 
+    // Cross-field business rules (STIBO Business Rules engine).
+    // Runs AFTER per-field validation, BEFORE persisting. May mutate
+    // payload (SET_VALUE) and emit BLOCK errors / WARN warnings.
+    const ruleResult = await evaluateBusinessRules(moduleId, payload);
+    if (ruleResult.errors.length > 0) {
+      return NextResponse.json(
+        { error: 'Business rule validation failed', errors: ruleResult.errors },
+        { status: 422 },
+      );
+    }
+    const finalPayload = ruleResult.modifiedPayload;
+
     const initialStatus = metaModule.requireApproval ? STATUS_DRAFT : STATUS_ACTIVE;
 
     const record = await db.dataRecord.create({
@@ -203,7 +479,7 @@ export async function POST(request: NextRequest) {
         moduleId,
         companyId: tokenPayload.companyId,
         status: initialStatus,
-        currentPayload: JSON.stringify(payload),
+        currentPayload: JSON.stringify(finalPayload),
         createdById: tokenPayload.userId,
         updatedById: tokenPayload.userId,
       },
@@ -214,7 +490,7 @@ export async function POST(request: NextRequest) {
       await db.dataVersion.create({
         data: {
           recordId: record.id,
-          payloadSnapshot: JSON.stringify(payload),
+          payloadSnapshot: JSON.stringify(finalPayload),
           versionNumber: 1,
           changedById: tokenPayload.userId,
           changeReason: 'Initial creation (auto-approved)',
@@ -348,10 +624,22 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
 
-      const errors = await validatePayload(record.moduleId, payload);
+      const errors = await validatePayload(record.moduleId, payload, id);
       if (errors.length > 0) {
         return NextResponse.json({ error: 'Validation failed', errors }, { status: 422 });
       }
+
+      // Cross-field business rules — evaluated AFTER per-field validation
+      // and BEFORE the record is written. SET_VALUE actions may mutate the
+      // payload; BLOCK actions short-circuit with a 422.
+      const ruleResult = await evaluateBusinessRules(record.moduleId, payload, id);
+      if (ruleResult.errors.length > 0) {
+        return NextResponse.json(
+          { error: 'Business rule validation failed', errors: ruleResult.errors },
+          { status: 422 },
+        );
+      }
+      const finalPayload = ruleResult.modifiedPayload;
 
       // If record is ACTIVE, create amendment workflow:
       // 1. Change original record to REVISION_PENDING status
@@ -371,7 +659,7 @@ export async function PUT(request: NextRequest) {
         await db.dataVersion.create({
           data: {
             recordId: id,
-            payloadSnapshot: JSON.stringify(payload),
+            payloadSnapshot: JSON.stringify(finalPayload),
             versionNumber: newVersionNumber,
             changedById: tokenPayload.userId,
             changeReason: 'Amendment requested (pending approval)',
@@ -383,7 +671,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(payload),
+            currentPayload: JSON.stringify(finalPayload),
             status: STATUS_REVISION_PENDING,
             updatedById: tokenPayload.userId,
           },
@@ -410,7 +698,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(payload),
+            currentPayload: JSON.stringify(finalPayload),
             updatedById: tokenPayload.userId,
           },
         });
@@ -423,7 +711,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(payload),
+            currentPayload: JSON.stringify(finalPayload),
             updatedById: tokenPayload.userId,
           },
         });

@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/rbac';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { generateVariants, getVariantMap } from '@/lib/image-variants';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
@@ -151,6 +152,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Generate thumbnail/small/medium/large variants (STIBO Image Conversion
+    // Configuration). Run synchronously (NOT setTimeout) so it works on
+    // Vercel serverless — the request stays open ~100-500ms longer. Wrapped
+    // in try/catch so variant failure never blocks the upload response.
+    try {
+      await generateVariants(buffer, imageAsset.id, mimeType);
+    } catch (e) {
+      console.error('[images POST] Variant generation failed (non-blocking):', e);
+    }
+
     return NextResponse.json({ imageAsset }, { status: 201 });
   } catch (error) {
     console.error('Image upload error:', error);
@@ -173,13 +184,15 @@ export async function GET(request: NextRequest) {
     const recordId = searchParams.get('recordId');
     const imageId = searchParams.get('imageId');
 
-    // Get single image
+    // Get single image — include variants map so the client can pick the
+    // best-sized variant (thumbnail for grid cells, large for lightbox).
     if (imageId) {
       const image = await db.imageAsset.findUnique({ where: { id: imageId } });
       if (!image) {
         return NextResponse.json({ error: 'Image not found' }, { status: 404 });
       }
-      return NextResponse.json({ image });
+      const variants = await getVariantMap(image.id);
+      return NextResponse.json({ image: { ...image, variants } });
     }
 
     // List images for a record
@@ -192,7 +205,17 @@ export async function GET(request: NextRequest) {
       orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
     });
 
-    return NextResponse.json({ images });
+    // Attach a `variants` map (variant → filePath) to each image so the
+    // grid can use the thumbnail variant for the 26x26 cell thumbnail
+    // instead of downloading the full-resolution original.
+    const imagesWithVariants = await Promise.all(
+      images.map(async (img) => ({
+        ...img,
+        variants: await getVariantMap(img.id),
+      }))
+    );
+
+    return NextResponse.json({ images: imagesWithVariants });
   } catch (error) {
     console.error('Image GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -251,7 +274,28 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Delete database record
+    // Clean up variant FileAssets before the ImageVariant rows are
+    // cascade-deleted with the ImageAsset below. We fetch the variant
+    // filePaths first, delete the FileAsset rows, then delete the image
+    // (which cascades the ImageVariant rows).
+    try {
+      const variants = await db.imageVariant.findMany({
+        where: { imageId },
+        select: { filePath: true },
+      });
+      const variantFileIds = variants
+        .map((v) => v.filePath.split('/').pop() || '')
+        .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
+      if (variantFileIds.length > 0) {
+        await db.fileAsset.deleteMany({
+          where: { id: { in: variantFileIds } },
+        });
+      }
+    } catch {
+      // Best-effort cleanup — don't block the delete
+    }
+
+    // Delete database record (ImageVariant rows cascade-delete)
     await db.imageAsset.delete({ where: { id: imageId } });
 
     return NextResponse.json({ message: 'Image deleted successfully' });

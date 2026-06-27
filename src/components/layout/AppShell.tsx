@@ -43,6 +43,9 @@ import {
   AlertTriangle,
   Clock,
   ShieldAlert,
+  Zap,
+  BookTemplate,
+  CheckCheck,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -144,6 +147,9 @@ const ApiManagementPage = dynamic(() => import('@/components/mdm/ApiManagementPa
 const BrandSettingsPage = dynamic(() => import('@/components/mdm/BrandSettingsPage'), { loading: () => <PageSkeleton /> });
 const AboutPage = dynamic(() => import('@/components/mdm/AboutPage'), { loading: () => <PageSkeleton /> });
 const SystemHealthPage = dynamic(() => import('@/components/mdm/SystemHealthPage'), { loading: () => <PageSkeleton /> });
+const BulkJobsPage = dynamic(() => import('@/components/mdm/BulkJobsPage'), { loading: () => <PageSkeleton /> });
+const AiPromptsPage = dynamic(() => import('@/components/mdm/AiPromptsPage'), { loading: () => <PageSkeleton /> });
+const AiReviewPage = dynamic(() => import('@/components/mdm/AiReviewPage'), { loading: () => <PageSkeleton /> });
 
 interface NavItem {
   label: string;
@@ -174,9 +180,12 @@ const mainNav: NavItem[] = [
 const toolsNav: NavItem[] = [
   { label: 'Hierarchy Manager', page: 'hierarchy', icon: Network },
   { label: 'Bulk Import', page: 'bulk-import', icon: Upload },
+  { label: 'Bulk Jobs', page: 'bulk-jobs', icon: Zap },
   { label: 'Audit Log', page: 'audit-log', icon: ScrollText },
   { label: 'Documentation Hub', page: 'documentation', icon: BookOpen },
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles },
+  { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate },
+  { label: 'AI Review', page: 'ai-review', icon: CheckCheck },
 ];
 
 const integrationsNav: NavItem[] = [
@@ -291,6 +300,7 @@ function PageContent() {
     hierarchy: <HierarchyPage />,
     'hierarchy-detail': <HierarchyDetailPage />,
     'bulk-import': <BulkImportPage />,
+    'bulk-jobs': <BulkJobsPage />,
     'admin-users': <AdminUsersPage />,
     'admin-roles': <AdminRolesPage />,
     'admin-companies': <AdminCompaniesPage />,
@@ -299,6 +309,8 @@ function PageContent() {
     settings: <SettingsPage />,
     documentation: <DocumentationPage />,
     'ai-assistant': <AiAssistantPage />,
+    'ai-prompts': <AiPromptsPage />,
+    'ai-review': <AiReviewPage />,
     'api-management': <ApiManagementPage />,
     'brand-settings': <BrandSettingsPage />,
     'system-health': <SystemHealthPage />,
@@ -554,6 +566,7 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     hierarchy: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Hierarchy Manager' }],
     'hierarchy-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Hierarchy Manager', page: 'hierarchy' as PageView }, { label: 'Hierarchy Tree' }],
     'bulk-import': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Bulk Import' }],
+    'bulk-jobs': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Bulk Jobs' }],
     'admin-users': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Users' }],
     'admin-roles': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Roles' }],
     'admin-companies': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Companies' }],
@@ -562,6 +575,8 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     settings: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Settings' }],
     documentation: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Documentation Hub' }],
     'ai-assistant': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Assistant' }],
+    'ai-prompts': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Prompts' }],
+    'ai-review': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Review' }],
     'api-management': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Integrations' }, { label: 'API Management' }],
     'brand-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Settings' }],
     'system-health': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'System Health' }],
@@ -585,6 +600,7 @@ const searchNavigationItems: SearchCommandItem[] = [
   { label: 'Workflow', page: 'workflow', icon: GitBranch, keywords: ['approval', 'review', 'pending'] },
   { label: 'Hierarchy Manager', page: 'hierarchy', icon: Network, keywords: ['tree', 'structure'] },
   { label: 'Bulk Import', page: 'bulk-import', icon: Upload, keywords: ['upload', 'export', 'import'] },
+  { label: 'Bulk Jobs', page: 'bulk-jobs', icon: Zap, keywords: ['bulk', 'update', 'wizard', 'mass', 'edit'] },
   { label: 'Audit Log', page: 'audit-log', icon: ScrollText, keywords: ['log', 'history', 'activity'] },
   { label: 'Users', page: 'admin-users', icon: Users, keywords: ['admin', 'accounts'] },
   { label: 'Roles', page: 'admin-roles', icon: Shield, keywords: ['admin', 'permissions'] },
@@ -593,6 +609,8 @@ const searchNavigationItems: SearchCommandItem[] = [
   { label: 'Settings', page: 'settings', icon: Settings, keywords: ['preferences', 'theme', 'account'] },
   { label: 'Documentation Hub', page: 'documentation', icon: BookOpen, keywords: ['docs', 'knowledge', 'help', 'wiki'] },
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles, keywords: ['chat', 'ai', 'assistant', 'bot'] },
+  { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate, keywords: ['ai', 'prompt', 'template', 'stibo', 'genai', 'pttt', 'gaidgrp'] },
+  { label: 'AI Review', page: 'ai-review', icon: CheckCheck, keywords: ['ai', 'review', 'queue', 'approve', 'reject', 'pending'] },
   { label: 'API Management', page: 'api-management', icon: Key, keywords: ['api', 'keys', 'rest', 'integration'] },
   { label: 'Settings', page: 'brand-settings', icon: Palette, keywords: ['brand', 'customization', 'logo', 'theme', 'style', 'settings'] },
   { label: 'System Health', page: 'system-health', icon: Activity, keywords: ['status', 'health', 'monitoring', 'services', 'system', 'uptime'] },
@@ -703,6 +721,7 @@ export default function AppShell() {
       hierarchy: 'Hierarchy Manager',
       'hierarchy-detail': 'Hierarchy Tree',
       'bulk-import': 'Bulk Import / Export',
+      'bulk-jobs': 'Bulk Update Jobs',
       'admin-users': 'User Management',
       'admin-roles': 'Role Management',
       'admin-companies': 'Company Management',
@@ -711,6 +730,8 @@ export default function AppShell() {
       settings: 'Settings',
       documentation: 'Documentation Hub',
       'ai-assistant': 'AI Assistant',
+      'ai-prompts': 'AI Prompt Library',
+      'ai-review': 'AI Review Queue',
       'api-management': 'API Management',
       'brand-settings': 'Settings',
       'system-health': 'System Health',

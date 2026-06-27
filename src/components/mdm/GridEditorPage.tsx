@@ -24,6 +24,15 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import {
   ArrowLeft,
   Plus,
   Save,
@@ -46,6 +55,11 @@ import {
   Star,
   X,
   Trash2,
+  BookmarkPlus,
+  BookmarkCheck,
+  Settings,
+  Share2,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -75,6 +89,11 @@ interface ImageInfo {
   /** True when this image only exists locally (pending upload) — the `id`
    *  is a synthetic client-side id and `filePath` is a blob URL. */
   pending?: boolean;
+  /** Pre-computed variant URLs (variant → filePath). Populated from /api/images
+   *  GET. Used to render the ~26x26 cell thumbnail from the 150px webp variant
+   *  instead of the full-resolution original (STIBO Image Conversion — cuts
+   *  grid bandwidth ~95%). */
+  variants?: Record<string, string>;
 }
 
 interface MetaField {
@@ -299,6 +318,23 @@ function evaluateAdvancedFilters(
   return result;
 }
 
+/** Saved view (STIBO User Configurable Views + Sharing Saved Searches). */
+interface SavedView {
+  id: string;
+  userId: string;
+  moduleId: string;
+  name: string;
+  scope: 'SEARCH' | 'COLUMNS' | 'COMBINED';
+  columnConfig: string | null;
+  filterConfig: string | null;
+  /** null = private, '*' = all in company, 'uid1,uid2' = specific users */
+  sharedWith: string | null;
+  isDefault: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+  user?: { id: string; username: string; displayName: string | null } | null;
+}
+
 interface ModuleItem {
   id: string;
   moduleCode: string;
@@ -451,7 +487,7 @@ function buildDefaultPayload(fields: MetaField[]): Record<string, unknown> {
 // ============================================================================
 
 export default function GridEditorPage() {
-  const { token, navigate, selectedModuleId } = useAppStore();
+  const { token, user, navigate, selectedModuleId } = useAppStore();
 
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [activeModuleId, setActiveModuleId] = useState<string>(selectedModuleId || '');
@@ -478,6 +514,20 @@ export default function GridEditorPage() {
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   /** Lightbox overlay state: holds the image list + current index. */
   const [lightbox, setLightbox] = useState<{ images: ImageInfo[]; index: number } | null>(null);
+
+  // ── Saved Views state (STIBO User Configurable Views + Sharing Saved Searches) ──
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [activeSavedView, setActiveSavedView] = useState<SavedView | null>(null);
+  const [showSaveViewDialog, setShowSaveViewDialog] = useState(false);
+  const [showManageViewsDialog, setShowManageViewsDialog] = useState(false);
+  const [saveViewForm, setSaveViewForm] = useState<{
+    name: string;
+    scope: 'SEARCH' | 'COLUMNS' | 'COMBINED';
+    shareWith: 'private' | 'company' | 'specific';
+    specificUserIds: string;
+    isDefault: boolean;
+  }>({ name: '', scope: 'COMBINED', shareWith: 'private', specificUserIds: '', isDefault: false });
+  const [savingView, setSavingView] = useState(false);
 
   // Refs for column resize drag
   const dragRef = useRef<{ fieldCode: string; startX: number; startWidth: number } | null>(null);
@@ -556,6 +606,7 @@ export default function GridEditorPage() {
                     isPrimary: Boolean(img.isPrimary),
                     sortOrder: Number(img.sortOrder || 0),
                     fieldName: (img.fieldName as string) || null,
+                    variants: (img.variants as Record<string, string>) || undefined,
                   })
                 );
                 return { rid, imgs };
@@ -721,6 +772,7 @@ export default function GridEditorPage() {
           isPrimary: Boolean(img.isPrimary),
           sortOrder: Number(img.sortOrder || 0),
           fieldName: (img.fieldName as string) || null,
+          variants: (img.variants as Record<string, string>) || undefined,
         }));
         setRows((prev) =>
           prev.map((r) =>
@@ -1313,6 +1365,180 @@ export default function GridEditorPage() {
   };
 
   // ----------------------------------------------------------------
+  // Saved Views (STIBO User Configurable Views + Sharing Saved Searches)
+  // ----------------------------------------------------------------
+  /** Apply a saved view: parse filterConfig JSON (AdvancedFilter[]) and set
+   *  advancedFilters. Best-effort PUT to bump lastUsedAt server-side. */
+  const applySavedView = useCallback(
+    (view: SavedView) => {
+      let nextFilters: AdvancedFilter[] = [];
+      if (view.filterConfig) {
+        try {
+          const parsed = JSON.parse(view.filterConfig);
+          if (Array.isArray(parsed)) nextFilters = parsed as AdvancedFilter[];
+        } catch {
+          // malformed filterConfig — leave empty
+        }
+      }
+      setAdvancedFilters(nextFilters);
+      if (nextFilters.length > 0) setShowAdvancedFilter(true);
+      setActiveSavedView(view);
+      // Touch lastUsedAt (PUT with just the id bumps lastUsedAt server-side)
+      if (token) {
+        fetch('/api/saved-views', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: view.id }),
+        }).catch(() => {});
+      }
+      toast.success(`Applied view: ${view.name}`);
+    },
+    [token]
+  );
+
+  /** Load saved views for a module. Uses localStorage as a quick cache for
+   *  instant paint, then refreshes from the API. */
+  const loadSavedViews = useCallback(
+    async (moduleId: string) => {
+      if (!token) return;
+      // localStorage cache — instant paint
+      try {
+        const cached = localStorage.getItem(`saved-views:${moduleId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached) as SavedView[];
+          if (Array.isArray(parsed)) setSavedViews(parsed);
+        }
+      } catch {
+        // ignore cache errors
+      }
+      try {
+        const res = await fetch(`/api/saved-views?moduleId=${moduleId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const views: SavedView[] = ((data.views || []) as Record<string, unknown>[]).map((v) => ({
+          id: String(v.id),
+          userId: String(v.userId),
+          moduleId: String(v.moduleId),
+          name: String(v.name),
+          scope: (v.scope as 'SEARCH' | 'COLUMNS' | 'COMBINED') || 'COMBINED',
+          columnConfig: (v.columnConfig as string) || null,
+          filterConfig: (v.filterConfig as string) || null,
+          sharedWith: (v.sharedWith as string) || null,
+          isDefault: Boolean(v.isDefault),
+          lastUsedAt: v.lastUsedAt ? String(v.lastUsedAt) : null,
+          createdAt: String(v.createdAt),
+          user: v.user as { id: string; username: string; displayName: string | null } | null,
+        }));
+        setSavedViews(views);
+        try {
+          localStorage.setItem(`saved-views:${moduleId}`, JSON.stringify(views));
+        } catch {
+          // ignore quota errors
+        }
+      } catch {
+        // silent
+      }
+    },
+    [token]
+  );
+
+  /** Save the current advancedFilters + column widths as a new saved view. */
+  const saveCurrentView = useCallback(async () => {
+    if (!token || !activeModuleId) return;
+    const name = saveViewForm.name.trim();
+    if (!name) {
+      toast.error('View name is required');
+      return;
+    }
+    setSavingView(true);
+    try {
+      const filterConfig = JSON.stringify(advancedFilters);
+      const columnConfig = JSON.stringify({
+        colWidths,
+        visibleFields: fields.map((f) => f.fieldCode),
+      });
+      const sharedWith =
+        saveViewForm.shareWith === 'company'
+          ? '*'
+          : saveViewForm.shareWith === 'specific'
+            ? saveViewForm.specificUserIds.trim()
+            : null;
+      const res = await fetch('/api/saved-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          moduleId: activeModuleId,
+          name,
+          scope: saveViewForm.scope,
+          columnConfig,
+          filterConfig,
+          sharedWith: sharedWith || null,
+          isDefault: saveViewForm.isDefault,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error((err as { error?: string }).error || 'Failed to save view');
+        return;
+      }
+      const data = await res.json();
+      const created = data.view as SavedView;
+      toast.success(`Saved view "${name}"`);
+      setShowSaveViewDialog(false);
+      setSaveViewForm({ name: '', scope: 'COMBINED', shareWith: 'private', specificUserIds: '', isDefault: false });
+      await loadSavedViews(activeModuleId);
+      if (created) applySavedView(created);
+    } catch {
+      toast.error('Failed to save view');
+    } finally {
+      setSavingView(false);
+    }
+  }, [token, activeModuleId, saveViewForm, advancedFilters, colWidths, fields, loadSavedViews, applySavedView]);
+
+  /** Delete a saved view (owner only — the API enforces it). */
+  const deleteSavedView = useCallback(
+    async (viewId: string, viewName: string) => {
+      if (!token) return;
+      if (!window.confirm(`Delete saved view "${viewName}"? This cannot be undone.`)) return;
+      try {
+        const res = await fetch('/api/saved-views', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: viewId }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error((err as { error?: string }).error || 'Failed to delete view');
+          return;
+        }
+        toast.success(`Deleted view "${viewName}"`);
+        if (activeSavedView?.id === viewId) {
+          setActiveSavedView(null);
+          setAdvancedFilters([]);
+        }
+        if (activeModuleId) await loadSavedViews(activeModuleId);
+      } catch {
+        toast.error('Failed to delete view');
+      }
+    },
+    [token, activeSavedView, activeModuleId, loadSavedViews]
+  );
+
+  // Load saved views when the active module changes (STIBO User Configurable
+  // Views). Resets the active view since filters don't carry across modules.
+  useEffect(() => {
+    if (activeModuleId) {
+      setActiveSavedView(null);
+      void loadSavedViews(activeModuleId);
+    } else {
+      setSavedViews([]);
+      setActiveSavedView(null);
+    }
+  }, [activeModuleId, loadSavedViews]);
+
+  // ----------------------------------------------------------------
   // Render
   // ----------------------------------------------------------------
   if (!activeModuleId && !loading) {
@@ -1408,6 +1634,53 @@ export default function GridEditorPage() {
                 </Badge>
               )}
             </Button>
+
+            {/* Saved Views dropdown (STIBO User Configurable Views + Sharing Saved Searches) */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  title="Saved views — apply, save, or manage"
+                >
+                  <BookmarkPlus className="w-4 h-4 mr-1.5" />
+                  Views
+                  <ChevronDown className="w-3 h-3 ml-1.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-2" align="start">
+                <SavedViewsList
+                  views={savedViews}
+                  currentUserId={user?.userId}
+                  activeViewId={activeSavedView?.id}
+                  onApply={(v) => applySavedView(v)}
+                  onSaveCurrent={() => {
+                    setSaveViewForm({ name: '', scope: 'COMBINED', shareWith: 'private', specificUserIds: '', isDefault: false });
+                    setShowSaveViewDialog(true);
+                  }}
+                  onManage={() => setShowManageViewsDialog(true)}
+                />
+              </PopoverContent>
+            </Popover>
+            {activeSavedView && (
+              <Badge
+                variant="outline"
+                className="bg-red-50 border-red-200 text-red-700 h-6"
+                title={`Active view: ${activeSavedView.name}`}
+              >
+                <BookmarkCheck className="w-3 h-3 mr-1" />
+                <span className="max-w-[120px] truncate">{activeSavedView.name}</span>
+                <button
+                  type="button"
+                  onClick={() => { setActiveSavedView(null); setAdvancedFilters([]); }}
+                  className="ml-1 hover:text-red-900"
+                  aria-label="Clear active view"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
               <Button
@@ -1828,6 +2101,168 @@ export default function GridEditorPage() {
         </span>
       </div>
 
+      {/* Save Current View dialog (STIBO User Configurable Views).
+          Persists the current advancedFilters (and column widths) as a named,
+          optionally-shared view via POST /api/saved-views. */}
+      <Dialog open={showSaveViewDialog} onOpenChange={setShowSaveViewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Current View</DialogTitle>
+            <DialogDescription>
+              Save the current filter configuration as a named view you can re-apply later.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sv-name">Name</Label>
+              <Input
+                id="sv-name"
+                value={saveViewForm.name}
+                onChange={(e) => setSaveViewForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. Active SKUs · Apparel"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Scope</Label>
+              <ShadSelect
+                value={saveViewForm.scope}
+                onValueChange={(v) => setSaveViewForm((prev) => ({ ...prev, scope: v as 'SEARCH' | 'COLUMNS' | 'COMBINED' }))}
+              >
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SEARCH">Search (filter only)</SelectItem>
+                  <SelectItem value="COLUMNS">Columns (visible columns)</SelectItem>
+                  <SelectItem value="COMBINED">Combined (filter + columns)</SelectItem>
+                </SelectContent>
+              </ShadSelect>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Share with</Label>
+              <ShadSelect
+                value={saveViewForm.shareWith}
+                onValueChange={(v) => setSaveViewForm((prev) => ({ ...prev, shareWith: v as 'private' | 'company' | 'specific' }))}
+              >
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="private">Private (just me)</SelectItem>
+                  <SelectItem value="company">All users in my company</SelectItem>
+                  <SelectItem value="specific">Specific user IDs</SelectItem>
+                </SelectContent>
+              </ShadSelect>
+              {saveViewForm.shareWith === 'specific' && (
+                <Input
+                  value={saveViewForm.specificUserIds}
+                  onChange={(e) => setSaveViewForm((prev) => ({ ...prev, specificUserIds: e.target.value }))}
+                  placeholder="user-id-1, user-id-2, ..."
+                  className="mt-1.5"
+                />
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox
+                checked={saveViewForm.isDefault}
+                onCheckedChange={(v) => setSaveViewForm((prev) => ({ ...prev, isDefault: v === true }))}
+                className="data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+              />
+              <span>Set as default for this module + scope</span>
+            </label>
+            {advancedFilters.length === 0 && saveViewForm.scope !== 'COLUMNS' && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+                You have no advanced filter conditions. The saved view will start with an empty filter.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveViewDialog(false)}>Cancel</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={saveCurrentView}
+              disabled={!saveViewForm.name.trim() || savingView}
+            >
+              {savingView ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
+              Save View
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Views dialog — list, apply, delete. */}
+      <Dialog open={showManageViewsDialog} onOpenChange={setShowManageViewsDialog}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manage Saved Views</DialogTitle>
+            <DialogDescription>
+              Apply or delete your saved views. Shared views can only be deleted by their owner.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-96 overflow-y-auto custom-scrollbar space-y-1.5">
+            {savedViews.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No saved views yet. Use &ldquo;Views → Save Current View&rdquo; to create one.
+              </p>
+            ) : (
+              savedViews.map((v) => {
+                const isOwner = v.userId === user?.userId;
+                const sharedLabel = v.sharedWith === '*' ? 'Shared: Company' : v.sharedWith ? 'Shared: Users' : 'Private';
+                const filterCount = v.filterConfig ? (JSON.parse(v.filterConfig).length || 0) : 0;
+                return (
+                  <div
+                    key={v.id}
+                    className={cn(
+                      'flex items-center justify-between gap-2 p-2 border rounded',
+                      activeSavedView?.id === v.id && 'border-red-300 bg-red-50/50'
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium text-sm truncate">{v.name}</span>
+                        {v.isDefault && <Badge className="text-[10px] h-4 px-1 bg-red-600">Default</Badge>}
+                        <Badge variant="outline" className="text-[10px] h-4 px-1">{v.scope}</Badge>
+                        <Badge variant="outline" className="text-[10px] h-4 px-1">{sharedLabel}</Badge>
+                        {!isOwner && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1">
+                            by {v.user?.username || 'unknown'}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        {filterCount} filter condition{filterCount !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7"
+                        onClick={() => { applySavedView(v); setShowManageViewsDialog(false); }}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1" />
+                        Apply
+                      </Button>
+                      {isOwner && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => deleteSavedView(v.id, v.name)}
+                          aria-label={`Delete view ${v.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowManageViewsDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Lightbox overlay (click-to-enlarge for IMAGE cells).
           Shows the image full-screen with prev/next navigation if there are
           multiple images. Works for both server images (filePath=/api/...)
@@ -2084,11 +2519,22 @@ function CellRenderer({
             tabIndex={-1}
           >
             <img
-              src={primary.filePath}
+              // STIBO Image Conversion: use the 150px webp thumbnail variant
+              // for the ~26x26 cell thumbnail. Falls back to original on
+              // variant miss (legacy images) or on load error.
+              src={primary.variants?.thumbnail || primary.filePath}
               alt={primary.altText || primary.fileName}
               className="w-full h-full object-cover"
               onError={(e) => {
-                (e.target as HTMLImageElement).style.opacity = '0.3';
+                // Variant failed → retry with original filePath, then dim.
+                const imgEl = e.target as HTMLImageElement;
+                const fallback = primary.filePath;
+                if (imgEl.src !== fallback && !imgEl.dataset.fallback) {
+                  imgEl.dataset.fallback = '1';
+                  imgEl.src = fallback;
+                } else {
+                  imgEl.style.opacity = '0.3';
+                }
               }}
             />
           </button>
@@ -2499,6 +2945,95 @@ function ImageManagerPopover({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Saved Views List — popover content showing recent / my / shared views with
+// quick actions (apply, save current, manage). Rendered inside the Views dropdown.
+// ============================================================================
+
+interface SavedViewsListProps {
+  views: SavedView[];
+  currentUserId?: string;
+  activeViewId?: string;
+  onApply: (view: SavedView) => void;
+  onSaveCurrent: () => void;
+  onManage: () => void;
+}
+
+function SavedViewsList({ views, currentUserId, activeViewId, onApply, onSaveCurrent, onManage }: SavedViewsListProps) {
+  const myViews = views.filter((v) => v.userId === currentUserId);
+  const sharedViews = views.filter((v) => v.userId !== currentUserId);
+  const recent = views.slice(0, 5); // API already orders by lastUsedAt desc
+
+  const renderItem = (v: SavedView) => (
+    <button
+      key={v.id}
+      type="button"
+      onClick={() => onApply(v)}
+      className={cn(
+        'w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-accent transition-colors',
+        activeViewId === v.id && 'bg-red-50 hover:bg-red-100'
+      )}
+    >
+      {activeViewId === v.id ? (
+        <BookmarkCheck className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+      ) : (
+        <BookmarkPlus className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+      )}
+      <span className="flex-1 min-w-0 truncate">{v.name}</span>
+      {v.isDefault && <Badge className="text-[9px] h-4 px-1 bg-red-600 flex-shrink-0">Default</Badge>}
+      {v.sharedWith === '*' && <Share2 className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
+    </button>
+  );
+
+  // Helper: render a labeled section if items is non-empty.
+  const renderSection = (label: string, items: SavedView[]) => {
+    if (items.length === 0) return null;
+    return (
+      <>
+        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-2 pt-2">
+          {label}
+        </div>
+        {items.map(renderItem)}
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-1">
+      {views.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-4">
+          No saved views yet.
+          <br />
+          Configure filters, then click &ldquo;Save Current View&rdquo;.
+        </p>
+      ) : (
+        <>
+          {recent.length > 0 && (
+            <>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-2 pt-1">
+                Recent
+              </div>
+              {recent.map(renderItem)}
+            </>
+          )}
+          {renderSection(`My Views (${myViews.length})`, myViews.slice(recent.length))}
+          {renderSection(`Shared with me (${sharedViews.length})`, sharedViews)}
+        </>
+      )}
+      <div className="border-t pt-1 mt-1 space-y-1">
+        <Button size="sm" variant="outline" className="w-full justify-start h-8" onClick={onSaveCurrent}>
+          <Plus className="w-3.5 h-3.5 mr-1.5" />
+          Save Current View
+        </Button>
+        <Button size="sm" variant="ghost" className="w-full justify-start h-8" onClick={onManage}>
+          <Settings className="w-3.5 h-3.5 mr-1.5" />
+          Manage Views
+        </Button>
+      </div>
     </div>
   );
 }

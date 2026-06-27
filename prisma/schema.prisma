@@ -58,6 +58,8 @@ model SysUser {
   aiConversations AiConversation[]
   apiKeys      ApiKey[]
   auditLogs    AuditLog[] @relation("AuditLogUser")
+  savedViews      SavedView[]
+  bulkUpdateJobs  BulkUpdateJob[]
 }
 
 model SysRole {
@@ -119,6 +121,9 @@ model MetaModule {
   hierarchyModels HierarchyModel[]
   rolePermissions RolePermission[]
   sftpConfigs     SftpConfig[]
+  businessRules   BusinessRule[]
+  savedViews      SavedView[]
+  bulkUpdateJobs  BulkUpdateJob[]
 }
 
 model MetaField {
@@ -335,6 +340,8 @@ model ImageAsset {
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  variants ImageVariant[]
+
   record DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
 }
 
@@ -509,4 +516,205 @@ model AiMessage {
 
   conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         SysUser?       @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// 11. BUSINESS RULES (STIBO Business Rules — cross-field validation)
+// Extends per-field FieldValidation with module-level cross-field
+// rules: Attribute Value Comparison, LOV Cross-Validation, OR/NOT
+// composition, and actions (BLOCK / SET_VALUE / SEND_EMAIL).
+// ============================================================
+
+model BusinessRule {
+  id            String   @id @default(cuid())
+  moduleId      String
+  name          String
+  description   String?
+  // Condition type: CROSS_FIELD (compare two fields), LOV_CROSS (parent-child LOV),
+  // SCRIPTED (custom JS expression), REQUIRED_IF (conditional required)
+  conditionType String   @default("CROSS_FIELD")
+  // JSON: { leftFieldCode, operator, rightFieldCode | constantValue }
+  // operator: = | != | > | < | >= | <= | contains | starts_with | ends_with | is_empty | is_not_empty
+  conditionJson String
+  // Action: BLOCK (prevent save), SET_VALUE (compute a field), SEND_EMAIL, WARN
+  actionType    String   @default("BLOCK")
+  // JSON for SET_VALUE: { targetFieldCode, expression } using {{field}} placeholders
+  // JSON for SEND_EMAIL: { to, subject, bodyTemplate }
+  actionJson    String?
+  errorMessage  String?
+  // Trigger: SAVE | APPROVE | IMPORT | TRANSITION
+  trigger       String   @default("SAVE")
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 12. SAVED VIEWS & SAVED SEARCHES (STIBO User Configurable Views + Sharing Saved Searches)
+// Persists per-user column sets, sort, group-by, and the advanced
+// multi-column filter (Task 23-D AdvancedFilter[] shape) so it can
+// be named, re-applied, and shared with other users.
+// ============================================================
+
+model SavedView {
+  id          String   @id @default(cuid())
+  userId      String
+  moduleId    String
+  name        String
+  // scope: COLUMNS (visible columns + widths + sort + groupBy) | SEARCH (advanced filter) | COMBINED
+  scope       String   @default("COMBINED")
+  // JSON: { columns: [{fieldCode, width}], sort: [{fieldCode, dir}], groupBy: [fieldCode] }
+  columnConfig String?
+  // JSON: AdvancedFilter[] (matches Task 23-D shape)
+  filterConfig String?
+  // Sharing: comma-separated user IDs, or "*" for all users in company, or null = private
+  sharedWith   String?
+  isDefault    Boolean  @default(false)
+  lastUsedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    SysUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module  MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 13. BULK UPDATE ENGINE (STIBO Bulk Updates — wizard-driven)
+// Target a set of records via the advanced filter, apply ordered
+// operations (SET_VALUE, CLEAR, MERGE, SET_NAME, SET_STATUS, RUN_RULE),
+// with Preview (dry-run first 10), Pre-flight (full dry-run + failed list),
+// and background-process monitoring.
+// ============================================================
+
+model BulkUpdateJob {
+  id            String    @id @default(cuid())
+  userId        String
+  moduleId      String
+  name          String?
+  // JSON: AdvancedFilter[] (target selection — same shape as SavedView.filterConfig)
+  targetFilter  String
+  // JSON: [{ operation: 'SET_VALUE'|'CLEAR'|'MERGE'|'SET_NAME'|'SET_STATUS'|'RUN_RULE', fieldCode?, value?, config? }]
+  operations    String
+  status        String    @default("QUEUED") // QUEUED | PREVIEWING | RUNNING | COMPLETED | FAILED | CANCELLED
+  mode          String    @default("APPLY")  // PREVIEW (dry-run first 10) | PREFLIGHT (full dry-run) | APPLY
+  totalRecords  Int       @default(0)
+  okRecords     Int       @default(0)
+  failedRecords Int       @default(0)
+  // JSON: [{ recordId, ok, before, after, error }]
+  results       String?
+  errorLog      String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  user   SysUser    @relation(fields: [userId], references: [id])
+  module MetaModule @relation(fields: [moduleId], references: [id])
+}
+
+// ============================================================
+// 14. AI PROMPT LIBRARY + GENAI REVIEW (STIBO ProductGen AI)
+// Governed AI enrichment: prompt templates (PTTT02-05, GAIDGRP01-02,
+// Translation, ImageAltText, etc.) with persona/audience/tone,
+// confidence scoring, and a review workflow (PENDING_REVIEW →
+// APPROVED → CopyToTarget, or REJECTED).
+// ============================================================
+
+model AiPrompt {
+  id              String   @id @default(cuid())
+  name            String
+  // STIBO use-case code: PTTT02, PTTT03, PTTT04, PTTT05, GAIDGRP01, GAIDGRP02,
+  // TRANSLATION, IMAGE_ALT_TEXT, IMAGE_EXTRACT_TEXT, IMAGE_FULL_DESC, IMAGE_SEO_KEYWORDS
+  useCase         String
+  description     String?
+  systemPrompt    String
+  userPromptTemplate String
+  // JSON: [fieldCode] — input attributes injected into the prompt
+  inputAttributes  String?
+  // target field code where approved output is copied
+  outputAttribute String?
+  maxChars        Int      @default(500)
+  persona         String?
+  audience        String?
+  tone            String?
+  language        String?
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  outputs AiOutput[]
+}
+
+model AiOutput {
+  id              String   @id @default(cuid())
+  promptId        String
+  recordId        String
+  userId          String?
+  output          String
+  // LLM-returned confidence 0-100 + reasons + correction suggestions
+  confidenceScore Int      @default(0)
+  reasons         String?
+  suggestions     String?  // JSON array of strings
+  status          String   @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  tokensUsed      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  prompt AiPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+}
+
+model AiUsageMetric {
+  id          String   @id @default(cuid())
+  userId      String?
+  promptId    String?
+  tokensUsed  Int      @default(0)
+  timestamp   DateTime @default(now())
+}
+
+// ============================================================
+// 15. IMAGE VARIANTS (STIBO Image Conversion Configuration)
+// Pre-computed resized/format-converted variants per ImageAsset
+// (thumbnail 150px, small 300px, medium 800px, large 1200px) to
+// cut grid bandwidth ~95% vs serving originals.
+// ============================================================
+
+model ImageVariant {
+  id          String   @id @default(cuid())
+  imageId     String
+  // variant: thumbnail | small | medium | large | original
+  variant     String
+  filePath    String
+  width       Int      @default(0)
+  height      Int      @default(0)
+  bytes       Int      @default(0)
+  format      String   @default("webp")
+  createdAt   DateTime @default(now())
+
+  image ImageAsset @relation(fields: [imageId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 16. DATA QUALITY SUFFICIENCY (STIBO Data Governance)
+// Per-record quality score (0-100, green/yellow/red) computed from
+// Completeness + Value + Function metrics. Enables STIBO's
+// "Below Title Sufficiency Card" pattern.
+// ============================================================
+
+model DataQualityScore {
+  id          String   @id @default(cuid())
+  recordId    String
+  moduleId    String
+  // metric: COMPLETENESS | VALUE | BUSINESS_RULE | OVERALL
+  metricType  String   @default("OVERALL")
+  metricCode  String?
+  score       Int      @default(0)  // 0-100
+  message     String?
+  calculatedAt DateTime @default(now())
+
+  @@unique([recordId, metricType, metricCode])
 }
