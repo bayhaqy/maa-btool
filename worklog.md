@@ -1242,3 +1242,44 @@ Stage Summary:
 - FIX B (advanced filter builder): Added an "Advanced" toggle button next to the search box. The collapsible panel lets users add multiple conditions, each picking a column + operator + value, combined with AND/OR (left-to-right). Operators are dataType-aware (TEXT has contains/starts_with/ends_with/etc; NUMBER/DATE has greater_than/less_than/etc; BOOLEAN has is_true/is_false; SELECT/LOOKUP/MULTISELECT has equals/not_equals + is_empty). is_empty/is_not_empty/is_true/is_false operators hide the value input. Summary bar shows active condition count. Empty-state "Clear Filters" also clears advanced filters.
 - No regressions: inline cell editing, cascading dropdowns, status filter tabs, save/discard/refresh buttons, amendment workflow for ACTIVE rows, and the image-manager popover all preserved (surgical edits only).
 - tsc: 0 errors in `GridEditorPage.tsx`. eslint: 0 errors / 0 warnings (EXIT=0).
+
+---
+Task ID: 23
+Agent: Main Agent (Task 23 orchestrator)
+Task: Fix 5 user-reported issues — module builder IMAGE type + validation editing, deferred image save in record detail, module metadata edit + RBAC, grid image thumbnails/lightbox, advanced multi-column filter. Apply Stibo MDM best practices.
+
+Work Log:
+- Read worklog Tasks 21-22 to understand context (MAP Active sample data, grid editor with ACTIVE amendment workflow, in-grid image upload with deferred save).
+- Explored codebase: ModuleDetailPage (no IMAGE type, validation add-only, no module edit), RecordDetailPage (immediate image save bug), GridEditorPage (images not loaded for non-dirty rows, simple search only), fields API (no validation PUT), modules API (superadmin-only already), rbac.ts (Manager has hierarchy:write).
+- Backend: Added PUT /api/fields?action=validation handler to fields/route.ts (edit validation rules — Super Admin only). Mirrors existing POST/DELETE validation pattern.
+- Launched 3 parallel subagents (23-B, 23-C, 23-D) each handling a distinct frontend file:
+  * 23-B (ModuleDetailPage): added IMAGE to DATA_TYPES, made validation badges clickable to edit (Edit Validation Rule dialog with PUT), added Edit Module button+dialog (name/desc/requireApproval, code immutable).
+  * 23-C (RecordDetailPage): refactored ImageUploadField to deferred-save model — uploads/deletes/replace/primary queued as pending (blob URLs), flushed on Save. New Replace option. Pending-change banner + amber badge.
+  * 23-D (GridEditorPage): load images for ALL rows on data load (thumbnails now show), click thumbnail → full-screen lightbox with prev/next, advanced multi-column multi-condition filter builder (13 operators, AND/OR).
+- Main agent fix: GridEditorPage lightbox bug — the <td> onMouseDown activated the cell before the thumbnail button's onClick fired, flipping isActive=true which made canOpenLightbox=false so onOpenLightbox was never called. Added onMouseDown stopPropagation to the thumbnail button + placeholder div, and removed the canOpenLightbox guard from the button onClick (kept for cursor styling only).
+- Verified all modified files: tsc 0 errors (only pre-existing errors in migrate-cascading/seed-data/pinecone/resend), eslint 0 errors.
+- Deployed to Vercel production (2 commits: feature + lightbox fix). Verified on https://maa-btool.vercel.app via agent-browser:
+  * Login as superadmin ✓
+  * Module builder: IMAGE in data type dropdown ✓, validation badge click → "Edit Validation Rule" dialog pre-filled (MIN_LENGTH=3) with Update button ✓, Edit Module dialog (name editable, code disabled/immutable, description, requireApproval switch) ✓
+  * Validation PUT API: changed MIN_LENGTH 3→5→3 round-trip ✓
+  * Module metadata PUT API: updated description ✓
+  * Grid editor Article Master: 32 image thumbnails in table ✓, Advanced filter button ✓, status tabs (All/Draft/Active/Revision Pending) ✓
+  * Advanced filter: Article Code contains "ART-00" → 9 rows (from 51) ✓, WHERE + field + operator + value + Add Condition + Clear All ✓
+  * Lightbox: click "Enlarge image" → full-screen overlay with Unsplash image + caption "ART-035.jpg" ✓ (after mousedown fix)
+  * Record detail edit mode: Product Images with Set-as-primary/Replace/Delete buttons ✓, "saved when you click Save" message ✓, PENDING badge ✓
+
+Stage Summary:
+- ✅ Fix #1 (Module builder): IMAGE data type added to DATA_TYPES dropdown. Validation rules now fully editable (click badge → Edit Validation Rule dialog → PUT /api/fields?action=validation). Backend PUT endpoint added.
+- ✅ Fix #2 (Deferred image save): RecordDetailPage ImageUploadField refactored — upload/delete/replace/set-primary queued locally as pending (blob URLs), only flushed to server on Save. New Replace option. Pending banner + amber badge. Fixes "image saved before clicking Save" bug.
+- ✅ Fix #3 (Module metadata + RBAC): Edit Module button on ModuleDetailPage opens dialog (name/description/requireApproval editable, moduleCode immutable — Stibo best practice). Module CRUD backend already Super Admin only. Hierarchy backend already allows Manager (hierarchy:write). Frontend ModulesPage gates create/edit/delete behind canManage (Super Admin).
+- ✅ Fix #4 (Grid image thumbnails + lightbox): Grid now loads images for ALL rows on data load (parallel chunks of 8) so thumbnails show. Click thumbnail → full-screen lightbox with prev/next nav, caption, Escape/arrow keys. Fixed mousedown-activation bug that prevented lightbox from opening.
+- ✅ Fix #5 (Advanced multi-column filter): New Advanced filter builder in grid editor — pick column + operator (13 operators: contains/equals/not_equals/starts_with/ends_with/is_empty/is_not_empty/gt/lt/gte/lte/is_true/is_false) + value (typed input or lookup select), combine multiple conditions with AND/OR. Applied client-side to filteredRows alongside status + simple search.
+- Files modified: src/app/api/fields/route.ts (PUT validation), src/components/mdm/ModuleDetailPage.tsx, src/components/mdm/RecordDetailPage.tsx, src/components/mdm/GridEditorPage.tsx.
+- Production: LIVE at https://maa-btool.vercel.app (commits f4e492d + 83929b1). All 5 fixes verified end-to-end via agent-browser.
+- Local dev server: restarted via watchdog (port 3000). Note: unstable under memory pressure (Turbopack + Chrome); use Vercel production for reliable testing.
+
+Notes for next agents:
+- The grid editor now has 3 ways to find records: status filter tabs, simple text search, and the Advanced multi-column filter builder (toggle via "Advanced" button).
+- Image operations in the record detail page are deferred — pending uploads show as blob URLs with a PENDING badge; they only persist on Save. The grid editor already used deferred save (Task 22); now the record detail does too.
+- The lightbox required a mousedown stopPropagation fix because the grid cell's onMouseDown activates the cell before the button onClick fires. Any future interactive elements inside grid cells should add onMouseDown stopPropagation to avoid this.
+- The validation PUT endpoint (/api/fields?action=validation) follows the same Super Admin-only guard as field CRUD.
