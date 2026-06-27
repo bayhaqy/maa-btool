@@ -3,22 +3,46 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { STATUS_LABELS } from '@/lib/constants';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Building2, XCircle, LayoutGrid } from 'lucide-react';
+import {
+  FileText, Plus, ChevronLeft, ChevronRight, Search, Building2, XCircle, LayoutGrid,
+  Filter, SlidersHorizontal, Eye, EyeOff,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// Enhanced status badge config with dot colors
+const STATUS_BADGE_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  DRAFT: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', border: 'border-gray-300 dark:border-gray-600', dot: 'bg-gray-400' },
+  IN_REVIEW: { bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-300 dark:border-amber-700', dot: 'bg-amber-500' },
+  ACTIVE: { bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-400', border: 'border-emerald-300 dark:border-emerald-700', dot: 'bg-emerald-500' },
+  REVISION_PENDING: { bg: 'bg-sky-50 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-300 dark:border-sky-700', dot: 'bg-sky-500' },
+  REJECTED: { bg: 'bg-red-50 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-300 dark:border-red-700', dot: 'bg-red-500' },
+  ARCHIVED: { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-300 dark:border-slate-600', dot: 'bg-slate-400' },
+};
 
 const STATUS_TABS = ['ALL', 'DRAFT', 'IN_REVIEW', 'ACTIVE', 'REVISION_PENDING', 'REJECTED', 'ARCHIVED'];
+
+// Status count for summary bar
+interface StatusCount {
+  status: string;
+  count: number;
+}
 
 export default function DataRecordsPage() {
   const { token, navigate, selectedModuleId, user } = useAppStore();
@@ -33,6 +57,9 @@ export default function DataRecordsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('ALL');
   const [companies, setCompanies] = useState<any[]>([]);
+  const [statusCounts, setStatusCounts] = useState<StatusCount[]>([]);
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
+  const [columnPopoverOpen, setColumnPopoverOpen] = useState(false);
   const limit = 20;
 
   useEffect(() => {
@@ -91,7 +118,35 @@ export default function DataRecordsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setFields(data.fields || []);
+      const newFields = data.fields || [];
+      setFields(newFields);
+      // Initialize visible columns (show first 5)
+      const vis: Record<string, boolean> = {};
+      newFields.forEach((f: any, i: number) => {
+        vis[f.id] = i < 5;
+      });
+      setVisibleColumns(vis);
+    } catch {
+      // silent
+    }
+  }, [token, activeModuleId]);
+
+  // Load all records for status counting (client-side)
+  const loadStatusCounts = useCallback(async () => {
+    if (!token || !activeModuleId) return;
+    try {
+      const res = await fetch(`/api/records?moduleId=${activeModuleId}&limit=1000`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const counts: Record<string, number> = {};
+      if (data.data) {
+        for (const r of data.data) {
+          counts[r.status] = (counts[r.status] || 0) + 1;
+        }
+      }
+      const countArr = Object.entries(counts).map(([status, count]) => ({ status, count }));
+      setStatusCounts(countArr);
     } catch {
       // silent
     }
@@ -106,11 +161,16 @@ export default function DataRecordsPage() {
     if (activeModuleId) {
       loadFields();
       loadRecords();
+      loadStatusCounts();
     }
-  }, [activeModuleId, loadFields, loadRecords]);
+  }, [activeModuleId, loadFields, loadRecords, loadStatusCounts]);
 
   const totalPages = Math.ceil(total / limit);
-  const displayFields = fields.slice(0, 5);
+
+  // Visible display fields based on column toggle
+  const displayFields = useMemo(() => {
+    return fields.filter((f: any) => visibleColumns[f.id] !== false);
+  }, [fields, visibleColumns]);
 
   const getPayloadValue = (record: any, fieldCode: string) => {
     try {
@@ -125,11 +185,9 @@ export default function DataRecordsPage() {
   const filteredRecords = useMemo(() => {
     let result = records;
 
-    // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((r) => {
-        // Search in payload values
         try {
           const payload = JSON.parse(r.currentPayload || '{}');
           const payloadMatch = Object.values(payload).some(
@@ -139,7 +197,6 @@ export default function DataRecordsPage() {
         } catch {
           // skip
         }
-        // Search in status, company code
         if (r.status?.toLowerCase().includes(q)) return true;
         if (r.company?.companyCode?.toLowerCase().includes(q)) return true;
         if (r.company?.companyName?.toLowerCase().includes(q)) return true;
@@ -147,7 +204,6 @@ export default function DataRecordsPage() {
       });
     }
 
-    // Company filter
     if (companyFilter !== 'ALL') {
       result = result.filter((r) => r.companyId === companyFilter);
     }
@@ -157,15 +213,53 @@ export default function DataRecordsPage() {
 
   const isSuperAdmin = user?.roles?.includes('Super Admin') ?? false;
 
+  // Active filters for display
+  const activeFilters = useMemo(() => {
+    const filters: { key: string; label: string; onClear: () => void }[] = [];
+    if (searchQuery.trim()) {
+      filters.push({ key: 'search', label: `"${searchQuery}"`, onClear: () => setSearchQuery('') });
+    }
+    if (companyFilter !== 'ALL') {
+      const comp = companies.find((c: any) => c.id === companyFilter);
+      filters.push({
+        key: 'company',
+        label: comp ? `${comp.companyCode}` : 'Company',
+        onClear: () => setCompanyFilter('ALL'),
+      });
+    }
+    if (activeStatus !== 'ALL') {
+      filters.push({
+        key: 'status',
+        label: STATUS_LABELS[activeStatus] || activeStatus,
+        onClear: () => setActiveStatus('ALL'),
+      });
+    }
+    return filters;
+  }, [searchQuery, companyFilter, activeStatus, companies]);
+
+  // Status badge component
+  const StatusBadge = ({ status }: { status: string }) => {
+    const config = STATUS_BADGE_CONFIG[status];
+    if (!config) {
+      return <Badge className="text-xs border">{STATUS_LABELS[status] || status}</Badge>;
+    }
+    return (
+      <Badge className={cn('text-xs border inline-flex items-center gap-1.5 font-medium', config.bg, config.text, config.border)}>
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
+        {STATUS_LABELS[status] || status}
+      </Badge>
+    );
+  };
+
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="p-4 lg:p-6 space-y-5">
       {/* Module Selector */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">Data Records</h2>
           <p className="text-muted-foreground text-sm mt-1">Browse and manage master data records</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Select value={activeModuleId} onValueChange={setActiveModuleId}>
             <SelectTrigger className="w-[200px] h-11">
               <SelectValue placeholder="Select module" />
@@ -213,6 +307,44 @@ export default function DataRecordsPage() {
         </Card>
       ) : (
         <Card className="shadow-sm">
+          {/* Record Count Summary Bar */}
+          <div className="px-4 py-3 border-b bg-muted/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">{total}</span>
+                  <span className="text-xs text-muted-foreground">total records</span>
+                </div>
+                {statusCounts.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {statusCounts.map((sc) => {
+                      const config = STATUS_BADGE_CONFIG[sc.status];
+                      return (
+                        <button
+                          key={sc.status}
+                          onClick={() => setActiveStatus(activeStatus === sc.status ? 'ALL' : sc.status)}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-all',
+                            activeStatus === sc.status
+                              ? 'ring-2 ring-offset-1 ring-red-500/30'
+                              : 'opacity-70 hover:opacity-100',
+                            config?.bg || 'bg-gray-100',
+                            config?.text || 'text-gray-700',
+                            config?.border || 'border-gray-300'
+                          )}
+                        >
+                          <span className={cn('w-1.5 h-1.5 rounded-full', config?.dot || 'bg-gray-400')} />
+                          {STATUS_LABELS[sc.status] || sc.status}: <span className="font-semibold">{sc.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <CardHeader className="pb-3 space-y-3">
             <Tabs value={activeStatus} onValueChange={setActiveStatus}>
               <TabsList className="h-9">
@@ -260,7 +392,84 @@ export default function DataRecordsPage() {
                   </SelectContent>
                 </Select>
               )}
+
+              {/* Column Visibility Toggle */}
+              <Popover open={columnPopoverOpen} onOpenChange={setColumnPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5">
+                    {Object.values(visibleColumns).filter(Boolean).length < fields.length ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                    Columns
+                    <span className="text-[10px] text-muted-foreground">
+                      ({Object.values(visibleColumns).filter(Boolean).length}/{fields.length})
+                    </span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="end">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground px-2 pb-1">Toggle Columns</p>
+                    {fields.map((f: any) => (
+                      <label
+                        key={f.id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer text-sm"
+                      >
+                        <Checkbox
+                          checked={visibleColumns[f.id] !== false}
+                          onCheckedChange={(checked) => {
+                            setVisibleColumns((prev) => ({
+                              ...prev,
+                              [f.id]: checked === true,
+                            }));
+                          }}
+                        />
+                        <span className="truncate">{f.fieldName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
+
+            {/* Active Filter Tags */}
+            <AnimatePresence>
+              {activeFilters.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex items-center gap-2 flex-wrap"
+                >
+                  <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+                  {activeFilters.map((f) => (
+                    <span
+                      key={f.key}
+                      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-accent border border-border"
+                    >
+                      {f.label}
+                      <button
+                        onClick={f.onClear}
+                        className="hover:text-red-600 transition-colors"
+                      >
+                        <XCircle className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setCompanyFilter('ALL');
+                      setActiveStatus('ALL');
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Clear all
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </CardHeader>
 
           <CardContent className="p-0">
@@ -341,9 +550,7 @@ export default function DataRecordsPage() {
                             {(page - 1) * limit + idx + 1}
                           </TableCell>
                           <TableCell>
-                            <Badge className={cn('text-xs border', STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-700')}>
-                              {STATUS_LABELS[r.status] || r.status}
-                            </Badge>
+                            <StatusBadge status={r.status} />
                           </TableCell>
                           {displayFields.map((f: any) => (
                             <TableCell key={f.id} className="max-w-[200px] truncate">

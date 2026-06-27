@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useTheme } from 'next-themes';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
@@ -76,6 +77,7 @@ const SUGGESTED_PROMPTS = [
 
 export default function AiAssistantPage() {
   const { token, user } = useAppStore();
+  const { resolvedTheme } = useTheme();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -94,12 +96,24 @@ export default function AiAssistantPage() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [aiProvider, setAiProvider] = useState<string>('ZAI');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const canAccess = user?.roles?.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r)) ?? false;
+
+  // Load AI provider config on mount
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/ai/config', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.config?.provider) setAiProvider(data.config.provider);
+      })
+      .catch(() => {});
+  }, [token]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -704,7 +718,12 @@ export default function AiAssistantPage() {
                   </span>
                 )}
               </h3>
-              <p className="text-[10px] text-muted-foreground">Powered by Z.AI · Markdown & streaming supported</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  <Sparkles className="w-2.5 h-2.5" /> {aiProvider}
+                </span>
+                <span className="text-[10px] text-muted-foreground">Markdown & streaming supported</span>
+              </div>
             </div>
           </div>
         </div>
@@ -781,20 +800,20 @@ export default function AiAssistantPage() {
                     'w-9 h-9 rounded-full flex items-center justify-center shrink-0 shadow-sm',
                     msg.role === 'assistant'
                       ? 'bg-gradient-to-br from-red-500 to-rose-600'
-                      : 'bg-muted'
+                      : 'bg-gradient-to-br from-slate-600 to-slate-700'
                   )}>
                     {msg.role === 'assistant' ? (
                       <Sparkles className="w-4.5 h-4.5 text-white" />
                     ) : (
-                      <UserIcon className="w-4.5 h-4.5 text-muted-foreground" />
+                      <UserIcon className="w-4.5 h-4.5 text-white" />
                     )}
                   </div>
                   <div className={cn('flex-1 min-w-0 max-w-[80%]', msg.role === 'user' && 'flex flex-col items-end')}>
                     <div className={cn(
-                      'rounded-2xl px-4 py-3',
+                      'rounded-2xl px-4 py-3 shadow-sm',
                       msg.role === 'assistant'
-                        ? 'bg-red-50 dark:bg-red-900/20 rounded-tl-sm'
-                        : 'bg-teal-600 text-white rounded-tr-sm'
+                        ? 'bg-red-50 dark:bg-red-900/20 rounded-tl-sm border border-red-100 dark:border-red-800/40'
+                        : 'bg-slate-700 text-white rounded-tr-sm'
                     )}>
                       {msg.role === 'assistant' ? (
                         <div className="md-render text-sm">
@@ -830,7 +849,11 @@ export default function AiAssistantPage() {
                             {msg.content || (isStreamingThis ? '' : '')}
                           </ReactMarkdown>
                           {isStreamingThis && (
-                            <span className="inline-block w-2 h-4 bg-red-500 animate-pulse ml-0.5 align-text-bottom" />
+                            <span className="inline-flex gap-0.5 ml-1">
+                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
+                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
+                            </span>
                           )}
                         </div>
                       ) : (
@@ -871,17 +894,20 @@ export default function AiAssistantPage() {
               );
             })}
 
-            {/* Initial loading (before stream starts) */}
+            {/* Initial loading (before stream starts) — typing indicator */}
             {isLoading && messages.length === 0 && (
               <div className="flex gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shrink-0">
-                  <Bot className="w-4.5 h-4.5 text-white" />
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shrink-0 shadow-sm">
+                  <Sparkles className="w-4.5 h-4.5 text-white" />
                 </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl rounded-tl-sm px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl rounded-tl-sm px-4 py-3 border border-red-100 dark:border-red-800/40 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span className="text-xs text-muted-foreground ml-1">AI is thinking...</span>
                   </div>
                 </div>
               </div>
@@ -890,44 +916,67 @@ export default function AiAssistantPage() {
           </div>
         </ScrollArea>
 
-        {/* Input Bar */}
-        <div className="border-t p-3 shrink-0 bg-card/50">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2 rounded-xl border bg-background focus-within:ring-2 focus-within:ring-red-500/30 focus-within:border-red-400 transition-all">
-              <Textarea
-                ref={textareaRef}
-                placeholder="Ask me anything about MDM... (Enter to send, Shift+Enter for new line)"
-                value={inputMessage}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                disabled={isStreaming}
-                rows={1}
-                className="flex-1 min-h-[44px] max-h-[160px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-3 py-3 text-sm"
-              />
-              {isStreaming ? (
-                <Button
-                  onClick={handleStop}
-                  className="bg-red-600 hover:bg-red-700 text-white h-11 w-11 shrink-0 my-1 mr-1 rounded-lg"
-                  size="icon"
-                  title="Stop"
-                >
-                  <Square className="w-4 h-4" />
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => handleSendMessage()}
-                  disabled={!inputMessage.trim() || isStreaming}
-                  className="bg-red-600 hover:bg-red-700 text-white h-11 w-11 shrink-0 my-1 mr-1 rounded-lg"
-                  size="icon"
-                  title="Send"
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
-              )}
+        {/* Input Bar + Quick Prompts */}
+        <div className="border-t shrink-0 bg-card/50">
+          {/* Quick prompt suggestions (when input is empty and not streaming) */}
+          {!inputMessage.trim() && !isStreaming && messages.length > 0 && (
+            <div className="px-3 pt-2 pb-1 max-w-3xl mx-auto">
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: 'Summarize records', prompt: 'Summarize the current state of our master data records.' },
+                  { label: 'Best practices', prompt: 'What are MDM best practices for data governance?' },
+                  { label: 'Help with workflow', prompt: 'How does the approval workflow work?' },
+                  { label: 'Data quality', prompt: 'How can I improve data quality in my modules?' },
+                ].map((s) => (
+                  <button
+                    key={s.label}
+                    onClick={() => handleSendMessage(s.prompt)}
+                    className="text-xs px-2.5 py-1.5 rounded-full border border-border bg-background hover:bg-accent hover:border-red-300 dark:hover:border-red-700 transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="text-[10px] text-muted-foreground text-center mt-2">
-              AI responses may be inaccurate. Press <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Shift+Enter</kbd> for new line.
-            </p>
+          )}
+          <div className="p-3 pt-2">
+            <div className="max-w-3xl mx-auto">
+              <div className="flex items-end gap-2 rounded-xl border bg-background focus-within:ring-2 focus-within:ring-red-500/30 focus-within:border-red-400 transition-all">
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Ask me anything about MDM... (Enter to send, Shift+Enter for new line)"
+                  value={inputMessage}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  disabled={isStreaming}
+                  rows={1}
+                  className="flex-1 min-h-[44px] max-h-[160px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-3 py-3 text-sm"
+                />
+                {isStreaming ? (
+                  <Button
+                    onClick={handleStop}
+                    className="bg-red-600 hover:bg-red-700 text-white h-11 w-11 shrink-0 my-1 mr-1 rounded-lg"
+                    size="icon"
+                    title="Stop"
+                  >
+                    <Square className="w-4 h-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => handleSendMessage()}
+                    disabled={!inputMessage.trim() || isStreaming}
+                    className="bg-red-600 hover:bg-red-700 text-white h-11 w-11 shrink-0 my-1 mr-1 rounded-lg"
+                    size="icon"
+                    title="Send"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground text-center mt-2">
+                AI responses may be inaccurate. Press <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Shift+Enter</kbd> for new line.
+              </p>
+            </div>
           </div>
         </div>
       </div>

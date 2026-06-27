@@ -261,47 +261,47 @@ export async function POST(request: NextRequest) {
           {
             payload: {
               supplier_code: 'SUP-001', supplier_name: 'PT Nike Indonesia', supplier_type: 'MANUFACTURER',
-              contact_person: 'Budi Santoso', email: 'budi@nike.co.id', phone: '+62215678901',
-              address: 'Jl. TB Simatupang No. 18, Jakarta', city: 'Jakarta',
-              tax_id: '01.234.567.8-901.000', is_active: true, payment_terms: 'NET_30',
+              contact_person: 'Budi Santoso', email: 'procurement@nike.co.id', phone: '+62215550101',
+              address: 'Jl. Industri No. 5, Kawasan Industri Pulogadung', city: 'Jakarta',
+              tax_id: '01.234.567.8-091.000', is_active: true, payment_terms: 'NET_30',
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              supplier_code: 'SUP-002', supplier_name: 'PT Zara Distribution', supplier_type: 'DISTRIBUTOR',
-              contact_person: 'Maria Garcia', email: 'maria@zara.co.id', phone: '+62216789012',
-              address: 'Jl. Jend. Sudirman Kav. 52, Jakarta', city: 'Jakarta',
-              tax_id: '02.345.678.9-012.000', is_active: true, payment_terms: 'NET_60',
+              supplier_code: 'SUP-002', supplier_name: 'PT Adidas Indonesia', supplier_type: 'MANUFACTURER',
+              contact_person: 'Siti Rahmawati', email: 'supply.id@adidas.com', phone: '+62215550102',
+              address: 'Jl. MH Thamrin No. 28', city: 'Jakarta',
+              tax_id: '01.345.678.9-092.000', is_active: true, payment_terms: 'NET_30',
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              supplier_code: 'SUP-003', supplier_name: 'CV Local Java Suppliers', supplier_type: 'LOCAL',
-              contact_person: 'Agus Wijaya', email: 'agus@localjava.co.id', phone: '+62247890123',
-              address: 'Jl. Pemuda No. 45, Semarang', city: 'Semarang',
-              tax_id: '03.456.789.0-123.000', is_active: true, payment_terms: 'COD',
+              supplier_code: 'SUP-003', supplier_name: 'PT Puma Southeast Asia', supplier_type: 'DISTRIBUTOR',
+              contact_person: 'Andi Wijaya', email: 'sea.orders@puma.com', phone: '+62215550103',
+              address: 'Jl. Sudirman Kav. 52-53', city: 'Jakarta',
+              tax_id: '01.456.789.0-093.000', is_active: true, payment_terms: 'NET_60',
+            },
+            status: 'ACTIVE' as const,
+          },
+          {
+            payload: {
+              supplier_code: 'SUP-004', supplier_name: 'PT Under Armour Asia Pacific', supplier_type: 'DISTRIBUTOR',
+              contact_person: 'Maya Putri', email: 'apac.supply@underarmour.com', phone: '+62215550104',
+              address: 'SCBD Lot 14, Jl. Jend. Sudirman', city: 'Jakarta',
+              tax_id: '01.567.890.1-094.000', is_active: true, payment_terms: 'NET_30',
+            },
+            status: 'ACTIVE' as const,
+          },
+          {
+            payload: {
+              supplier_code: 'SUP-005', supplier_name: 'PT New Balance Indonesia', supplier_type: 'DISTRIBUTOR',
+              contact_person: 'Rudi Hartono', email: 'id.supply@newbalance.com', phone: '+62215550105',
+              address: 'Jl. Gajah Mada No. 88', city: 'Jakarta',
+              tax_id: '01.678.901.2-095.000', is_active: true, payment_terms: 'NET_30',
             },
             status: 'IN_REVIEW' as const,
-          },
-          {
-            payload: {
-              supplier_code: 'SUP-004', supplier_name: 'PT Starbucks Coffee Indonesia', supplier_type: 'MANUFACTURER',
-              contact_person: 'Linda Tan', email: 'linda@starbucks.co.id', phone: '+62218901234',
-              address: 'Jl. Prof. Dr. Satrio Kav. 6, Jakarta', city: 'Jakarta',
-              tax_id: '04.567.890.1-234.000', is_active: true, payment_terms: 'NET_30',
-            },
-            status: 'ACTIVE' as const,
-          },
-          {
-            payload: {
-              supplier_code: 'SUP-005', supplier_name: 'PT Unilever Indonesia', supplier_type: 'WHOLESALER',
-              contact_person: 'Dewi Sartika', email: 'dewi@unilever.co.id', phone: '+62219012345',
-              address: 'Jl. Gatot Subroto Kav. 35, Jakarta', city: 'Jakarta',
-              tax_id: '05.678.901.2-345.000', is_active: true, payment_terms: 'NET_90',
-            },
-            status: 'DRAFT' as const,
           },
         ];
 
@@ -361,41 +361,41 @@ export async function POST(request: NextRequest) {
             payload: {
               pricing_code: 'PRC-001', article_code: 'ART-001', price_type: 'REGULAR',
               price: 1899000, currency: 'IDR', effective_date: '2024-01-01',
-              expiry_date: '2024-12-31', store_type: '', region: '', is_active: true,
+              expiry_date: '2024-12-31', store_type: 'HYPERMARKET', region: 'JABODETABEK', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              pricing_code: 'PRC-002', article_code: 'ART-002', price_type: 'REGULAR',
-              price: 65000, currency: 'IDR', effective_date: '2024-01-01',
-              expiry_date: '2024-12-31', store_type: '', region: '', is_active: true,
+              pricing_code: 'PRC-002', article_code: 'ART-001', price_type: 'COST',
+              price: 1200000, currency: 'IDR', effective_date: '2024-01-01',
+              expiry_date: '2024-12-31', store_type: 'HYPERMARKET', region: 'JABODETABEK', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              pricing_code: 'PRC-003', article_code: 'ART-001', price_type: 'PROMOTIONAL',
-              price: 1499000, currency: 'IDR', effective_date: '2024-06-01',
-              expiry_date: '2024-08-31', store_type: 'SPECIALTY', region: 'JABODETABEK', is_active: true,
+              pricing_code: 'PRC-003', article_code: 'ART-002', price_type: 'REGULAR',
+              price: 3299000, currency: 'IDR', effective_date: '2024-02-01',
+              expiry_date: '2025-01-31', store_type: 'HYPERMARKET', region: 'JABODETABEK', is_active: true,
+            },
+            status: 'ACTIVE' as const,
+          },
+          {
+            payload: {
+              pricing_code: 'PRC-004', article_code: 'ART-010', price_type: 'REGULAR',
+              price: 1299000, currency: 'IDR', effective_date: '2024-01-15',
+              expiry_date: '2024-12-31', store_type: 'SPECIALTY', region: 'JABODETABEK', is_active: true,
+            },
+            status: 'ACTIVE' as const,
+          },
+          {
+            payload: {
+              pricing_code: 'PRC-005', article_code: 'ART-012', price_type: 'PROMOTIONAL',
+              price: 1399000, currency: 'IDR', effective_date: '2024-07-01',
+              expiry_date: '2024-07-31', store_type: 'SUPERMARKET', region: 'WEST_JAVA', is_active: true,
             },
             status: 'IN_REVIEW' as const,
-          },
-          {
-            payload: {
-              pricing_code: 'PRC-004', article_code: 'ART-003', price_type: 'WHOLESALE',
-              price: 420000, currency: 'IDR', effective_date: '2024-01-01',
-              expiry_date: '2024-12-31', store_type: 'HYPERMARKET', region: '', is_active: true,
-            },
-            status: 'ACTIVE' as const,
-          },
-          {
-            payload: {
-              pricing_code: 'PRC-005', article_code: 'ART-004', price_type: 'COST',
-              price: 650000, currency: 'IDR', effective_date: '2024-01-01',
-              expiry_date: '2024-12-31', store_type: '', region: '', is_active: true,
-            },
-            status: 'DRAFT' as const,
           },
         ];
 
@@ -453,21 +453,21 @@ export async function POST(request: NextRequest) {
         const promoData = [
           {
             payload: {
-              promo_code: 'PROMO-001', promo_name: 'Summer Sale 2024', promo_type: 'DISCOUNT',
+              promo_code: 'PROMO-001', promo_name: 'mapclub Summer Sale 2024', promo_type: 'DISCOUNT',
               discount_type: 'PERCENTAGE', discount_value: 25,
-              start_date: '2024-06-01', end_date: '2024-08-31',
-              applicable_categories: 'CLOTHING,FOOTWEAR', min_purchase: 500000,
-              max_discount: 500000, store_type: '', is_active: true,
+              start_date: '2024-06-01', end_date: '2024-07-31',
+              applicable_categories: 'APPAREL,FOOTWEAR', min_purchase: 500000,
+              max_discount: 500000, store_type: 'HYPERMARKET', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              promo_code: 'PROMO-002', promo_name: 'Buy 1 Get 1 Coffee', promo_type: 'BOGO',
-              discount_type: 'PERCENTAGE', discount_value: 100,
-              start_date: '2024-03-01', end_date: '2024-12-31',
-              applicable_categories: 'FOOD', min_purchase: 0,
-              max_discount: 65000, store_type: 'SPECIALTY', is_active: true,
+              promo_code: 'PROMO-002', promo_name: 'Nike Running Week', promo_type: 'DISCOUNT',
+              discount_type: 'PERCENTAGE', discount_value: 15,
+              start_date: '2024-05-01', end_date: '2024-05-07',
+              applicable_categories: 'RUNNING_SHOES', min_purchase: 1000000,
+              max_discount: 300000, store_type: 'SPECIALTY', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
@@ -475,19 +475,19 @@ export async function POST(request: NextRequest) {
             payload: {
               promo_code: 'PROMO-003', promo_name: 'Back to School Bundle', promo_type: 'BUNDLE',
               discount_type: 'PERCENTAGE', discount_value: 15,
-              start_date: '2024-07-01', end_date: '2024-09-30',
-              applicable_categories: 'STATIONERY,ELECTRONICS', min_purchase: 200000,
-              max_discount: 300000, store_type: '', is_active: true,
+              start_date: '2024-07-01', end_date: '2024-07-31',
+              applicable_categories: 'FOOTWEAR,ACCESSORIES', min_purchase: 750000,
+              max_discount: 200000, store_type: 'SUPERMARKET', is_active: true,
             },
             status: 'IN_REVIEW' as const,
           },
           {
             payload: {
-              promo_code: 'PROMO-004', promo_name: 'Flash Sale Electronics', promo_type: 'FLASH_SALE',
-              discount_type: 'PERCENTAGE', discount_value: 40,
-              start_date: '2024-04-15', end_date: '2024-04-16',
-              applicable_categories: 'ELECTRONICS', min_purchase: 1000000,
-              max_discount: 2000000, store_type: 'HYPERMARKET', is_active: true,
+              promo_code: 'PROMO-004', promo_name: 'Jordan Brand Exclusive', promo_type: 'DISCOUNT',
+              discount_type: 'FIXED', discount_value: 200000,
+              start_date: '2024-09-01', end_date: '2024-09-30',
+              applicable_categories: 'BASKETBALL_SHOES', min_purchase: 2000000,
+              max_discount: 200000, store_type: 'SPECIALTY', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
@@ -496,8 +496,8 @@ export async function POST(request: NextRequest) {
               promo_code: 'PROMO-005', promo_name: 'Year End Clearance', promo_type: 'DISCOUNT',
               discount_type: 'PERCENTAGE', discount_value: 30,
               start_date: '2024-12-01', end_date: '2024-12-31',
-              applicable_categories: 'CLOTHING,HOUSEHOLD', min_purchase: 0,
-              max_discount: 1000000, store_type: '', is_active: true,
+              applicable_categories: 'APPAREL,FOOTWEAR,ACCESSORIES', min_purchase: 0,
+              max_discount: 1000000, store_type: 'HYPERMARKET', is_active: true,
             },
             status: 'DRAFT' as const,
           },
@@ -554,46 +554,45 @@ export async function POST(request: NextRequest) {
     if ((counts['ARTICLE_MASTER'] ?? 0) === 0) {
       const articleModule = getModule('ARTICLE_MASTER');
       if (articleModule) {
-        // Indonesian retail catalog with cascading category/sub_category pairs
-        // and MULTISELECT tags stored as comma-separated valueCodes.
+        // mapclub.com product catalog with cascading category/sub_category pairs
         const articleData = [
           {
             payload: {
-              article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'SEPATU',
-              sub_category: 'SEPATU_RUNNING', brand: 'Nike', uom: 'PCS', purchase_price: 1200000,
-              selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — sepatu lari ringan dengan respons cushioning terbaik', is_active: true,
+              article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'FOOTWEAR',
+              sub_category: 'RUNNING_SHOES', brand: 'Nike', uom: 'PCS', purchase_price: 1200000,
+              selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — lightweight running shoe with responsive ZoomX cushioning', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU',
-              sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000,
-              selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true,
+              article_code: 'ART-002', article_name: 'Adidas Ultraboost Light', category: 'FOOTWEAR',
+              sub_category: 'RUNNING_SHOES', brand: 'Adidas', uom: 'PCS', purchase_price: 2200000,
+              selling_price: 3299000, tags: 'NEW_ARRIVAL,PREMIUM', description: 'Adidas Ultraboost Light with the lightest BOOST midsole ever created', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU',
-              sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000,
-              selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true,
+              article_code: 'ART-003', article_name: 'Nike Air Jordan 1 Retro High OG', category: 'FOOTWEAR',
+              sub_category: 'BASKETBALL_SHOES', brand: 'Jordan', uom: 'PCS', purchase_price: 2500000,
+              selling_price: 3899000, tags: 'EXCLUSIVE,PREMIUM', description: 'Air Jordan 1 Retro High OG — the icon that started it all', is_active: true,
             },
             status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS',
-              sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000,
-              selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true,
+              article_code: 'ART-004', article_name: 'Converse Chuck 70 High', category: 'FOOTWEAR',
+              sub_category: 'CASUAL_SNEAKERS', brand: 'Converse', uom: 'PCS', purchase_price: 850000,
+              selling_price: 1299000, tags: 'BEST_SELLER', description: 'Converse Chuck 70 High-top classic with premium canvas', is_active: true,
             },
-            status: 'DRAFT' as const,
+            status: 'ACTIVE' as const,
           },
           {
             payload: {
-              article_code: 'ART-005', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS',
-              sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000,
-              selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true,
+              article_code: 'ART-005', article_name: 'Nike Dri-FIT Miler Tee', category: 'APPAREL',
+              sub_category: 'T_SHIRTS', brand: 'Nike', uom: 'PCS', purchase_price: 280000,
+              selling_price: 449000, tags: 'BEST_SELLER', description: 'Nike Dri-FIT Miler running tee with moisture-wicking fabric', is_active: true,
             },
             status: 'IN_REVIEW' as const,
           },
@@ -651,37 +650,37 @@ export async function POST(request: NextRequest) {
         const storeData = [
           {
             payload: {
-              store_code: 'STR-001', store_name: 'MAP Grand Indonesia', region: 'JABODETABEK',
+              store_code: 'STR-001', store_name: 'mapclub Grand Indonesia', region: 'JABODETABEK',
               city: 'Jakarta', address: 'Grand Indonesia Mall Lt.1, Jl. MH Thamrin No.1',
               phone: '+62212555789', store_type: 'HYPERMARKET', is_active: true,
             },
           },
           {
             payload: {
-              store_code: 'STR-002', store_name: 'MAP Pondok Indah Mall', region: 'JABODETABEK',
-              city: 'Jakarta', address: 'Pondok Indah Mall, Jl. Metro Pondok Indah',
+              store_code: 'STR-002', store_name: 'mapclub Pondok Indah Mall', region: 'JABODETABEK',
+              city: 'Jakarta', address: 'Pondok Indah Mall Lt.2, Jl. Metro Pondok Indah',
               phone: '+62212789012', store_type: 'SUPERMARKET', is_active: true,
             },
           },
           {
             payload: {
-              store_code: 'STR-003', store_name: 'MAP Surabaya Tunjungan', region: 'EAST_JAVA',
-              city: 'Surabaya', address: 'Tunjungan Plaza, Jl. Tunjungan No. 65-71',
+              store_code: 'STR-003', store_name: 'mapclub Tunjungan Plaza Surabaya', region: 'EAST_JAVA',
+              city: 'Surabaya', address: 'Tunjungan Plaza Lt.3, Jl. Tunjungan No. 65-71',
               phone: '+62315678901', store_type: 'HYPERMARKET', is_active: true,
             },
           },
           {
             payload: {
-              store_code: 'STR-004', store_name: 'Starbucks Pacific Place', region: 'JABODETABEK',
-              city: 'Jakarta', address: 'Pacific Place Mall Lt.G, Jl. SCBD',
-              phone: '+62212555432', store_type: 'SPECIALTY', is_active: true,
+              store_code: 'STR-004', store_name: 'Nike Plaza Indonesia', region: 'JABODETABEK',
+              city: 'Jakarta', address: 'Plaza Indonesia Lt.2, Jl. MH Thamrin Kav. 28-30',
+              phone: '+62212903456', store_type: 'SPECIALTY', is_active: true,
             },
           },
           {
             payload: {
-              store_code: 'STR-005', store_name: 'Sports Arena Senayan', region: 'JABODETABEK',
-              city: 'Jakarta', address: 'Senayan City Mall Lt.3, Jl. Asia Afrika',
-              phone: '+62215789012', store_type: 'SPECIALTY', is_active: true,
+              store_code: 'STR-005', store_name: 'mapclub Bandung Indah Plaza', region: 'WEST_JAVA',
+              city: 'Bandung', address: 'Bandung Indah Plaza Lt.1, Jl. Merdeka No. 60',
+              phone: '+62224567890', store_type: 'SUPERMARKET', is_active: true,
             },
           },
         ];

@@ -5,10 +5,10 @@ import { isSuperAdmin } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 
 // POST /api/admin/migrate-cascading
-// Idempotent one-time migration that applies Task 21 deltas to an existing DB:
-//   1. Replaces CATEGORY lookup values with Indonesian retail taxonomy
-//      (Sepatu/Tas/Pakaian/Aksesoris/Makanan/Elektronik)
-//   2. Upserts SUB_CATEGORY lookup with 21 cascading child values (parentValueCode)
+// Idempotent one-time migration that applies cascading dropdown deltas to an existing DB:
+//   1. Replaces CATEGORY lookup values with mapclub.com taxonomy
+//      (Footwear/Apparel/Accessories/Sports Equipment/Outdoor)
+//   2. Upserts SUB_CATEGORY lookup with 28 cascading child values (parentValueCode)
 //   3. Upserts ARTICLE_TAGS lookup with 7 values (for MULTISELECT)
 //   4. Ensures `tags` MULTISELECT field exists on Article Master module
 //   5. Links `sub_category` field → SUB_CATEGORY lookup + sets cascadesFromFieldCode='category'
@@ -29,19 +29,18 @@ export async function POST(request: NextRequest) {
       steps: [] as string[],
     };
 
-    // ── Step 1: Replace CATEGORY lookup values with Indonesian taxonomy ──
+    // ── Step 1: Replace CATEGORY lookup values with mapclub.com taxonomy ──
     const categoryLookup = await db.lookupMaster.findUnique({
       where: { lookupCode: 'CATEGORY' },
       include: { values: true },
     });
     if (categoryLookup) {
       const newCategoryValues = [
-        { valueCode: 'SEPATU', displayValue: 'Sepatu', sortOrder: 0 },
-        { valueCode: 'TAS', displayValue: 'Tas', sortOrder: 1 },
-        { valueCode: 'PAKAIAN', displayValue: 'Pakaian', sortOrder: 2 },
-        { valueCode: 'AKSESORIS', displayValue: 'Aksesoris', sortOrder: 3 },
-        { valueCode: 'MAKANAN', displayValue: 'Makanan & Minuman', sortOrder: 4 },
-        { valueCode: 'ELEKTRONIK', displayValue: 'Elektronik', sortOrder: 5 },
+        { valueCode: 'FOOTWEAR', displayValue: 'Footwear', sortOrder: 0 },
+        { valueCode: 'APPAREL', displayValue: 'Apparel', sortOrder: 1 },
+        { valueCode: 'ACCESSORIES', displayValue: 'Accessories', sortOrder: 2 },
+        { valueCode: 'SPORTS_EQUIPMENT', displayValue: 'Sports Equipment', sortOrder: 3 },
+        { valueCode: 'OUTDOOR', displayValue: 'Outdoor', sortOrder: 4 },
       ];
       for (const v of newCategoryValues) {
         await db.lookupValue.upsert({
@@ -50,18 +49,18 @@ export async function POST(request: NextRequest) {
           update: { displayValue: v.displayValue, sortOrder: v.sortOrder, isActive: true },
         });
       }
-      // Soft-delete old English values that aren't in the new list
+      // Soft-delete old values that aren't in the new list
       const newCodes = newCategoryValues.map((v) => v.valueCode);
       const oldDeactivated = await db.lookupValue.updateMany({
         where: { lookupId: categoryLookup.id, valueCode: { notIn: newCodes } },
         data: { isActive: false },
       });
       summary.steps.push(
-        `CATEGORY: upserted ${newCategoryValues.length} Indonesian values, soft-deleted ${oldDeactivated.count} old English values`
+        `CATEGORY: upserted ${newCategoryValues.length} mapclub.com values, soft-deleted ${oldDeactivated.count} old values`
       );
     }
 
-    // ── Step 2: Upsert SUB_CATEGORY lookup with 21 cascading child values ──
+    // ── Step 2: Upsert SUB_CATEGORY lookup with 28 cascading child values ──
     let subCategoryLookup = await db.lookupMaster.findUnique({
       where: { lookupCode: 'SUB_CATEGORY' },
     });
@@ -70,7 +69,7 @@ export async function POST(request: NextRequest) {
         data: {
           lookupCode: 'SUB_CATEGORY',
           lookupName: 'Article Sub Category',
-          description: 'Sub-kategori artikel dengan relasi ke Category (cascading)',
+          description: 'Sub-category with cascading relation to Category (mapclub.com taxonomy)',
         },
       });
       summary.steps.push('SUB_CATEGORY: created new lookup');
@@ -79,27 +78,39 @@ export async function POST(request: NextRequest) {
     }
 
     const subCategoryValues = [
-      { valueCode: 'SEPATU_RUNNING', displayValue: 'Sepatu Running', parentValueCode: 'SEPATU', sortOrder: 0 },
-      { valueCode: 'SEPATU_SEKOLAH', displayValue: 'Sepatu Sekolah', parentValueCode: 'SEPATU', sortOrder: 1 },
-      { valueCode: 'SEPATU_SNEAKERS', displayValue: 'Sepatu Sneakers', parentValueCode: 'SEPATU', sortOrder: 2 },
-      { valueCode: 'SEPATU_SANDAL', displayValue: 'Sepatu Sandal', parentValueCode: 'SEPATU', sortOrder: 3 },
-      { valueCode: 'SEPATU_BOOT', displayValue: 'Sepatu Boot', parentValueCode: 'SEPATU', sortOrder: 4 },
-      { valueCode: 'TAS_SEKOLAH', displayValue: 'Tas Sekolah', parentValueCode: 'TAS', sortOrder: 5 },
-      { valueCode: 'TAS_KERJA', displayValue: 'Tas Kerja', parentValueCode: 'TAS', sortOrder: 6 },
-      { valueCode: 'TAS_RANSEL', displayValue: 'Tas Ransel', parentValueCode: 'TAS', sortOrder: 7 },
-      { valueCode: 'TAS_TANGAN', displayValue: 'Tas Tangan', parentValueCode: 'TAS', sortOrder: 8 },
-      { valueCode: 'PAKAIAN_PRIA', displayValue: 'Pakaian Pria', parentValueCode: 'PAKAIAN', sortOrder: 9 },
-      { valueCode: 'PAKAIAN_WANITA', displayValue: 'Pakaian Wanita', parentValueCode: 'PAKAIAN', sortOrder: 10 },
-      { valueCode: 'PAKAIAN_ANAK', displayValue: 'Pakaian Anak', parentValueCode: 'PAKAIAN', sortOrder: 11 },
-      { valueCode: 'AKS_JAM_TANGAN', displayValue: 'Jam Tangan', parentValueCode: 'AKSESORIS', sortOrder: 12 },
-      { valueCode: 'AKS_KACAMATA', displayValue: 'Kacamata', parentValueCode: 'AKSESORIS', sortOrder: 13 },
-      { valueCode: 'AKS_TOPI', displayValue: 'Topi', parentValueCode: 'AKSESORIS', sortOrder: 14 },
-      { valueCode: 'AKS_SABUK', displayValue: 'Sabuk', parentValueCode: 'AKSESORIS', sortOrder: 15 },
-      { valueCode: 'MAKANAN_RINGAN', displayValue: 'Makanan Ringan', parentValueCode: 'MAKANAN', sortOrder: 16 },
-      { valueCode: 'MINUMAN', displayValue: 'Minuman', parentValueCode: 'MAKANAN', sortOrder: 17 },
-      { valueCode: 'ELEK_HP', displayValue: 'Handphone', parentValueCode: 'ELEKTRONIK', sortOrder: 18 },
-      { valueCode: 'ELEK_LAPTOP', displayValue: 'Laptop', parentValueCode: 'ELEKTRONIK', sortOrder: 19 },
-      { valueCode: 'ELEK_AKSESORIS', displayValue: 'Aksesoris Elektronik', parentValueCode: 'ELEKTRONIK', sortOrder: 20 },
+      // FOOTWEAR children (6)
+      { valueCode: 'RUNNING_SHOES', displayValue: 'Running Shoes', parentValueCode: 'FOOTWEAR', sortOrder: 0 },
+      { valueCode: 'BASKETBALL_SHOES', displayValue: 'Basketball Shoes', parentValueCode: 'FOOTWEAR', sortOrder: 1 },
+      { valueCode: 'CASUAL_SNEAKERS', displayValue: 'Casual Sneakers', parentValueCode: 'FOOTWEAR', sortOrder: 2 },
+      { valueCode: 'SANDALS', displayValue: 'Sandals', parentValueCode: 'FOOTWEAR', sortOrder: 3 },
+      { valueCode: 'FORMAL_SHOES', displayValue: 'Formal Shoes', parentValueCode: 'FOOTWEAR', sortOrder: 4 },
+      { valueCode: 'TRAINING_SHOES', displayValue: 'Training Shoes', parentValueCode: 'FOOTWEAR', sortOrder: 5 },
+      // APPAREL children (6)
+      { valueCode: 'T_SHIRTS', displayValue: 'T-Shirts', parentValueCode: 'APPAREL', sortOrder: 6 },
+      { valueCode: 'HOODIES', displayValue: 'Hoodies', parentValueCode: 'APPAREL', sortOrder: 7 },
+      { valueCode: 'JACKETS', displayValue: 'Jackets', parentValueCode: 'APPAREL', sortOrder: 8 },
+      { valueCode: 'PANTS', displayValue: 'Pants', parentValueCode: 'APPAREL', sortOrder: 9 },
+      { valueCode: 'SHORTS', displayValue: 'Shorts', parentValueCode: 'APPAREL', sortOrder: 10 },
+      { valueCode: 'COMPRESSION_WEAR', displayValue: 'Compression Wear', parentValueCode: 'APPAREL', sortOrder: 11 },
+      // ACCESSORIES children (6)
+      { valueCode: 'BAGS', displayValue: 'Bags', parentValueCode: 'ACCESSORIES', sortOrder: 12 },
+      { valueCode: 'HATS', displayValue: 'Hats', parentValueCode: 'ACCESSORIES', sortOrder: 13 },
+      { valueCode: 'SOCKS', displayValue: 'Socks', parentValueCode: 'ACCESSORIES', sortOrder: 14 },
+      { valueCode: 'WATCHES', displayValue: 'Watches', parentValueCode: 'ACCESSORIES', sortOrder: 15 },
+      { valueCode: 'SUNGLASSES', displayValue: 'Sunglasses', parentValueCode: 'ACCESSORIES', sortOrder: 16 },
+      { valueCode: 'BELTS', displayValue: 'Belts', parentValueCode: 'ACCESSORIES', sortOrder: 17 },
+      // SPORTS_EQUIPMENT children (6)
+      { valueCode: 'BASKETBALL', displayValue: 'Basketball', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 18 },
+      { valueCode: 'FOOTBALL', displayValue: 'Football', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 19 },
+      { valueCode: 'TENNIS', displayValue: 'Tennis', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 20 },
+      { valueCode: 'SWIMMING', displayValue: 'Swimming', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 21 },
+      { valueCode: 'YOGA', displayValue: 'Yoga', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 22 },
+      { valueCode: 'GYM_EQUIPMENT', displayValue: 'Gym Equipment', parentValueCode: 'SPORTS_EQUIPMENT', sortOrder: 23 },
+      // OUTDOOR children (4)
+      { valueCode: 'CAMPING', displayValue: 'Camping', parentValueCode: 'OUTDOOR', sortOrder: 24 },
+      { valueCode: 'HIKING', displayValue: 'Hiking', parentValueCode: 'OUTDOOR', sortOrder: 25 },
+      { valueCode: 'CYCLING', displayValue: 'Cycling', parentValueCode: 'OUTDOOR', sortOrder: 26 },
+      { valueCode: 'RUNNING_GEAR', displayValue: 'Running Gear', parentValueCode: 'OUTDOOR', sortOrder: 27 },
     ];
     for (const v of subCategoryValues) {
       await db.lookupValue.upsert({
@@ -247,7 +258,7 @@ export async function POST(request: NextRequest) {
       entityType: 'LookupMaster',
       entityId: subCategoryLookup?.id || '',
       moduleName: 'Migration',
-      description: 'Task 21 cascading migration: Indonesian categories + SUB_CATEGORY + ARTICLE_TAGS + field linkage',
+      description: 'Cascading migration: mapclub.com categories + SUB_CATEGORY + ARTICLE_TAGS + field linkage',
       newValues: summary,
       companyId: tokenPayload.companyId,
     });

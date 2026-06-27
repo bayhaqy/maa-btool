@@ -1,6 +1,117 @@
 # MAA BTOOL Enterprise MDM - Worklog
 
 ---
+Task ID: 6
+Agent: Sample Data Enhancement Agent
+Task: Enhanced Map Active Adiperkasa sample data with mapclub.com data
+
+Work Log:
+- Read existing worklog.md, seed-data route, reseed-map-data route, and Prisma schema
+- Rewrote `/src/app/api/admin/reseed-map-data/route.ts` with enhanced data:
+  - Updated CATEGORY lookup from Indonesian (SEPATU/TAS/PAKAIAN/AKSESORIS/KOSMETIK/MAKANAN/ELEKTRONIK/OLAHRAGA) to English mapclub.com taxonomy (FOOTWEAR/APPAREL/ACCESSORIES/SPORTS_EQUIPMENT/OUTDOOR)
+  - Updated SUB_CATEGORY lookup with 28 cascading child values matching task spec:
+    - Footwear → Running Shoes, Basketball Shoes, Casual Sneakers, Sandals, Formal Shoes, Training Shoes
+    - Apparel → T-Shirts, Hoodies, Jackets, Pants, Shorts, Compression Wear
+    - Accessories → Bags, Hats, Socks, Watches, Sunglasses, Belts
+    - Sports Equipment → Basketball, Football, Tennis, Swimming, Yoga, Gym Equipment
+    - Outdoor → Camping, Hiking, Cycling, Running Gear
+  - Updated BRAND lookup with 16 brands: Nike, Adidas, Puma, Under Armour, New Balance, Reebok, Asics, Converse, Vans, Fila, Skechers, Jordan, The North Face, Columbia, Timberland, Casio
+  - Created 65 Article Master records (38 ACTIVE + 8 DRAFT + 6 IN_REVIEW + 3 REVISION_PENDING) with realistic SKUs, prices in IDR, categories, and brands
+  - Created 20 Store Master records across Indonesia (Jakarta, Surabaya, Bandung, Bali, Makassar, Semarang, Tangerang, Denpasar, Kuta) with proper status distribution
+  - Created 12 Supplier Master records (9 ACTIVE + 1 DRAFT + 2 IN_REVIEW)
+  - Created 20 Pricing Master records with varied price types (REGULAR, COST, WHOLESALE, PROMOTIONAL)
+  - Created 12 Promotion Master records (9 ACTIVE + 1 DRAFT + 1 IN_REVIEW) with realistic MAP Active campaigns
+  - Added more Unsplash photo URLs for new categories (APPAREL, SPORTS, OUTDOOR)
+  - Updated Article Hierarchy with 3-level tree: Men/Women/Kids/Unisex → Footwear/Apparel/Accessories/Sports Equipment/Outdoor → sub-categories (89 total nodes)
+  - Proper parentValueCode relationships for cascading dropdown functionality
+  - Stale lookup values properly deactivated
+- Updated `/src/app/api/seed-data/route.ts` with matching mapclub.com data for initial seed
+- Updated `/src/app/api/seed/route.ts` CATEGORY and SUB_CATEGORY lookups to mapclub.com taxonomy
+- Updated `/src/app/api/admin/migrate-cascading/route.ts` with mapclub.com taxonomy
+- Ran `cp prisma/schema.sqlite.prisma prisma/schema.prisma && npx prisma generate` successfully
+- Ran `bun run lint` — no errors
+
+Stage Summary:
+- 65 articles across 5 categories and 28 sub-categories with realistic mapclub.com product data
+- 20 stores across 9 Indonesian cities with status distribution (ACTIVE/DRAFT/IN_REVIEW)
+- 12 suppliers for major sportswear brands (Nike, Adidas, Puma, Under Armour, etc.)
+- 20 pricing records and 12 promotion records
+- 89 hierarchy nodes in 3-level MAP Article Hierarchy
+- 28 SUB_CATEGORY values with proper parentValueCode cascading to 5 CATEGORY values
+- 16 BRAND lookup values
+- All data uses English mapclub.com taxonomy as specified in the task
+---
+
+---
+Task ID: 8-a
+Agent: Frontend Styling Expert
+Task: Improve UI Styling and Add Missing Features
+
+Work Log:
+- **DashboardPage.tsx** — Complete styling overhaul:
+  - Added `useAnimatedCounter` hook with ease-out cubic easing for stat card numbers (animated counters)
+  - Added gradient background bars on left side of stat cards (red, slate, amber, emerald)
+  - Stat card icons now use gradient backgrounds instead of flat solid colors
+  - Sparkline component upgraded with area fill gradient under the curve
+  - Trend indicators now use emerald (up) / red (down) instead of all red
+  - Added framer-motion staggered entry animations for stat cards, charts, module cards, activity timeline, and quick actions
+  - Bar chart now uses gradient fill (`url(#barGradient)`) instead of flat red
+  - Pie chart has animationDuration for entrance
+  - Tooltip styling improved with larger border-radius and deeper shadow
+  - Recent Activity timeline now uses Avatar component with initials (SA/DM/RV) and action icon overlays instead of plain dots
+  - AnimatePresence for activity items
+  - Module cards have hover:shadow-md, hover:border-red-200, hover:scale-105 icon animation, hover:translate-x-0.5 arrow
+  - Quick Actions section completely redesigned as 6-column grid of prominent action cards with gradient icon backgrounds, descriptions, and notification badges
+  - All animations use framer-motion for smooth transitions
+
+- **AiAssistantPage.tsx** — Chat UI improvements:
+  - Added `useTheme` import for dark mode awareness
+  - Added `aiProvider` state that fetches current provider from `/api/ai/config` on mount
+  - AI provider badge shown in header (e.g., "ZAI", "Gemini", "OpenAI") with Sparkles icon
+  - Typing indicator upgraded from flat dots to "AI is thinking..." text with animated dots
+  - Streaming cursor changed from single blinking bar to 3 animated rounded bars (bounce effect)
+  - User avatar changed from `bg-muted` to `bg-gradient-to-br from-slate-600 to-slate-700` with white icon
+  - User chat bubble changed from `bg-teal-600` to `bg-slate-700` (no teal/blue)
+  - AI bubble has subtle border (`border-red-100 dark:border-red-800/40`) and shadow
+  - Added quick prompt suggestions (pill-shaped buttons) above input when chat is active and input is empty: "Summarize records", "Best practices", "Help with workflow", "Data quality"
+
+- **DataRecordsPage.tsx** — Record management improvements:
+  - Added `STATUS_BADGE_CONFIG` with per-status dot colors: DRAFT=gray, IN_REVIEW=amber, ACTIVE=emerald, REVISION_PENDING=sky, REJECTED=red, ARCHIVED=slate
+  - Status badges now show colored dot + label text with proper dark mode variants
+  - Added record count summary bar at top with total count and clickable status count pills
+  - Clicking a status pill in the summary bar filters to that status (with ring highlight)
+  - Added `Column Visibility Toggle` popover with checkboxes for each field (default: first 5 shown)
+  - Column count shown in button ("Columns (5/10)")
+  - Added active filter tags section with AnimatePresence: search, company, status filters shown as removable pills
+  - "Clear all" link to reset all filters
+  - Added framer-motion for filter tag animations
+  - Added Eye/EyeOff icons for column toggle button state
+  - Added Filter and SlidersHorizontal icon imports
+
+- **LoginPage.tsx** — Login experience improvements:
+  - Added `FloatingParticles` component with 3 animated gradient orbs using framer-motion (scale, position, opacity animation)
+  - Left panel features now have hover:scale-[1.02] and group-hover:scale-110 on icons
+  - All sections use framer-motion for staggered entrance (brand, headline, features, footer)
+  - Right panel decorative accents now animate (scale + opacity pulse)
+  - Demo accounts now show role-specific icons (ShieldCheck, BarChart3, Database, Eye, BookOpen, Cpu, Sparkles)
+  - Each demo account has a colored icon background matching its tone
+  - Hover effect on demo rows with tone-specific `hoverBg` class
+  - Icon scales up on hover
+  - Error message uses AnimatePresence for smooth show/hide
+  - Added dark mode support throughout (dark: variants on all elements)
+  - Added `BrandMark` component (gradient "M" badge) for potential use
+  - Better responsive spacing and mobile-first approach
+
+Stage Summary:
+- Dashboard: Animated counters, gradient stat cards, improved charts, avatar timeline, prominent quick actions
+- AI Assistant: Provider badge, typing indicators, better bubble alignment, quick prompt suggestions
+- Data Records: Colored status badges with dots, status summary bar, column visibility toggle, filter tags
+- Login: Animated floating particles, role-based demo icons, staggered animations, dark mode support
+- All files pass ESLint with 0 errors
+- TypeScript check shows 0 errors in changed files (pre-existing errors in other files unchanged)
+- Prisma generate successful
+
+---
 Task ID: 5
 Agent: Feature Enhancement Agent
 Task: AI Settings Enhancement + Multi-provider Chat + Permission Controls + Module Update
