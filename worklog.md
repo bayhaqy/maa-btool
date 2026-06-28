@@ -989,3 +989,53 @@ Converted 30 String fields that hold JSON data to the native Prisma `Json` type 
 ## Files Modified:
 - `prisma/schema.prisma` — 30 field type changes String→Json
 - `prisma/schema.sqlite.prisma` — no type changes (SQLite stores Json as text)
+
+---
+Task ID: SEED-FIX
+Agent: Sub Agent
+Task: Fix seed route for updated multi-tenant Prisma schema
+
+## Changes Made to `/src/app/api/seed/route.ts`
+
+### 1. TenantCompany — Added required provisioning fields
+- Added `onboardingStatus: 'ACTIVE'` and `provisionedAt: new Date()` to all 6 company creates (MAPI, MAPA, MBA, MAPD, MAPP, MAPL)
+
+### 2. SysRole — Added companyId, updated role names/types, added Company Admin
+- All `db.sysRole.create()` calls now include `companyId: companyMAPI.id`
+- Super Admin: `isGlobal: true`, `isSystem: true`, `roleType: 'SYSTEM_ADMIN'`, `scope: 'GLOBAL'`
+- 'Manager' → 'Administrator' (`roleType: 'ADMINISTRATOR'`, `scope: 'GLOBAL'`)
+- 'Data Entry' → 'Editor' (`roleType: 'EDITOR'`, `scope: 'MODULE'`)
+- 'Viewer' kept, `roleType: 'VIEWER'` (was 'DATA')
+- 'Doc Writer' → 'Data Steward' (`roleType: 'DATA_STEWARD'`)
+- 'API Manager' kept (`roleType: 'API'`)
+- 'SFTP Manager' kept (`roleType: 'SFTP'`)
+- 'AI User' → 'Approver' (`roleType: 'APPROVER'`)
+- New: 'Company Admin' (`roleType: 'COMPANY_ADMIN'`, `scope: 'GLOBAL'`)
+
+### 3. UserRole — Added companyId to all nested creates
+- All `userRoles: { create: { roleId, companyId } }` now include `companyId` matching the user's company
+
+### 4. RolePermission — Updated to new schema with companyId and granular permissions
+- Replaced `canWrite` with `canCreate` + `canEdit`
+- Added `canExport`, `canImport`, `canBulkUpdate` fields
+- Added `companyId: companyMAPI.id` to all role permission entries
+- Added permissions for new roles: Approver, Company Admin
+
+### 5. Updated variable names throughout
+- `roleManager` → `roleAdministrator`, `roleDataEntry` → `roleEditor`
+- `roleDocWriter` → `roleDataSteward`, `roleAiUser` → `roleApprover`
+- `userManagerMAPI` → `userAdminMAPI`, `userDataEntryMAPI` → `userEditorMAPI`
+- `userManagerMAPA` → `userAdminMAPA`, `userDataEntryMBA` → `userEditorMBA`
+- `userDocWriter` → `userDataSteward`
+- User passwords updated to match new role names (e.g., `Administrator@123`, `Editor@123`, `DataSteward@123`, `Approver@123`)
+- superadmin username and password remain unchanged
+
+### 6. Updated documentation seed content
+- "Getting Started" guide roles section updated to Stibo terminology
+- "Approval Workflow Guide" updated (Editor → Administrator terminology)
+- "How to Create Master Data" updated (Administrator instead of Manager)
+
+### Verification
+- No `canWrite` references remain (replaced with `canCreate`/`canEdit`)
+- No old variable names remain (`roleManager`, `roleDataEntry`, `roleDocWriter`, `roleAiUser`, etc.)
+- Super Admin password and username preserved
