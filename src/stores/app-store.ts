@@ -2,32 +2,44 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type PageView =
+  // Home
   | 'dashboard'
-  | 'modules'
-  | 'module-detail'
+  // Data Management
   | 'data-records'
   | 'grid-editor'
   | 'record-detail'
-  | 'workflow'
+  | 'data-stewardship'
+  | 'data-catalog'
+  | 'data-quality'
+  // Schema
+  | 'modules'
+  | 'module-detail'
   | 'hierarchy'
   | 'hierarchy-detail'
+  // Workflow & Governance
+  | 'workflow'
+  | 'business-rules'
+  // Tools
+  | 'bulk-import'
+  | 'bulk-jobs'
+  | 'audit-log'
+  | 'documentation'
+  // AI Hub
+  | 'ai-assistant'
+  | 'ai-prompts'
+  | 'ai-review'
+  | 'ai-settings'
+  // Integrations
+  | 'api-management'
+  // Administration
   | 'admin-users'
   | 'admin-roles'
   | 'admin-companies'
   | 'admin-lookups'
-  | 'bulk-import'
-  | 'bulk-jobs'
-  | 'audit-log'
-  | 'settings'
-  | 'documentation'
-  | 'ai-assistant'
-  | 'ai-prompts'
-  | 'ai-review'
-  | 'api-management'
-  | 'brand-settings'
   | 'system-health'
-  | 'about'
-  | 'ai-settings';
+  | 'brand-settings'
+  | 'settings'
+  | 'about';
 
 export interface AuthUser {
   userId: string;

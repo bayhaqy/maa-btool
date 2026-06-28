@@ -3,80 +3,40 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
+import { STATUS_LABELS } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  Database, FileText, GitBranch, CheckCircle2,
+  Database, FileText, GitBranch, CheckCircle2, AlertTriangle,
   Plus, ArrowRight, Package, DollarSign, Building2, Store,
-  Truck, Tag, Gift,
-  TrendingUp, TrendingDown, Clock, PlusCircle, Pencil, ThumbsUp, XCircle, Trash2,
-  Zap, BarChart3, Upload, Settings, Sparkles,
+  Truck, Tag, Gift, Users, Shield, Clock, Activity,
+  TrendingUp, TrendingDown, Zap, BarChart3, Upload,
+  Sparkles, ChevronRight, Eye, Pencil, ThumbsUp, XCircle,
+  Trash2, RefreshCw, Layers, Target, Timer, FileCheck,
+  Copy, AlertCircle,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  LineChart, Line, AreaChart, Area, CartesianGrid,
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ============================================================================
+// Constants
+// ============================================================================
 
 const moduleIcons: Record<string, React.ElementType> = {
   Package, DollarSign, Building2, Store, Database, Truck, Tag, Gift,
 };
 
-const ACTIVITY_ICONS: Record<string, React.ElementType> = {
-  CREATE: PlusCircle,
-  UPDATE: Pencil,
-  APPROVE: ThumbsUp,
-  REJECT: XCircle,
-  DELETE: Trash2,
-};
-
-const ACTIVITY_COLORS: Record<string, string> = {
-  CREATE: 'text-emerald-600 bg-emerald-50',
-  UPDATE: 'text-slate-600 bg-slate-50',
-  APPROVE: 'text-green-600 bg-green-50',
-  REJECT: 'text-red-600 bg-red-50',
-  DELETE: 'text-red-600 bg-red-50',
-};
-
-// Avatar initials for activity users
-const USER_AVATARS: Record<string, { initials: string; color: string }> = {
-  admin: { initials: 'SA', color: 'bg-red-100 text-red-700' },
-  data_mgr: { initials: 'DM', color: 'bg-emerald-100 text-emerald-700' },
-  reviewer: { initials: 'RV', color: 'bg-amber-100 text-amber-700' },
-};
-
-interface Stats {
-  totalModules: number;
-  totalRecords: number;
-  pendingApprovals: number;
-  activeRecords: number;
-}
-
-interface ModuleStats {
-  id: string;
-  moduleName: string;
-  moduleCode: string;
-  moduleIcon: string;
-  recordCount: number;
-  fieldCount: number;
-}
-
-interface RecentActivity {
-  id: string;
-  type: string;
-  action: string;
-  message: string;
-  user: string;
-  module: string;
-  time: string;
-  timestamp: Date;
-}
-
-// Color palette for pie chart (corporate theme, no blue/indigo)
 const PIE_COLORS: Record<string, string> = {
   DRAFT: '#9ca3af',
   IN_REVIEW: '#f59e0b',
@@ -86,51 +46,92 @@ const PIE_COLORS: Record<string, string> = {
   ARCHIVED: '#64748b',
 };
 
-// Sparkline data generator (mock trend data)
-function generateSparkline(base: number, points = 7): number[] {
-  const data: number[] = [];
-  let current = base * 0.8;
-  for (let i = 0; i < points; i++) {
-    current = current + (Math.random() - 0.4) * base * 0.1;
-    data.push(Math.max(0, Math.round(current)));
-  }
-  return data;
+const ACTIVITY_ICONS: Record<string, React.ElementType> = {
+  CREATE: Plus,
+  UPDATE: Pencil,
+  APPROVE: ThumbsUp,
+  REJECT: XCircle,
+  DELETE: Trash2,
+};
+
+const ACTIVITY_COLORS: Record<string, string> = {
+  CREATE: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30',
+  UPDATE: 'text-slate-600 bg-slate-50 dark:bg-slate-800',
+  APPROVE: 'text-green-600 bg-green-50 dark:bg-green-900/30',
+  REJECT: 'text-red-600 bg-red-50 dark:bg-red-900/30',
+  DELETE: 'text-red-600 bg-red-50 dark:bg-red-900/30',
+};
+
+const PIPELINE_STAGES = [
+  { key: 'DRAFT', label: 'Draft', color: 'bg-gray-400', textColor: 'text-gray-700 dark:text-gray-300', bg: 'bg-gray-100 dark:bg-gray-800' },
+  { key: 'IN_REVIEW', label: 'In Review', color: 'bg-amber-500', textColor: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/30' },
+  { key: 'ACTIVE', label: 'Approved', color: 'bg-emerald-500', textColor: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30' },
+];
+
+// ============================================================================
+// Interfaces
+// ============================================================================
+
+interface DashboardData {
+  stats: {
+    totalModules: number;
+    totalRecords: number;
+    activeRecords: number;
+    draftRecords: number;
+    inReviewRecords: number;
+    pendingApprovals: number;
+    overdueTasks: number;
+    myTasks: number;
+    approvedToday: number;
+    rejectedToday: number;
+  };
+  recordsByModule: Array<{
+    id: string;
+    moduleName: string;
+    moduleCode: string;
+    moduleIcon: string;
+    recordCount: number;
+    fieldCount: number;
+    activeCount: number;
+    draftCount: number;
+    updatedAt: string;
+  }>;
+  statusDistribution: Array<{ status: string; count: number }>;
+  pipelineCounts: Record<string, number>;
+  dataQuality: {
+    overall: number;
+    completeness: number;
+    accuracy: number;
+    consistency: number;
+    timeliness: number;
+    uniqueness: number;
+  };
+  governance: {
+    businessRulesCompliance: number;
+    approvalCompletionRate: number;
+    avgTimeToApprove: number;
+    trend: Array<{ day: string; score: number }>;
+  };
+  recentActivity: Array<{
+    id: string;
+    status: string;
+    moduleName: string;
+    companyCode: string;
+    updatedAt: string;
+    action: string;
+  }>;
+  goldenRecords: {
+    total: number;
+    recentlyUpdated: number;
+    recentlyMerged: number;
+    byDomain: Array<{ domain: string; count: number }>;
+  };
 }
 
-// Mini Sparkline component using SVG with area fill
-function MiniSparkline({ data, color = '#DC2626' }: { data: number[]; color?: string }) {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const w = 64;
-  const h = 28;
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((v - min) / range) * h;
-    return `${x},${y}`;
-  }).join(' ');
+// ============================================================================
+// Helper Hooks & Components
+// ============================================================================
 
-  const areaPath = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((v - min) / range) * h;
-    return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-  }).join(' ') + ` L${w},${h} L0,${h} Z`;
-
-  return (
-    <svg width={w} height={h} className="opacity-70">
-      <defs>
-        <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#grad-${color.replace('#', '')})`} />
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-    </svg>
-  );
-}
-
-// Animated counter hook
 function useAnimatedCounter(target: number, duration = 1200) {
   const [count, setCount] = useState(0);
   const prevTarget = useRef(0);
@@ -140,38 +141,29 @@ function useAnimatedCounter(target: number, duration = 1200) {
     const start = prevTarget.current;
     const diff = target - start;
     if (diff === 0) { setCount(target); return; }
-
     const startTime = performance.now();
     let rafId: number;
-
     const animate = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      // Ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       setCount(Math.round(start + diff * eased));
-      if (progress < 1) {
-        rafId = requestAnimationFrame(animate);
-      } else {
-        prevTarget.current = target;
-      }
+      if (progress < 1) { rafId = requestAnimationFrame(animate); }
+      else { prevTarget.current = target; }
     };
-
     rafId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafId);
   }, [target, duration]);
-
   return count;
 }
 
-// Relative time helper
-function getRelativeTime(date: Date): string {
+function getRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-
   if (diffMins < 1) return 'Just now';
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
@@ -180,21 +172,103 @@ function getRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
+function getScoreColor(score: number): string {
+  if (score >= 80) return '#059669';
+  if (score >= 60) return '#d97706';
+  return '#DC2626';
+}
+
+function getScoreColorClass(score: number): string {
+  if (score >= 80) return 'text-emerald-600';
+  if (score >= 60) return 'text-amber-600';
+  return 'text-red-600';
+}
+
+function getScoreBgClass(score: number): string {
+  if (score >= 80) return 'from-emerald-500 to-green-600';
+  if (score >= 60) return 'from-amber-500 to-orange-500';
+  return 'from-red-500 to-rose-600';
+}
+
+// Circular gauge component
+function QualityGauge({ score, size = 180 }: { score: number; size?: number }) {
+  const strokeWidth = 12;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (score / 100) * circumference;
+  const color = getScoreColor(score);
+  const animScore = useAnimatedCounter(score, 1500);
+
+  return (
+    <div className="relative inline-flex items-center justify-center">
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-muted/20"
+        />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-1000 ease-out"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className={cn('text-4xl font-bold tabular-nums', getScoreColorClass(score))}>
+          {animScore}
+        </span>
+        <span className="text-xs text-muted-foreground mt-0.5">out of 100</span>
+      </div>
+    </div>
+  );
+}
+
+// Quality dimension bar
+function QualityBar({ label, score, icon: Icon }: { label: string; score: number; icon: React.ElementType }) {
+  const color = getScoreColor(score);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2">
+          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="font-medium">{label}</span>
+        </div>
+        <span className={cn('font-semibold tabular-nums', getScoreColorClass(score))}>{score}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-muted/30 overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${score}%` }}
+          transition={{ duration: 1, ease: 'easeOut', delay: 0.2 }}
+          className="h-full rounded-full"
+          style={{ backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function DashboardPage() {
   const { token, navigate } = useAppStore();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [modules, setModules] = useState<ModuleStats[]>([]);
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
-  const [statusDistribution, setStatusDistribution] = useState<{ name: string; value: number; color: string }[]>([]);
-  const [recordsByModule, setRecordsByModule] = useState<{ name: string; count: number }[]>([]);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
-  // Animated counters
-  const animatedModules = useAnimatedCounter(stats?.totalModules ?? 0);
-  const animatedRecords = useAnimatedCounter(stats?.totalRecords ?? 0);
-  const animatedPending = useAnimatedCounter(stats?.pendingApprovals ?? 0);
-  const animatedActive = useAnimatedCounter(stats?.activeRecords ?? 0);
+  const animatedTotal = useAnimatedCounter(data?.stats.totalRecords ?? 0);
+  const animatedActive = useAnimatedCounter(data?.stats.activeRecords ?? 0);
+  const animatedPending = useAnimatedCounter(data?.stats.pendingApprovals ?? 0);
+  const animatedModules = useAnimatedCounter(data?.stats.totalModules ?? 0);
 
   useEffect(() => {
     loadDashboard();
@@ -204,117 +278,33 @@ export default function DashboardPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const [modulesRes, approvalsRes] = await Promise.all([
-        fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/approvals?status=all', { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-
-      const modulesData = await modulesRes.json();
-      const approvalsData = await approvalsRes.json();
-
-      const mods = modulesData.modules || [];
-      const moduleStats: ModuleStats[] = [];
-      const activities: RecentActivity[] = [];
-      const statusCounts: Record<string, number> = {};
-      const barData: { name: string; count: number }[] = [];
-
-      let totalRecords = 0;
-      let activeRecords = 0;
-
-      for (const m of mods) {
-        try {
-          const recRes = await fetch(`/api/records?moduleId=${m.id}&limit=100`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const recData = await recRes.json();
-          const recCount = recData.total || 0;
-          totalRecords += recCount;
-
-          if (recData.data) {
-            for (const r of recData.data) {
-              statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
-              if (r.status === 'ACTIVE') activeRecords++;
-            }
-
-            const actions = ['CREATE', 'UPDATE', 'APPROVE'];
-            for (const r of recData.data.slice(0, 2)) {
-              const action = actions[Math.floor(Math.random() * actions.length)];
-              const hoursAgo = Math.floor(Math.random() * 48);
-              activities.push({
-                id: r.id + action,
-                type: r.status,
-                action,
-                message: `${action === 'CREATE' ? 'Created' : action === 'UPDATE' ? 'Updated' : 'Approved'} record in ${m.moduleName}`,
-                user: ['admin', 'data_mgr', 'reviewer'][Math.floor(Math.random() * 3)],
-                module: m.moduleName,
-                time: getRelativeTime(new Date(Date.now() - hoursAgo * 3600000)),
-                timestamp: new Date(Date.now() - hoursAgo * 3600000),
-              });
-            }
-          }
-
-          moduleStats.push({
-            id: m.id,
-            moduleName: m.moduleName,
-            moduleCode: m.moduleCode,
-            moduleIcon: m.moduleIcon,
-            recordCount: recCount,
-            fieldCount: m.fieldCount || 0,
-          });
-
-          barData.push({
-            name: m.moduleName.length > 12 ? m.moduleName.substring(0, 12) + '...' : m.moduleName,
-            count: recCount,
-          });
-        } catch {
-          // skip on error
-        }
+      const res = await fetch('/api/dashboard/stats', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
       }
-
-      activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-
-      const pendingTickets = (approvalsData.tickets || []).filter(
-        (t: any) => t.status === 'PENDING'
-      );
-
-      setStats({
-        totalModules: mods.length,
-        totalRecords,
-        pendingApprovals: pendingTickets.length,
-        activeRecords,
-      });
-
-      setModules(moduleStats);
-      setRecentActivity(activities.slice(0, 10));
-      setRecordsByModule(barData);
-
-      const pieData = Object.entries(statusCounts).map(([status, count]) => ({
-        name: STATUS_LABELS[status] || status,
-        value: count,
-        color: PIE_COLORS[status] || '#6b7280',
-      }));
-      setStatusDistribution(pieData);
-
-      setSparklines({
-        totalModules: generateSparkline(mods.length || 4),
-        totalRecords: generateSparkline(totalRecords || 50),
-        pendingApprovals: generateSparkline(pendingTickets.length || 3),
-        activeRecords: generateSparkline(activeRecords || 30),
-      });
     } catch (err) {
       console.error('Dashboard load error:', err);
     } finally {
       setLoading(false);
+      setLastRefresh(new Date());
     }
   };
 
+  // ─── Loading State ───
   if (loading) {
     return (
       <div className="p-4 lg:p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-36 rounded-xl" />
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Skeleton className="h-72 rounded-xl" />
+          <div className="lg:col-span-2 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+            </div>
+            <Skeleton className="h-48 rounded-xl" />
+          </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Skeleton className="h-80 rounded-xl" />
@@ -324,233 +314,418 @@ export default function DashboardPage() {
     );
   }
 
-  const statCards = [
-    {
-      label: 'Total Modules',
-      value: stats?.totalModules ?? 0,
-      animatedValue: animatedModules,
-      icon: Database,
-      trend: '+12%',
-      trendUp: true,
-      gradient: 'from-red-500 to-rose-600',
-      gradientBg: 'from-red-50/80 to-rose-50/50',
-      iconBg: 'bg-white/20',
-      iconColor: 'text-white',
-      sparkColor: '#DC2626',
-      sparkKey: 'totalModules',
-    },
-    {
-      label: 'Total Records',
-      value: stats?.totalRecords ?? 0,
-      animatedValue: animatedRecords,
-      icon: FileText,
-      trend: '+8%',
-      trendUp: true,
-      gradient: 'from-slate-700 to-slate-900',
-      gradientBg: 'from-slate-50/80 to-slate-100/50',
-      iconBg: 'bg-white/20',
-      iconColor: 'text-white',
-      sparkColor: '#1A1A1A',
-      sparkKey: 'totalRecords',
-    },
-    {
-      label: 'Pending Approvals',
-      value: stats?.pendingApprovals ?? 0,
-      animatedValue: animatedPending,
-      trend: '-3%',
-      trendUp: false,
-      icon: GitBranch,
-      gradient: 'from-amber-500 to-orange-500',
-      gradientBg: 'from-amber-50/80 to-orange-50/50',
-      iconBg: 'bg-white/20',
-      iconColor: 'text-white',
-      sparkColor: '#f59e0b',
-      sparkKey: 'pendingApprovals',
-    },
-    {
-      label: 'Active Records',
-      value: stats?.activeRecords ?? 0,
-      animatedValue: animatedActive,
-      icon: CheckCircle2,
-      trend: '+15%',
-      trendUp: true,
-      gradient: 'from-emerald-500 to-green-600',
-      gradientBg: 'from-emerald-50/80 to-green-50/50',
-      iconBg: 'bg-white/20',
-      iconColor: 'text-white',
-      sparkColor: '#059669',
-      sparkKey: 'activeRecords',
-    },
+  if (!data) return null;
+
+  const { stats, recordsByModule, statusDistribution, pipelineCounts, dataQuality, governance, recentActivity, goldenRecords } = data;
+
+  // Radar data for quality dimensions
+  const radarData = [
+    { dimension: 'Completeness', value: dataQuality.completeness },
+    { dimension: 'Accuracy', value: dataQuality.accuracy },
+    { dimension: 'Consistency', value: dataQuality.consistency },
+    { dimension: 'Timeliness', value: dataQuality.timeliness },
+    { dimension: 'Uniqueness', value: dataQuality.uniqueness },
   ];
 
-  // Quick actions with prominent styling
-  const quickActions = [
-    { icon: Plus, label: 'Create Record', desc: 'Add new master data', color: 'from-red-500 to-red-600', onClick: () => navigate('data-records') },
-    { icon: GitBranch, label: 'Approvals', desc: `${stats?.pendingApprovals ?? 0} pending`, color: 'from-amber-500 to-orange-500', onClick: () => navigate('workflow'), badge: stats?.pendingApprovals },
-    { icon: Database, label: 'Modules', desc: 'Manage modules', color: 'from-slate-700 to-slate-800', onClick: () => navigate('modules') },
-    { icon: Upload, label: 'Bulk Import', desc: 'Import CSV/Excel', color: 'from-emerald-500 to-green-600', onClick: () => navigate('bulk-import') },
-    { icon: BarChart3, label: 'Analytics', desc: 'View reports', color: 'from-rose-500 to-pink-600', onClick: () => navigate('data-records') },
-    { icon: Sparkles, label: 'AI Assistant', desc: 'Ask AI for help', color: 'from-red-600 to-rose-700', onClick: () => navigate('ai-assistant') },
-  ];
+  // Pipeline total
+  const pipelineTotal = Object.values(pipelineCounts).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
-      {/* Welcome Banner */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="banner-corporate rounded-xl p-6 text-white relative overflow-hidden"
-      >
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-red-400/10 blur-2xl" />
-        <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-slate-400/10 blur-2xl" />
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-lg shadow-red-600/20">
-              <Database className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">
-                Welcome to <span className="text-red-400">MAA BTOOL</span>
-              </h1>
-              <p className="text-red-200/70 text-sm font-light">
-                Enterprise Master Data Management for <span className="text-red-300/80">MAP Group</span>
-              </p>
-            </div>
-          </div>
-          <p className="text-slate-300/50 text-xs mt-3 max-w-xl">
-            Manage master data across MAP Group subsidiaries — MAPI, MAPA, MBA, MAPD, MAPP &amp; MAPL. Streamline article, store, supplier, pricing &amp; promotion data with unified governance.
-          </p>
-          <div className="flex flex-wrap items-center gap-4 mt-4">
-            <div className="flex items-center gap-1.5 text-xs text-slate-300/60">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-              <span>{stats?.totalModules ?? 0} Active Modules</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-300/60">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
-              <span>{stats?.totalRecords ?? 0} Total Records</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-300/60">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-              <span>{stats?.activeRecords ?? 0} Active Records</span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Enhanced Stat Cards with Gradient Backgrounds */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((card, i) => (
-          <motion.div
-            key={card.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: i * 0.08 }}
-          >
-            <Card className="shadow-sm overflow-hidden relative group hover:shadow-md transition-shadow duration-300">
-              {/* Gradient overlay on left side */}
-              <div className={cn('absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b', card.gradient)} />
-              <div className={cn('absolute inset-0 bg-gradient-to-br opacity-50', card.gradientBg)} />
-              <CardContent className="p-5 relative">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground font-medium">{card.label}</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-3xl font-bold tabular-nums">{card.animatedValue.toLocaleString()}</p>
-                      <span className={cn(
-                        'text-xs font-semibold flex items-center gap-0.5',
-                        card.trendUp ? 'text-emerald-600' : 'text-red-500'
-                      )}>
-                        {card.trendUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {card.trend}
-                      </span>
-                    </div>
-                  </div>
-                  <div className={cn('p-2.5 rounded-xl bg-gradient-to-br shadow-lg', card.gradient)}>
-                    <card.icon className="text-white w-5 h-5" />
-                  </div>
-                </div>
-                <div className="mt-3 flex items-end justify-between">
-                  {sparklines[card.sparkKey] && (
-                    <MiniSparkline data={sparklines[card.sparkKey]} color={card.sparkColor} />
-                  )}
-                  <span className="text-[10px] text-muted-foreground">vs last month</span>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Records Distribution Bar Chart */}
+    <div className="p-4 lg:p-6 space-y-6 max-w-[1600px] mx-auto">
+      {/* ═══════════════════════════════════════════════════════════
+          TOP ROW: Data Quality Score + Stat Cards + Stewardship
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* ── A. Data Quality Score (prominent, top-left) ── */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.3 }}
+          transition={{ duration: 0.5 }}
+          className="lg:col-span-4"
         >
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Records by Module</CardTitle>
-              <CardDescription>Distribution of records across master data modules</CardDescription>
+          <Card className="shadow-sm h-full">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Target className="w-5 h-5 text-red-600" />
+                    Data Quality Score
+                  </CardTitle>
+                  <CardDescription>Overall master data health</CardDescription>
+                </div>
+                <Badge className={cn(
+                  'text-xs font-semibold border',
+                  dataQuality.overall >= 80
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
+                    : dataQuality.overall >= 60
+                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800'
+                    : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
+                )}>
+                  {dataQuality.overall >= 80 ? 'Healthy' : dataQuality.overall >= 60 ? 'Needs Attention' : 'Critical'}
+                </Badge>
+              </div>
             </CardHeader>
-            <CardContent>
-              {recordsByModule.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground text-sm">No data available</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={recordsByModule} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#DC2626" stopOpacity={1} />
-                        <stop offset="100%" stopColor="#DC2626" stopOpacity={0.7} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 11, fill: '#6b7280' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: '#6b7280' }}
-                      axisLine={false}
-                      tickLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '12px',
-                        border: '1px solid #e5e7eb',
-                        boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        fontSize: '13px',
-                      }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      fill="url(#barGradient)"
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={48}
-                      animationDuration={800}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+            <CardContent className="flex flex-col items-center pt-2">
+              <QualityGauge score={dataQuality.overall} />
+              <div className="w-full mt-5 space-y-3">
+                <QualityBar label="Completeness" score={dataQuality.completeness} icon={Database} />
+                <QualityBar label="Accuracy" score={dataQuality.accuracy} icon={CheckCircle2} />
+                <QualityBar label="Consistency" score={dataQuality.consistency} icon={Layers} />
+                <QualityBar label="Timeliness" score={dataQuality.timeliness} icon={Clock} />
+                <QualityBar label="Uniqueness" score={dataQuality.uniqueness} icon={Shield} />
+              </div>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Status Distribution Pie Chart */}
+        {/* ── Right column: Stat Cards + Stewardship + Golden Records ── */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* ── Stat Cards Row ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: 'Total Records', value: animatedTotal, icon: FileText, color: 'from-red-500 to-rose-600', bg: 'from-red-50/80 to-rose-50/50 dark:from-red-900/20 dark:to-rose-900/10' },
+              { label: 'Active Records', value: animatedActive, icon: CheckCircle2, color: 'from-emerald-500 to-green-600', bg: 'from-emerald-50/80 to-green-50/50 dark:from-emerald-900/20 dark:to-green-900/10' },
+              { label: 'Pending Approvals', value: animatedPending, icon: GitBranch, color: 'from-amber-500 to-orange-500', bg: 'from-amber-50/80 to-orange-50/50 dark:from-amber-900/20 dark:to-orange-900/10' },
+              { label: 'Total Modules', value: animatedModules, icon: Database, color: 'from-slate-700 to-slate-900', bg: 'from-slate-50/80 to-slate-100/50 dark:from-slate-800/20 dark:to-slate-900/10' },
+            ].map((card, i) => (
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: i * 0.08 }}
+              >
+                <Card className="shadow-sm overflow-hidden relative group hover:shadow-md transition-shadow duration-300">
+                  <div className={cn('absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b', card.color)} />
+                  <div className={cn('absolute inset-0 bg-gradient-to-br opacity-40', card.bg)} />
+                  <CardContent className="p-4 relative">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium">{card.label}</p>
+                        <p className="text-2xl font-bold tabular-nums mt-1">{card.value.toLocaleString()}</p>
+                      </div>
+                      <div className={cn('p-2 rounded-xl bg-gradient-to-br shadow-md', card.color)}>
+                        <card.icon className="text-white w-4 h-4" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* ── B. Golden Record Statistics + C. Stewardship Tasks ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Golden Record Statistics */}
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.3 }}
+            >
+              <Card className="shadow-sm h-full">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-red-600" />
+                    Golden Record Statistics
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 rounded-lg bg-muted/30">
+                      <p className="text-xl font-bold tabular-nums">{goldenRecords.total}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Total Records</p>
+                    </div>
+                    <div className="text-center p-3 rounded-lg bg-muted/30">
+                      <p className="text-xl font-bold tabular-nums text-emerald-600">{goldenRecords.recentlyUpdated}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Updated 24h</p>
+                    </div>
+                    <div className="text-center p-3 rounded-lg bg-muted/30">
+                      <p className="text-xl font-bold tabular-nums text-amber-600">{goldenRecords.recentlyMerged}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Merged 24h</p>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium mb-2">Records by Domain</p>
+                    <div className="space-y-2">
+                      {goldenRecords.byDomain.map((d) => {
+                        const maxCount = Math.max(...goldenRecords.byDomain.map((x) => x.count), 1);
+                        const pct = (d.count / maxCount) * 100;
+                        return (
+                          <div key={d.domain} className="flex items-center gap-3">
+                            <span className="text-xs w-24 truncate font-medium">{d.domain}</span>
+                            <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${pct}%` }}
+                                transition={{ duration: 0.8, ease: 'easeOut' }}
+                                className="h-full rounded-full bg-gradient-to-r from-red-500 to-rose-500"
+                              />
+                            </div>
+                            <span className="text-xs font-semibold tabular-nums w-8 text-right">{d.count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Stewardship Tasks Panel */}
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.4 }}
+            >
+              <Card className="shadow-sm h-full">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="w-4 h-4 text-red-600" />
+                    Stewardship Tasks
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                      <p className="text-xl font-bold tabular-nums text-amber-600">{stats.pendingApprovals}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Pending</p>
+                    </div>
+                    <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                      <p className="text-xl font-bold tabular-nums text-red-600">{stats.overdueTasks}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Overdue</p>
+                    </div>
+                    <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                      <p className="text-xl font-bold tabular-nums">{stats.myTasks}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">My Tasks</p>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground font-medium">Quick Actions</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline" size="sm" className="h-9 text-xs justify-start gap-2"
+                        onClick={() => navigate('workflow')}
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5 text-amber-600" />
+                        Review Pending
+                        {stats.pendingApprovals > 0 && (
+                          <Badge className="ml-auto bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400 text-[10px] h-5 px-1.5">
+                            {stats.pendingApprovals}
+                          </Badge>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline" size="sm" className="h-9 text-xs justify-start gap-2"
+                        onClick={() => navigate('data-records')}
+                      >
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        Browse Records
+                      </Button>
+                      <Button
+                        variant="outline" size="sm" className="h-9 text-xs justify-start gap-2"
+                        onClick={() => navigate('bulk-import')}
+                      >
+                        <Upload className="w-3.5 h-3.5 text-slate-600" />
+                        Bulk Import
+                      </Button>
+                      <Button
+                        variant="outline" size="sm" className="h-9 text-xs justify-start gap-2"
+                        onClick={() => navigate('ai-assistant')}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-red-600" />
+                        AI Assistant
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          D. WORKFLOW PIPELINE
+          ═══════════════════════════════════════════════════════════ */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.5 }}
+      >
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-red-600" />
+                  Workflow Pipeline
+                </CardTitle>
+                <CardDescription>Record lifecycle from draft to active</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => navigate('workflow')}>
+                  View Workflow <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-0 overflow-x-auto pb-2">
+              {PIPELINE_STAGES.map((stage, i) => {
+                const count = pipelineCounts[stage.key] || 0;
+                const pct = pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0;
+                return (
+                  <div key={stage.key} className="flex items-center flex-1 min-w-[140px]">
+                    <button
+                      onClick={() => navigate('data-records')}
+                      className="flex-1 group"
+                    >
+                      <div className={cn(
+                        'rounded-xl p-4 border-2 transition-all duration-200 group-hover:shadow-md',
+                        'border-transparent group-hover:border-red-200 dark:group-hover:border-red-800',
+                        stage.bg
+                      )}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={cn('text-xs font-semibold', stage.textColor)}>{stage.label}</span>
+                          <span className="text-xs text-muted-foreground">{pct}%</span>
+                        </div>
+                        <p className="text-2xl font-bold tabular-nums">{count}</p>
+                        <div className="mt-2 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.8, delay: 0.5 + i * 0.15 }}
+                            className={cn('h-full rounded-full', stage.color)}
+                          />
+                        </div>
+                      </div>
+                    </button>
+                    {i < PIPELINE_STAGES.length - 1 && (
+                      <div className="mx-1 text-muted-foreground/40">
+                        <ChevronRight className="w-5 h-5" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-4 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ThumbsUp className="w-3.5 h-3.5 text-emerald-600" />
+                <span><span className="font-semibold text-emerald-600">{stats.approvedToday}</span> approved today</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <XCircle className="w-3.5 h-3.5 text-red-500" />
+                <span><span className="font-semibold text-red-500">{stats.rejectedToday}</span> rejected today</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                <span><span className="font-semibold text-amber-500">{stats.overdueTasks}</span> overdue</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          E. DATA GOVERNANCE METRICS + STATUS DISTRIBUTION
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Governance Metrics + Quality Trend */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.4 }}
+          transition={{ duration: 0.4, delay: 0.6 }}
         >
           <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle className="text-lg">Status Distribution</CardTitle>
-              <CardDescription>Current status breakdown of all records</CardDescription>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Shield className="w-4 h-4 text-red-600" />
+                Data Governance Metrics
+              </CardTitle>
+              <CardDescription>Compliance and approval analytics</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* Metric Cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-lg border">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-[10px] text-muted-foreground">Rules Compliance</span>
+                  </div>
+                  <p className="text-lg font-bold tabular-nums text-emerald-600">{governance.businessRulesCompliance}%</p>
+                </div>
+                <div className="p-3 rounded-lg border">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <ThumbsUp className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="text-[10px] text-muted-foreground">Approval Rate</span>
+                  </div>
+                  <p className="text-lg font-bold tabular-nums text-amber-600">{governance.approvalCompletionRate}%</p>
+                </div>
+                <div className="p-3 rounded-lg border">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Timer className="w-3.5 h-3.5 text-slate-600" />
+                    <span className="text-[10px] text-muted-foreground">Avg Approve</span>
+                  </div>
+                  <p className="text-lg font-bold tabular-nums">{governance.avgTimeToApprove}h</p>
+                </div>
+              </div>
+
+              {/* 7-day Quality Trend */}
+              <div>
+                <p className="text-xs text-muted-foreground font-medium mb-3">Quality Trend (7 days)</p>
+                {governance.trend.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={governance.trend}>
+                      <defs>
+                        <linearGradient id="qualityTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#DC2626" stopOpacity={0.2} />
+                          <stop offset="100%" stopColor="#DC2626" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: '1px solid #e5e7eb',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                          fontSize: '13px',
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="score"
+                        stroke="#DC2626"
+                        strokeWidth={2}
+                        fill="url(#qualityTrendGrad)"
+                        animationDuration={1000}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground text-sm">No trend data</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Status Distribution + Radar */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.7 }}
+        >
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="w-4 h-4 text-red-600" />
+                Status Distribution
+              </CardTitle>
+              <CardDescription>Current status breakdown across all records</CardDescription>
             </CardHeader>
             <CardContent>
               {statusDistribution.length === 0 ? (
@@ -560,22 +735,24 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
                       <Pie
-                        data={statusDistribution}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={90}
+                        data={statusDistribution.map((s) => ({
+                          name: STATUS_LABELS[s.status] || s.status,
+                          value: s.count,
+                          color: PIE_COLORS[s.status] || '#6b7280',
+                        }))}
+                        cx="50%" cy="50%"
+                        innerRadius={55} outerRadius={90}
                         paddingAngle={3}
                         dataKey="value"
                         animationDuration={800}
                       >
                         {statusDistribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} stroke="white" strokeWidth={2} />
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[entry.status] || '#6b7280'} stroke="white" strokeWidth={2} />
                         ))}
                       </Pie>
-                      <Tooltip
+                      <RechartsTooltip
                         formatter={(value: number, name: string) => {
-                          const total = statusDistribution.reduce((s, d) => s + d.value, 0);
+                          const total = statusDistribution.reduce((s, d) => s + d.count, 0);
                           const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                           return [`${value} (${pct}%)`, name];
                         }}
@@ -590,11 +767,15 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                   <div className="flex flex-wrap gap-2 justify-center sm:flex-col sm:justify-start">
                     {statusDistribution.map((entry) => (
-                      <div key={entry.name} className="flex items-center gap-2 text-sm">
-                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                        <span className="text-muted-foreground">{entry.name}</span>
-                        <span className="font-semibold">{entry.value}</span>
-                      </div>
+                      <button
+                        key={entry.status}
+                        onClick={() => navigate('data-records')}
+                        className="flex items-center gap-2 text-sm hover:bg-accent/50 rounded-md px-2 py-1 transition-colors"
+                      >
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[entry.status] || '#6b7280' }} />
+                        <span className="text-muted-foreground">{STATUS_LABELS[entry.status] || entry.status}</span>
+                        <span className="font-semibold">{entry.count}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -604,62 +785,93 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Module Overview Cards + Recent Activity Timeline */}
+      {/* ═══════════════════════════════════════════════════════════
+          F. MODULE CARDS (enhanced) + RECENT ACTIVITY
+          ═══════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Module Overview Cards */}
+        {/* Module Cards */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.5 }}
+          transition={{ duration: 0.4, delay: 0.8 }}
           className="lg:col-span-2"
         >
           <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Module Overview</CardTitle>
-                <CardDescription>Records and field counts per module</CardDescription>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Database className="w-4 h-4 text-red-600" />
+                  Module Overview
+                </CardTitle>
+                <CardDescription>Quality score per module with record stats</CardDescription>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate('modules')}>
-                View All <ArrowRight className="w-4 h-4 ml-1" />
+              <Button variant="ghost" size="sm" onClick={() => navigate('modules')} className="h-8 text-xs">
+                View All <ArrowRight className="w-3.5 h-3.5 ml-1" />
               </Button>
             </CardHeader>
             <CardContent>
-              {modules.length === 0 ? (
+              {recordsByModule.length === 0 ? (
                 <p className="text-muted-foreground text-sm py-4 text-center">No modules found.</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {modules.map((m, i) => {
+                  {recordsByModule.map((m, i) => {
                     const Icon = moduleIcons[m.moduleIcon] || Database;
-                    const maxRecords = Math.max(...modules.map((mod) => mod.recordCount), 1);
-                    const progressPct = (m.recordCount / maxRecords) * 100;
+                    const qualityPct = m.recordCount > 0 ? Math.round((m.activeCount / m.recordCount) * 100) : 0;
+                    const qualityColor = qualityPct >= 80 ? 'text-emerald-600' : qualityPct >= 60 ? 'text-amber-600' : 'text-red-600';
+                    const qualityBg = qualityPct >= 80 ? 'bg-emerald-50 dark:bg-emerald-900/20' : qualityPct >= 60 ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-red-50 dark:bg-red-900/20';
                     return (
-                      <motion.button
+                      <motion.div
                         key={m.id}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.3, delay: i * 0.05 }}
-                        onClick={() => navigate('module-detail', { moduleId: m.id })}
-                        className="flex items-center gap-3 p-4 rounded-xl border hover:bg-accent/50 hover:shadow-md hover:border-red-200 dark:hover:border-red-800 transition-all duration-200 text-left min-h-[44px] group"
+                        transition={{ duration: 0.3, delay: i * 0.04 }}
                       >
-                        <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/30 shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all duration-200">
-                          <Icon className="w-5 h-5 text-red-600 dark:text-red-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium truncate">{m.moduleName}</p>
-                            <Badge variant="outline" className="text-[10px] ml-2 shrink-0">
-                              {m.recordCount} records
-                            </Badge>
+                        <div className="group flex items-start gap-3 p-4 rounded-xl border hover:bg-accent/50 hover:shadow-md hover:border-red-200 dark:hover:border-red-800 transition-all duration-200">
+                          <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/30 shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all duration-200 shrink-0">
+                            <Icon className="w-5 h-5 text-red-600 dark:text-red-400" />
                           </div>
-                          <div className="mt-1.5 flex items-center gap-2">
-                            <Progress value={progressPct} className="h-1.5 flex-1" />
-                            <span className="text-[10px] text-muted-foreground shrink-0">
-                              {m.fieldCount} fields
-                            </span>
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-medium truncate">{m.moduleName}</p>
+                              <div className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold', qualityBg, qualityColor)}>
+                                {qualityPct}% quality
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span className="font-semibold">{m.recordCount}</span> records
+                              <span className="text-emerald-600">{m.activeCount} active</span>
+                              <span className="text-gray-500">{m.draftCount} draft</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Progress value={qualityPct} className="h-1.5 flex-1" />
+                              <span className="text-[10px] text-muted-foreground shrink-0">{m.fieldCount} fields</span>
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-7 text-[10px] px-2 gap-1"
+                                onClick={(e) => { e.stopPropagation(); navigate('data-records', { moduleId: m.id }); }}
+                              >
+                                <Eye className="w-3 h-3" /> Records
+                              </Button>
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-7 text-[10px] px-2 gap-1"
+                                onClick={(e) => { e.stopPropagation(); navigate('grid-editor', { moduleId: m.id }); }}
+                              >
+                                <BarChart3 className="w-3 h-3" /> Grid
+                              </Button>
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-7 text-[10px] px-2 gap-1"
+                                onClick={(e) => { e.stopPropagation(); navigate('record-detail', { moduleId: m.id }); }}
+                              >
+                                <Plus className="w-3 h-3" /> Add
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-200" />
-                      </motion.button>
+                      </motion.div>
                     );
                   })}
                 </div>
@@ -668,43 +880,58 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
 
-        {/* Recent Activity Timeline with Avatars */}
+        {/* Recent Activity Timeline */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.6 }}
+          transition={{ duration: 0.4, delay: 0.9 }}
         >
           <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle className="text-lg">Recent Activity</CardTitle>
-              <CardDescription>Latest actions across modules</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-red-600" />
+                    Recent Activity
+                  </CardTitle>
+                  <CardDescription>Latest actions across modules</CardDescription>
+                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadDashboard}>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Refresh data</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </CardHeader>
             <CardContent>
               {recentActivity.length === 0 ? (
                 <p className="text-muted-foreground text-sm py-4 text-center">No recent activity.</p>
               ) : (
                 <div className="relative max-h-96 overflow-y-auto custom-scrollbar">
-                  {/* Connecting line */}
                   <div className="absolute left-[19px] top-4 bottom-4 w-px bg-border" />
                   <div className="space-y-1">
                     <AnimatePresence initial={false}>
                       {recentActivity.map((activity) => {
                         const ActionIcon = ACTIVITY_ICONS[activity.action] || Clock;
                         const actionColor = ACTIVITY_COLORS[activity.action] || 'text-gray-500 bg-gray-50';
-                        const avatar = USER_AVATARS[activity.user] || { initials: 'U', color: 'bg-slate-100 text-slate-600' };
                         return (
                           <motion.div
                             key={activity.id}
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: 10 }}
-                            className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-accent/50 transition-colors relative"
+                            className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-accent/50 transition-colors relative cursor-pointer"
+                            onClick={() => navigate('data-records')}
                           >
-                            {/* Avatar with action icon */}
                             <div className="relative shrink-0 z-10">
                               <Avatar className="w-8 h-8">
-                                <AvatarFallback className={cn('text-[10px] font-semibold', avatar.color)}>
-                                  {avatar.initials}
+                                <AvatarFallback className="text-[10px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                                  {activity.moduleName.slice(0, 2).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <div className={cn(
@@ -715,18 +942,24 @@ export default function DashboardPage() {
                               </div>
                             </div>
                             <div className="flex-1 min-w-0 pt-0.5">
-                              <p className="text-sm font-medium truncate">{activity.message}</p>
+                              <p className="text-sm font-medium truncate">
+                                {activity.action === 'CREATE' ? 'Created' : activity.action === 'UPDATE' ? 'Updated' : 'Approved'} record
+                              </p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-xs text-muted-foreground">{activity.user}</span>
+                                <span className="text-xs text-muted-foreground">{activity.moduleName}</span>
                                 <span className="text-xs text-muted-foreground">·</span>
-                                <span className="text-xs text-muted-foreground">{activity.time}</span>
+                                <span className="text-xs text-muted-foreground">{getRelativeTime(activity.updatedAt)}</span>
                               </div>
                             </div>
                             <Badge
                               variant="outline"
-                              className={cn('text-[10px] shrink-0 border', STATUS_COLORS[activity.type] || 'bg-gray-100 text-gray-700')}
+                              className={cn('text-[10px] shrink-0 border', {
+                                'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300': activity.status === 'DRAFT',
+                                'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400': activity.status === 'IN_REVIEW',
+                                'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400': activity.status === 'ACTIVE',
+                              })}
                             >
-                              {STATUS_LABELS[activity.type] || activity.type}
+                              {STATUS_LABELS[activity.status] || activity.status}
                             </Badge>
                           </motion.div>
                         );
@@ -740,49 +973,68 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Quick Actions - Larger, Prominent */}
+      {/* ═══════════════════════════════════════════════════════════
+          RECORDS BY MODULE CHART (bottom)
+          ═══════════════════════════════════════════════════════════ */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.7 }}
+        transition={{ duration: 0.4, delay: 1.0 }}
       >
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg">Quick Actions</CardTitle>
-            <CardDescription>Common tasks and shortcuts</CardDescription>
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-red-600" />
+              Records by Module
+            </CardTitle>
+            <CardDescription>Distribution of records across master data domains</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {quickActions.map((action, i) => (
-                <motion.button
-                  key={action.label}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3, delay: 0.8 + i * 0.05 }}
-                  onClick={action.onClick}
-                  className="group relative flex flex-col items-center gap-2 p-4 rounded-xl border bg-card hover:bg-accent/50 hover:shadow-lg hover:border-red-200 dark:hover:border-red-800 transition-all duration-200 text-center min-h-[100px] justify-center"
-                >
-                  <div className={cn(
-                    'w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-200',
-                    action.color
-                  )}>
-                    <action.icon className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{action.label}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{action.desc}</p>
-                  </div>
-                  {action.badge !== undefined && action.badge > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
-                      {action.badge}
-                    </span>
-                  )}
-                </motion.button>
-              ))}
-            </div>
+            {recordsByModule.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-sm">No data available</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={recordsByModule.map((m) => ({
+                  name: m.moduleName.length > 14 ? m.moduleName.substring(0, 14) + '…' : m.moduleName,
+                  count: m.recordCount,
+                  active: m.activeCount,
+                  draft: m.draftCount,
+                }))} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="barGradTotal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#DC2626" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#DC2626" stopOpacity={0.7} />
+                    </linearGradient>
+                    <linearGradient id="barGradActive" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#059669" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#059669" stopOpacity={0.7} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <RechartsTooltip
+                    contentStyle={{
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                      fontSize: '13px',
+                    }}
+                  />
+                  <Bar dataKey="count" fill="url(#barGradTotal)" radius={[4, 4, 0, 0]} maxBarSize={32} name="Total" animationDuration={800} />
+                  <Bar dataKey="active" fill="url(#barGradActive)" radius={[4, 4, 0, 0]} maxBarSize={32} name="Active" animationDuration={800} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Refresh indicator */}
+      <div className="text-center">
+        <p className="text-[10px] text-muted-foreground">
+          Last refreshed: {lastRefresh.toLocaleTimeString()} · Data refreshes on page load
+        </p>
+      </div>
     </div>
   );
 }
