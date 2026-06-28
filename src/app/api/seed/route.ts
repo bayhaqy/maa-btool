@@ -5,6 +5,26 @@ import { isSuperAdmin } from '@/lib/rbac';
 
 export async function POST(request: NextRequest) {
   try {
+    // ── Force reseed support ──────────────────────────────────────────────
+    // If ?force=true is provided and no users exist, wipe and reseed.
+    // This handles the case where a force-reset left partial data.
+    const url = new URL(request.url);
+    const forceReseed = url.searchParams.get('force') === 'true';
+    
+    if (forceReseed && (await db.sysUser.count()) === 0) {
+      console.info('[seed] Force reseed requested — wiping partial data...');
+      // Delete all data in reverse dependency order
+      const tablenames = await db.$queryRaw<Array<{ tablename: string }>>`
+        SELECT tablename FROM pg_tables WHERE schemaname='public'
+      `;
+      for (const { tablename } of tablenames) {
+        if (tablename !== '_prisma_migrations') {
+          try { await db.$executeRawUnsafe(`TRUNCATE TABLE "${tablename}" CASCADE;`); } catch {}
+        }
+      }
+      console.info('[seed] All tables truncated.');
+    }
+    
     // ── Authorization ────────────────────────────────────────────────────
     // This endpoint populates the database with seed data. To remain
     // compatible with the auto-seed-on-mount flow in /src/app/page.tsx
@@ -1332,3 +1352,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Also export a force-reseed handler
