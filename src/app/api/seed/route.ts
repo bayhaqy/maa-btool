@@ -936,21 +936,83 @@ export async function POST(request: NextRequest) {
       }),
     ]);
 
-    // Create version snapshots for ACTIVE records
-    for (const record of [...articleRecords.slice(0, 3), ...storeRecords]) {
+    // Create version snapshots for ALL records (with rich version history)
+    for (const record of [...articleRecords, ...storeRecords]) {
+      // Version 1: initial creation
       await db.dataVersion.create({
         data: {
           recordId: record.id,
           payloadSnapshot: record.currentPayload,
           versionNumber: 1,
           changedById: record.createdById,
-          changeReason: 'Initial creation (auto-approved)',
+          changeReason: 'Initial creation',
+          status: 'DRAFT',
+        },
+      });
+    }
+
+    // Add version 2 (update) for first 5 article records
+    for (let i = 0; i < Math.min(5, articleRecords.length); i++) {
+      const rec = articleRecords[i];
+      let payload: Record<string, unknown> = {};
+      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+
+      // Modify selling price to simulate an update
+      const updatedPayload = { ...payload, selling_price: Number(payload.selling_price || 0) * 1.05, tags: (payload.tags || '') + ',UPDATED' };
+      await db.dataVersion.create({
+        data: {
+          recordId: rec.id,
+          payloadSnapshot: JSON.stringify(updatedPayload),
+          versionNumber: 2,
+          changedById: userManagerMAPI.id,
+          changeReason: 'Price adjustment — 5% increase applied',
+          status: rec.status,
+        },
+      });
+    }
+
+    // Add version 3 (status transition to ACTIVE) for first 3 article records
+    for (let i = 0; i < Math.min(3, articleRecords.length); i++) {
+      const rec = articleRecords[i];
+      let payload: Record<string, unknown> = {};
+      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+      const activatedPayload = { ...payload, is_active: true };
+
+      await db.dataVersion.create({
+        data: {
+          recordId: rec.id,
+          payloadSnapshot: JSON.stringify(activatedPayload),
+          versionNumber: 3,
+          changedById: userSuperAdmin.id,
+          changeReason: 'Approved and activated after review',
           status: 'ACTIVE',
         },
       });
     }
 
-    // Create approval ticket for the IN_REVIEW article record
+    // Add version 2 for store records (address update)
+    for (const rec of storeRecords) {
+      let payload: Record<string, unknown> = {};
+      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+      const updatedPayload = { ...payload, phone: String(payload.phone || '').replace('+62', '+62-21') };
+
+      await db.dataVersion.create({
+        data: {
+          recordId: rec.id,
+          payloadSnapshot: JSON.stringify(updatedPayload),
+          versionNumber: 2,
+          changedById: userSuperAdmin.id,
+          changeReason: 'Phone number format update',
+          status: 'ACTIVE',
+        },
+      });
+    }
+
+    // Create approval tickets with diverse statuses for workflow statistics
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    // PENDING ticket for IN_REVIEW article
     await db.approvalTicket.create({
       data: {
         recordId: articleRecords[4].id,
@@ -959,6 +1021,74 @@ export async function POST(request: NextRequest) {
         deltaPayload: articleRecords[4].currentPayload,
       },
     });
+
+    // APPROVED tickets (for last 7 days — spread across different days)
+    for (let i = 0; i < 5; i++) {
+      const recIdx = i % articleRecords.length;
+      const daysAgo = i + 1;
+      const createdAt = new Date(now.getTime() - daysAgo * dayMs - 4 * 3600000);
+      const reviewedAt = new Date(createdAt.getTime() + 4 * 3600000); // 4h later
+
+      await db.approvalTicket.create({
+        data: {
+          recordId: articleRecords[recIdx].id,
+          requestedById: userDataEntryMAPI.id,
+          reviewedById: userManagerMAPI.id,
+          status: 'APPROVED',
+          deltaPayload: articleRecords[recIdx].currentPayload,
+          reviewNotes: 'Looks good. Approved.',
+          createdAt,
+          reviewedAt,
+        },
+      });
+    }
+
+    // REJECTED tickets (for last 7 days)
+    const rejectionReasons = [
+      'Incomplete data — missing brand field',
+      'Price too low — below cost threshold',
+      'Duplicate record — already exists as ART-003',
+    ];
+    for (let i = 0; i < 3; i++) {
+      const recIdx = (i + 2) % articleRecords.length;
+      const daysAgo = i + 2;
+      const createdAt = new Date(now.getTime() - daysAgo * dayMs - 2 * 3600000);
+      const reviewedAt = new Date(createdAt.getTime() + 2 * 3600000);
+
+      await db.approvalTicket.create({
+        data: {
+          recordId: articleRecords[recIdx].id,
+          requestedById: userDataEntryMAPI.id,
+          reviewedById: userSuperAdmin.id,
+          status: 'REJECTED',
+          deltaPayload: articleRecords[recIdx].currentPayload,
+          reviewNotes: rejectionReasons[i],
+          createdAt,
+          reviewedAt,
+        },
+      });
+    }
+
+    // More APPROVED tickets from earlier (older than 7 days)
+    for (let i = 0; i < 4; i++) {
+      const recIdx = (i + 3) % articleRecords.length;
+      const daysAgo = 10 + i;
+      const createdAt = new Date(now.getTime() - daysAgo * dayMs - 6 * 3600000);
+      const reviewedAt = new Date(createdAt.getTime() + 6 * 3600000);
+
+      await db.approvalTicket.create({
+        data: {
+          recordId: articleRecords[recIdx].id,
+          requestedById: userDataEntryMAPI.id,
+          reviewedById: userManagerMAPI.id,
+          status: 'APPROVED',
+          deltaPayload: articleRecords[recIdx].currentPayload,
+          reviewNotes: 'Verified and approved.',
+          createdAt,
+          reviewedAt,
+        },
+      });
+    }
 
     // ============================================================
     // 11. CREATE DOCUMENTATION SEED DATA

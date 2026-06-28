@@ -1,6 +1,56 @@
 # MAA BTOOL Enterprise MDM - Worklog
 
 ---
+Task ID: BUG-FIX
+Agent: Bug Fix Agent
+Task: Fix All QC Bugs Found in Production Testing
+
+Work Log:
+- Bug 1: Fixed Version History & Audit Trail tabs empty in RecordDetailPage
+  - Fixed audit trail data extraction: changed `auditData.entries || auditData.audits` to `auditData.logs` (the audit API returns `logs`, not `entries`)
+  - Added `versionsLoading` and `auditLoading` state variables for proper loading states
+  - Added loading skeletons for both Version History and Audit Trail tabs
+  - Created new `/api/versions/route.ts` endpoint for fetching version history per record
+  - Enhanced seed data: added version snapshots for ALL records (not just first few), with v1 (creation), v2 (price update), v3 (activation), and store record versions
+  - Added diverse approval ticket seed data: 5 APPROVED tickets (spread across last 7 days), 3 REJECTED tickets with realistic reasons, 4 older APPROVED tickets
+
+- Bug 2: Fixed quality scores inconsistent between Dashboard and Data Quality page
+  - Dashboard now fetches from both `/api/dashboard/stats` AND `/api/data-quality` in parallel
+  - Quality scores from `/api/data-quality` (which calculates real completeness, accuracy, consistency, timeliness, uniqueness) override the hardcoded scores from dashboard stats
+  - Both pages now show consistent, calculated quality scores
+
+- Bug 3: Fixed Workflow Statistics tab empty
+  - Added throughput calculation to `workflowStatistics` useMemo: computes approved/rejected counts per day for last 7 days
+  - Added recharts BarChart import for throughput visualization
+  - Added "Throughput (Last 7 Days)" chart card showing approved (green) vs rejected (red) tickets per day
+  - Enhanced bottleneck detection section to show average resolution time even when no multi-step workflow data exists
+  - Seed data now includes APPROVED and REJECTED tickets with realistic reviewNotes and timestamps
+
+- Bug 4: Fixed Data Stewardship Ownership tab sparse
+  - Replaced hardcoded `domainOwnerships` array with dynamic API-fetched data
+  - Ownership tab now fetches from `/api/data-quality` and `/api/modules` in parallel
+  - Shows each module with: module name, code, record count, quality score, last updated date
+  - Shows "No steward assigned" badge for unassigned modules
+  - Added "Assign Steward" button for each unassigned domain
+  - Added loading skeleton states while data fetches
+  - Added refresh button to reload ownership data
+
+- Bug 5: Fixed Onboarding shows every login
+  - Root cause: zustand persist hydration is async; the onboarding check fired before the persisted `onboardingCompleted` map was loaded from localStorage
+  - Added hydration detection using `useAppStore.persist.hasHydrated()` and `onFinishHydration()`
+  - The onboarding auto-show effect now waits for `hydrated` to be true before checking `onboardingCompleted`
+  - This prevents the onboarding dialog from appearing on every page load/login after the first completion
+
+- Bug 6: Fixed default module selector to Article Master
+  - Updated `loadModules` in DataRecordsPage to sort modules so Article Master appears first
+  - Sort logic: modules with `moduleCode === 'ARTICLE_MASTER'` or `moduleName === 'Article Master'` always come first
+  - Remaining modules sorted alphabetically by name
+  - This ensures the module selector defaults to Article Master instead of the first module by sortOrder
+
+- Final: Ran `cp prisma/schema.sqlite.prisma prisma/schema.prisma && npx prisma generate` successfully
+- Verified: linter passes, dev server compiles and responds with 200
+
+---
 Task ID: 6
 Agent: Sample Data Enhancement Agent
 Task: Enhanced Map Active Adiperkasa sample data with mapclub.com data

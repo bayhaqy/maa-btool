@@ -278,11 +278,28 @@ export default function DashboardPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/dashboard/stats', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const json = await res.json();
+      const [dashRes, qualRes] = await Promise.all([
+        fetch('/api/dashboard/stats', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/data-quality', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (dashRes.ok) {
+        const json = await dashRes.json();
+        // Override the hardcoded quality scores from dashboard with real
+        // calculated scores from the data-quality endpoint so both pages
+        // show consistent numbers.
+        if (qualRes.ok) {
+          const qualData = await qualRes.json();
+          if (qualData.dimensions) {
+            json.dataQuality = {
+              overall: qualData.overallQuality ?? json.dataQuality?.overall ?? 0,
+              completeness: qualData.dimensions.completeness?.score ?? json.dataQuality?.completeness ?? 0,
+              accuracy: qualData.dimensions.accuracy?.score ?? json.dataQuality?.accuracy ?? 0,
+              consistency: qualData.dimensions.consistency?.score ?? json.dataQuality?.consistency ?? 0,
+              timeliness: qualData.dimensions.timeliness?.score ?? json.dataQuality?.timeliness ?? 0,
+              uniqueness: qualData.dimensions.uniqueness?.score ?? json.dataQuality?.uniqueness ?? 0,
+            };
+          }
+        }
         setData(json);
       }
     } catch (err) {

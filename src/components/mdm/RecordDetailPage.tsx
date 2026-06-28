@@ -314,6 +314,8 @@ export default function RecordDetailPage() {
   const [recordImages, setRecordImages] = useState<Record<string, any[]>>({});
   const [activeDetailTab, setActiveDetailTab] = useState('details');
   const [auditTrail, setAuditTrail] = useState<any[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [relatedRecords, setRelatedRecords] = useState<any[]>([]);
   const [recordQualityScore, setRecordQualityScore] = useState<number | null>(null);
 
@@ -415,13 +417,15 @@ export default function RecordDetailPage() {
         loadImages(selectedRecordId);
 
         // Load audit trail for this record
+        setAuditLoading(true);
         try {
           const auditRes = await fetch(`/api/audit?entityType=DataRecord&entityId=${selectedRecordId}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           const auditData = await auditRes.json();
-          if (auditRes.ok) setAuditTrail(auditData.entries || auditData.audits || []);
+          if (auditRes.ok) setAuditTrail(auditData.logs || auditData.entries || auditData.audits || []);
         } catch { /* non-critical */ }
+        finally { setAuditLoading(false); }
 
         // Load related records (same module, different records)
         try {
@@ -1408,7 +1412,17 @@ export default function RecordDetailPage() {
                 <CardDescription>All changes made to this record with before/after values</CardDescription>
               </CardHeader>
               <CardContent>
-                {!record?.versions || record.versions.length === 0 ? (
+                {versionsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="rounded-lg border p-4 space-y-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-3 w-40" />
+                        <Skeleton className="h-3 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : !record?.versions || record.versions.length === 0 ? (
                   <div className="py-8 text-center">
                     <History className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                     <p className="text-sm text-muted-foreground">No version history available</p>
@@ -1503,7 +1517,19 @@ export default function RecordDetailPage() {
                 <CardDescription>Complete audit log for this specific record</CardDescription>
               </CardHeader>
               <CardContent>
-                {auditTrail.length === 0 ? (
+                {auditLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex gap-3">
+                        <Skeleton className="w-7 h-7 rounded-full shrink-0" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-3 w-32" />
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : auditTrail.length === 0 ? (
                   <div className="py-8 text-center">
                     <Shield className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                     <p className="text-sm text-muted-foreground">No audit entries for this record</p>
