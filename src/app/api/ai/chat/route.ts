@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
-import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
+import { getTenantAIProviderConfig, type AIProvider } from '@/lib/ai';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -36,7 +36,7 @@ interface AIChatResponse {
 
 async function callAIProvider(
   provider: AIProvider,
-  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number },
+  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number; customHeaders?: Record<string, string> },
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
 ): Promise<AIChatResponse> {
   switch (provider) {
@@ -111,8 +111,7 @@ async function callAIProvider(
       };
     }
 
-    case 'openai':
-    case 'custom': {
+    case 'openai': {
       // OpenAI-compatible REST API
       const res = await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -130,6 +129,36 @@ async function callAIProvider(
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
         throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      return {
+        content: data?.choices?.[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.',
+        tokensUsed: data?.usage?.total_tokens || 0,
+      };
+    }
+
+    case 'custom': {
+      // Custom provider — OpenAI-compatible API with custom headers support
+      const customHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      };
+      if (config.customHeaders) {
+        Object.assign(customHeaders, config.customHeaders);
+      }
+      const res = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: customHeaders,
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Custom API error (${res.status}): ${errBody.slice(0, 300)}`);
       }
       const data = await res.json();
       return {
@@ -319,7 +348,8 @@ export async function POST(request: NextRequest) {
     let aiConfigured = false;
 
     try {
-      const config = await getAIProviderConfig();
+      // Use company-specific AI config from TenantAiConfig, fall back to global
+      const config = await getTenantAIProviderConfig(tokenPayload.companyId);
       aiConfigured = !!config.apiKey;
 
       if (aiConfigured) {

@@ -4,10 +4,14 @@
  * This hook reads the current user's roles from the app store and provides
  * granular permission checking. It uses the RBAC system defined in @/lib/rbac.
  *
+ * Multi-tenant aware: tenant-scoped permissions (tenant:*) are validated
+ * against the user's own companyId to enforce company boundary isolation.
+ *
  * Usage:
  *   const perms = usePermissions();
  *   if (perms.canCreate) { ... }
  *   <Button disabled={!perms.canEdit}>Edit</Button>
+ *   if (perms.canManageTenant) { ... }
  */
 
 'use client';
@@ -18,8 +22,11 @@ import {
   hasPermission,
   canWrite as checkCanWrite,
   isSuperAdmin as checkIsSuperAdmin,
+  isCompanyAdmin as checkIsCompanyAdmin,
   isViewerOnly as checkIsViewerOnly,
+  canManageTenant as checkCanManageTenant,
   PERMISSIONS,
+  type PermissionContext,
 } from '@/lib/rbac';
 
 export interface PermissionSet {
@@ -41,6 +48,10 @@ export interface PermissionSet {
   // AI permissions
   canEditAI: boolean;
 
+  // Company-scoped AI config permissions
+  canViewCompanyAiConfig: boolean;
+  canEditCompanyAiConfig: boolean;
+
   // DAM permissions
   canUploadAssets: boolean;
   canDeleteAssets: boolean;
@@ -48,6 +59,10 @@ export interface PermissionSet {
 
   // Integration permissions
   canEditIntegration: boolean;
+
+  // Tenant management permissions
+  canManageTenant: boolean;    // Can manage own company settings/branding/onboarding
+  isCompanyAdmin: boolean;     // Is Company Admin (NOT necessarily Super Admin)
 
   // Utility
   canWrite: boolean;          // Any write operation
@@ -60,6 +75,9 @@ export interface PermissionSet {
 
   // Role info
   roles: string[];
+
+  // User's company context
+  companyId: string | null;
 }
 
 export function usePermissions(): PermissionSet {
@@ -67,6 +85,15 @@ export function usePermissions(): PermissionSet {
 
   return useMemo(() => {
     const roles = user?.roles ?? [];
+    const companyId = user?.companyId ?? null;
+
+    // Build permission context for tenant-scoped checks
+    // When checking tenant permissions, the user's own companyId is both
+    // the source and the target (i.e. "can I manage MY company?")
+    const tenantContext: PermissionContext = {
+      userCompanyId: companyId ?? undefined,
+      targetCompanyId: companyId ?? undefined,
+    };
 
     const perms: PermissionSet = {
       canCreate: hasPermission(roles, PERMISSIONS.DATA_CREATE),
@@ -83,22 +110,34 @@ export function usePermissions(): PermissionSet {
 
       canEditAI: hasPermission(roles, PERMISSIONS.AI_WRITE),
 
+      // Company-scoped AI config: Super Admin or Company Admin of own company
+      canViewCompanyAiConfig: hasPermission(roles, PERMISSIONS.AI_CONFIG_VIEW, tenantContext),
+      canEditCompanyAiConfig: hasPermission(roles, PERMISSIONS.AI_CONFIG_EDIT, tenantContext),
+
       canUploadAssets: hasPermission(roles, PERMISSIONS.DAM_UPLOAD),
       canDeleteAssets: hasPermission(roles, PERMISSIONS.DAM_DELETE),
       canManageAssets: hasPermission(roles, PERMISSIONS.DAM_MANAGE),
 
       canEditIntegration: hasPermission(roles, PERMISSIONS.INTEGRATION_WRITE),
 
+      // Tenant management: Super Admin for any tenant, Company Admin for own tenant
+      canManageTenant: companyId
+        ? checkCanManageTenant(companyId, companyId, roles)
+        : false,
+      isCompanyAdmin: checkIsCompanyAdmin(roles),
+
       canWrite: checkCanWrite(roles),
       isViewerOnly: checkIsViewerOnly(roles),
       isSuperAdmin: checkIsSuperAdmin(roles),
       isReadOnly: checkIsViewerOnly(roles),
 
-      hasPermission: (permission: string) => hasPermission(roles, permission),
+      hasPermission: (permission: string) => hasPermission(roles, permission, tenantContext),
 
       roles,
+
+      companyId,
     };
 
     return perms;
-  }, [user?.roles]);
+  }, [user?.roles, user?.companyId]);
 }

@@ -44,6 +44,10 @@ import {
   Wifi,
   WifiOff,
   CircleDot,
+  Building2,
+  FileJson,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -63,7 +67,9 @@ interface AIConfigState {
   model: string;
   maxTokens: number;
   temperature: number;
+  customHeaders: Record<string, string>;
   configured: boolean;
+  source?: 'tenant' | 'global';
 }
 
 interface TestResult {
@@ -72,6 +78,12 @@ interface TestResult {
   latencyMs?: number;
   model?: string;
   provider?: string;
+}
+
+interface CompanyInfo {
+  id: string;
+  name: string;
+  code: string;
 }
 
 const PROVIDER_INFO: Record<AIProvider, {
@@ -130,22 +142,26 @@ const PROVIDER_INFO: Record<AIProvider, {
     description: 'Azure OpenAI — Enterprise-grade OpenAI on Azure',
   },
   custom: {
-    label: 'Custom Provider',
+    label: 'Custom (DashScope/GLM)',
     icon: '🔧',
     color: 'from-orange-500 to-amber-500',
     gradient: 'bg-gradient-to-br from-orange-500 to-amber-500',
-    defaultBaseUrl: '',
-    defaultModel: '',
+    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'glm-5.1',
     models: [],
     requiresBaseUrl: true,
-    description: 'Custom — Connect to any OpenAI-compatible API endpoint',
+    description: 'Custom — Connect to any OpenAI-compatible API endpoint (e.g., DashScope/GLM-5.1)',
   },
 };
 
 export default function AiSettingsPage() {
   const { token, user } = useAppStore();
   const perms = usePermissions();
-  const isSuperAdmin = perms.canEditAI;
+
+  // Access control
+  const canView = perms.canViewCompanyAiConfig;
+  const canEdit = perms.canEditCompanyAiConfig;
+  const isSuperAdmin = perms.isSuperAdmin;
 
   // ─── State ────────────────────────────────────────────────────────
   const [config, setConfig] = useState<AIConfigState>({
@@ -157,6 +173,7 @@ export default function AiSettingsPage() {
     model: 'glm-4-plus',
     maxTokens: 4096,
     temperature: 0.7,
+    customHeaders: {},
     configured: false,
   });
 
@@ -169,18 +186,29 @@ export default function AiSettingsPage() {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [savingToEnv, setSavingToEnv] = useState(false);
 
-  // ─── Fetch config on mount ────────────────────────────────────────
-  const fetchConfig = useCallback(async () => {
+  // Company selector (Super Admin only)
+  const [companies, setCompanies] = useState<CompanyInfo[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+
+  // Custom headers editing
+  const [newHeaderKey, setNewHeaderKey] = useState('');
+  const [newHeaderValue, setNewHeaderValue] = useState('');
+
+  // ─── Fetch config on mount and when company changes ──────────────
+  const fetchConfig = useCallback(async (companyId?: string) => {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/ai/config', {
+      const params = new URLSearchParams();
+      if (companyId) params.set('companyId', companyId);
+
+      const res = await fetch(`/api/ai/config?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
         const c = data.config;
-        const provider = c.provider || 'zai';
+        const provider = (c.provider || 'zai') as AIProvider;
         setConfig({
           provider,
           apiKey: '',
@@ -190,13 +218,25 @@ export default function AiSettingsPage() {
           model: c.model || PROVIDER_INFO[provider].defaultModel,
           maxTokens: c.maxTokens || 4096,
           temperature: c.temperature ?? 0.7,
+          customHeaders: c.customHeaders || {},
           configured: c.configured || false,
+          source: c.source,
         });
+
         // Set initial connection status based on config
         if (c.apiKeySet && c.configured) {
           setConnectionStatus('connected');
         } else {
           setConnectionStatus('disconnected');
+        }
+
+        // Set companies list for Super Admin
+        if (data.companies) {
+          setCompanies(data.companies);
+        }
+        // Set the active company ID
+        if (data.activeCompanyId) {
+          setSelectedCompanyId(data.activeCompanyId);
         }
       }
     } catch {
@@ -207,8 +247,21 @@ export default function AiSettingsPage() {
   }, [token]);
 
   useEffect(() => {
-    fetchConfig();
-  }, [fetchConfig]);
+    if (canView) {
+      fetchConfig();
+    } else {
+      setLoading(false);
+    }
+  }, [fetchConfig, canView]);
+
+  // Re-fetch when Super Admin changes company
+  const handleCompanyChange = (companyId: string) => {
+    setSelectedCompanyId(companyId);
+    setTestResult(null);
+    setSaveMessage(null);
+    setConnectionStatus('disconnected');
+    fetchConfig(companyId);
+  };
 
   // ─── Handlers ─────────────────────────────────────────────────────
 
@@ -236,7 +289,13 @@ export default function AiSettingsPage() {
         model: config.model,
         maxTokens: config.maxTokens,
         temperature: config.temperature,
+        customHeaders: Object.keys(config.customHeaders).length > 0 ? config.customHeaders : undefined,
       };
+
+      // Super Admin: include companyId for cross-company edits
+      if (isSuperAdmin && selectedCompanyId) {
+        body.companyId = selectedCompanyId;
+      }
 
       // Only send API key if user actually typed a new one
       if (config.apiKey) {
@@ -267,6 +326,8 @@ export default function AiSettingsPage() {
           model: c.model || prev.model,
           maxTokens: c.maxTokens || prev.maxTokens,
           temperature: c.temperature ?? prev.temperature,
+          customHeaders: c.customHeaders || {},
+          source: c.source,
         }));
         setShowApiKey(false);
       } else {
@@ -285,11 +346,18 @@ export default function AiSettingsPage() {
     setTestResult(null);
     setConnectionStatus('testing');
     try {
+      const body: Record<string, unknown> = {};
+      if (isSuperAdmin && selectedCompanyId) {
+        body.companyId = selectedCompanyId;
+      }
+
       const res = await fetch('/api/ai/config', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.result) {
@@ -301,7 +369,7 @@ export default function AiSettingsPage() {
       }
     } catch {
       setTestResult({ success: false, message: 'Network error during connection test.' });
-      setConnectionStatus('error');
+        setConnectionStatus('error');
     } finally {
       setTesting(false);
     }
@@ -336,6 +404,46 @@ export default function AiSettingsPage() {
     } finally {
       setSavingToEnv(false);
     }
+  };
+
+  // Custom headers handlers
+  const handleAddHeader = () => {
+    if (!newHeaderKey.trim()) return;
+    setConfig((prev) => ({
+      ...prev,
+      customHeaders: { ...prev.customHeaders, [newHeaderKey.trim()]: newHeaderValue },
+    }));
+    setNewHeaderKey('');
+    setNewHeaderValue('');
+  };
+
+  const handleRemoveHeader = (key: string) => {
+    setConfig((prev) => {
+      const updated = { ...prev.customHeaders };
+      delete updated[key];
+      return { ...prev, customHeaders: updated };
+    });
+  };
+
+  const handleUpdateHeader = (key: string, value: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      customHeaders: { ...prev.customHeaders, [key]: value },
+    }));
+  };
+
+  // Pre-fill DashScope config for Custom provider
+  const handlePreFillDashScope = () => {
+    setConfig((prev) => ({
+      ...prev,
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'glm-5.1',
+      apiKey: 'sk-ws-H.LMLMLP.DVPC.MEUCIH8gkusLYOfxHGwMd_7_E_J5NlhiekhG2uVeeWuAV4UwAiEAyqERu-UTHMByOrCwGbOtIWDSb-oUTCEFvJ8k3ksTSHk',
+    }));
+    setTestResult(null);
+    setSaveMessage(null);
+    setConnectionStatus('disconnected');
   };
 
   const providerInfo = PROVIDER_INFO[config.provider];
@@ -374,15 +482,15 @@ export default function AiSettingsPage() {
     }
   };
 
-  // ─── Non-superadmin guard ─────────────────────────────────────────
-  if (!loading && !perms.canEditAI) {
+  // ─── Access control guard ─────────────────────────────────────────
+  if (!loading && !canView) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <Alert className="border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
           <ShieldCheck className="h-4 w-4 text-red-600 dark:text-red-400" />
           <AlertTitle className="text-red-800 dark:text-red-300">Access Restricted</AlertTitle>
           <AlertDescription className="text-red-700 dark:text-red-400">
-            AI Settings is only accessible to Super Admin users. Contact your administrator to change the AI configuration.
+            AI Settings is only accessible to Super Admin and Company Admin users. Contact your administrator to change the AI configuration.
           </AlertDescription>
         </Alert>
       </div>
@@ -415,7 +523,7 @@ export default function AiSettingsPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">AI Settings</h1>
               <p className="text-sm text-muted-foreground">
-                Configure AI provider, API keys, and generation parameters
+                Company-scoped AI provider configuration {config.source === 'global' && '(using global defaults)'}
               </p>
             </div>
           </div>
@@ -436,8 +544,55 @@ export default function AiSettingsPage() {
               Not Configured
             </Badge>
           )}
+          {config.source === 'tenant' && (
+            <Badge variant="outline" className="text-blue-600 border-blue-300 dark:text-blue-400 dark:border-blue-700">
+              <Building2 className="w-3 h-3 mr-1" />
+              Company Config
+            </Badge>
+          )}
+          {config.source === 'global' && (
+            <Badge variant="outline" className="text-gray-500 border-gray-300 dark:text-gray-400 dark:border-gray-700">
+              <Globe className="w-3 h-3 mr-1" />
+              Global Default
+            </Badge>
+          )}
         </div>
       </div>
+
+      {/* ── Company Selector (Super Admin only) ─────────────────── */}
+      {isSuperAdmin && companies.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              Company Selection
+            </CardTitle>
+            <CardDescription>
+              As Super Admin, you can manage AI configuration for any company.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={selectedCompanyId}
+              onValueChange={handleCompanyChange}
+            >
+              <SelectTrigger className="w-full max-w-md">
+                <SelectValue placeholder="Select a company" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Companies</SelectLabel>
+                  {companies.map((company) => (
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name} ({company.code})
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Status Alert ─────────────────────────────────────────── */}
       {!config.configured && (
@@ -445,7 +600,7 @@ export default function AiSettingsPage() {
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           <AlertTitle className="text-amber-800 dark:text-amber-300">AI Not Configured</AlertTitle>
           <AlertDescription className="text-amber-700 dark:text-amber-400">
-            No AI provider is configured. AI features (Assistant, Prompts, Review) will use demo mode. 
+            No AI provider is configured for this company. AI features will use global defaults or demo mode. 
             Set an API key below to enable live AI responses.
           </AlertDescription>
         </Alert>
@@ -492,7 +647,7 @@ export default function AiSettingsPage() {
             AI Provider
           </CardTitle>
           <CardDescription>
-            Select the AI provider for the MDM platform. Each provider has different models and capabilities.
+            Select the AI provider for your company. Each provider has different models and capabilities.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -507,7 +662,7 @@ export default function AiSettingsPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => handleProviderChange(key)}
-                  disabled={!isSuperAdmin}
+                  disabled={!canEdit}
                   className={`
                     relative rounded-xl border-2 p-4 text-center transition-all duration-200 cursor-pointer
                     focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2
@@ -546,7 +701,7 @@ export default function AiSettingsPage() {
             <div className="flex items-center gap-2">
               <span className="text-xl">{providerInfo.icon}</span>
               <span className="font-semibold">{providerInfo.label}</span>
-              {connectionStatus === 'connected' && config.provider === config.provider && (
+              {connectionStatus === 'connected' && (
                 <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs ml-2">
                   <Wifi className="w-3 h-3 mr-1" />
                   Connected
@@ -560,6 +715,19 @@ export default function AiSettingsPage() {
                 This provider requires a custom base URL
               </div>
             )}
+            {/* Quick pre-fill for Custom provider */}
+            {config.provider === 'custom' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreFillDashScope}
+                disabled={!canEdit}
+                className="gap-2 mt-2"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Pre-fill DashScope/GLM-5.1 Config
+              </Button>
+            )}
           </div>
 
           {/* Model selection */}
@@ -569,7 +737,7 @@ export default function AiSettingsPage() {
               <Select
                 value={config.model}
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, model: v }))}
-                disabled={!isSuperAdmin}
+                disabled={!canEdit}
               >
                 <SelectTrigger className="w-full" id="model">
                   <SelectValue placeholder="Select model" />
@@ -589,7 +757,7 @@ export default function AiSettingsPage() {
                 value={config.model}
                 onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
                 placeholder="Enter model name"
-                disabled={!isSuperAdmin}
+                disabled={!canEdit}
               />
             )}
           </div>
@@ -604,7 +772,7 @@ export default function AiSettingsPage() {
             API Key & Endpoint
           </CardTitle>
           <CardDescription>
-            Provide your API key and endpoint URL. Keys are stored securely and never exposed in full.
+            Provide your API key and endpoint URL. Keys are stored securely per company and never exposed in full.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -627,7 +795,7 @@ export default function AiSettingsPage() {
                     }
                   }}
                   placeholder={config.apiKeySet ? 'Enter new key to replace existing' : 'Enter API key'}
-                  disabled={!isSuperAdmin}
+                  disabled={!canEdit}
                   className="pr-10"
                 />
                 <Button
@@ -636,7 +804,7 @@ export default function AiSettingsPage() {
                   size="sm"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  disabled={!isSuperAdmin}
+                  disabled={!canEdit}
                 >
                   {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -661,19 +829,106 @@ export default function AiSettingsPage() {
               value={config.baseUrl}
               onChange={(e) => setConfig((prev) => ({ ...prev, baseUrl: e.target.value }))}
               placeholder={providerInfo.defaultBaseUrl || 'https://api.example.com/v1'}
-              disabled={!isSuperAdmin}
+              disabled={!canEdit}
             />
             <p className="text-xs text-muted-foreground">
               {config.provider === 'azure-openai'
                 ? 'Your Azure OpenAI resource endpoint (e.g., https://your-resource.openai.azure.com)'
                 : config.provider === 'custom'
-                  ? 'The base URL for your OpenAI-compatible API endpoint'
+                  ? 'The base URL for your OpenAI-compatible API endpoint (e.g., DashScope compatible mode URL)'
                   : `Default: ${providerInfo.defaultBaseUrl}`
               }
             </p>
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Custom Headers Card (Custom provider only) ────────────── */}
+      {config.provider === 'custom' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileJson className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              Custom Headers
+            </CardTitle>
+            <CardDescription>
+              Add custom HTTP headers for API authentication or routing. These headers will be sent with every request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Existing headers */}
+            {Object.entries(config.customHeaders).length > 0 && (
+              <div className="space-y-2">
+                {Object.entries(config.customHeaders).map(([key, value]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <Input
+                      value={key}
+                      disabled
+                      className="flex-1 font-mono text-sm bg-muted/50"
+                    />
+                    <Input
+                      value={value}
+                      onChange={(e) => handleUpdateHeader(key, e.target.value)}
+                      disabled={!canEdit}
+                      className="flex-1 font-mono text-sm"
+                      placeholder="Header value"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveHeader(key)}
+                      disabled={!canEdit}
+                      className="shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new header */}
+            {canEdit && (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newHeaderKey}
+                  onChange={(e) => setNewHeaderKey(e.target.value)}
+                  placeholder="Header name"
+                  className="flex-1 font-mono text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddHeader();
+                  }}
+                />
+                <Input
+                  value={newHeaderValue}
+                  onChange={(e) => setNewHeaderValue(e.target.value)}
+                  placeholder="Header value"
+                  className="flex-1 font-mono text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddHeader();
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddHeader}
+                  disabled={!newHeaderKey.trim()}
+                  className="gap-1 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </Button>
+              </div>
+            )}
+
+            {Object.keys(config.customHeaders).length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No custom headers configured. Add headers if your API requires additional authentication or routing.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Generation Parameters Card ──────────────────────────── */}
       <Card>
@@ -683,7 +938,7 @@ export default function AiSettingsPage() {
             Generation Parameters
           </CardTitle>
           <CardDescription>
-            Fine-tune how the AI generates responses. These settings apply to all AI features.
+            Fine-tune how the AI generates responses. These settings apply to all AI features for this company.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -704,7 +959,7 @@ export default function AiSettingsPage() {
               min={0}
               max={2}
               step={0.05}
-              disabled={!isSuperAdmin}
+              disabled={!canEdit}
             />
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>Precise (0)</span>
@@ -733,7 +988,7 @@ export default function AiSettingsPage() {
               }}
               min={1}
               max={128000}
-              disabled={!isSuperAdmin}
+              disabled={!canEdit}
             />
             <p className="text-xs text-muted-foreground">
               Maximum number of tokens per AI response (1–128,000). Higher values allow longer responses but cost more.
@@ -757,7 +1012,7 @@ export default function AiSettingsPage() {
           <div className="flex items-center gap-3">
             <Button
               onClick={handleTestConnection}
-              disabled={testing || !isSuperAdmin || !config.apiKeySet}
+              disabled={testing || !canEdit || !config.apiKeySet}
               variant="outline"
               className="gap-2"
             >
@@ -832,12 +1087,12 @@ export default function AiSettingsPage() {
       </Card>
 
       {/* ── Save Actions ──────────────────────────────────────────── */}
-      {isSuperAdmin && (
+      {canEdit && (
         <div className="space-y-3">
           <div className="flex items-center justify-end gap-3">
             <Button
               variant="outline"
-              onClick={fetchConfig}
+              onClick={() => fetchConfig(selectedCompanyId)}
               disabled={saving}
               className="gap-2"
             >
@@ -877,7 +1132,7 @@ export default function AiSettingsPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleSaveToEnvironment}
-                  disabled={savingToEnv || !config.apiKey || !isSuperAdmin}
+                  disabled={savingToEnv || !config.apiKey || !canEdit}
                   className="gap-2 shrink-0"
                 >
                   {savingToEnv ? (
@@ -891,6 +1146,17 @@ export default function AiSettingsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* ── Read-only notice for Company Admin (non-edit scenario) ── */}
+      {canView && !canEdit && (
+        <Alert className="border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20">
+          <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <AlertTitle className="text-blue-800 dark:text-blue-300">Read-Only Access</AlertTitle>
+          <AlertDescription className="text-blue-700 dark:text-blue-400">
+            You can view the AI configuration but do not have permission to edit it. Contact your Super Admin to make changes.
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

@@ -32,6 +32,7 @@ export interface AIProviderConfig {
   model: string;
   maxTokens: number;
   temperature: number;
+  customHeaders?: Record<string, string>;
 }
 
 export interface AIMaskedConfig {
@@ -42,7 +43,10 @@ export interface AIMaskedConfig {
   model: string;
   maxTokens: number;
   temperature: number;
+  customHeaders?: Record<string, string>;
   configured: boolean;
+  source?: 'tenant' | 'global';  // Where the config came from
+  companyId?: string;            // Which company this config belongs to
 }
 
 interface ZAIConfig {
@@ -77,9 +81,9 @@ export const PROVIDER_DEFAULTS: Record<AIProvider, { baseUrl: string; model: str
     label: 'Azure OpenAI',
   },
   custom: {
-    baseUrl: '',
-    model: '',
-    label: 'Custom Provider',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    model: 'glm-5.1',
+    label: 'Custom (DashScope/GLM)',
   },
 };
 
@@ -172,6 +176,93 @@ export async function getAIMaskedConfig(): Promise<AIMaskedConfig> {
     temperature: config.temperature,
     configured: apiKeySet,
   };
+}
+
+// ─── Tenant-scoped AI config (TenantAiConfig) ─────────────────────
+
+/**
+ * Get AI provider config for a specific company (tenant).
+ * Reads from TenantAiConfig first, then falls back to global AppSettings.
+ */
+export async function getTenantAIProviderConfig(companyId: string): Promise<AIProviderConfig> {
+  const { db } = await import('@/lib/db');
+
+  try {
+    const tenantConfig = await db.tenantAiConfig.findUnique({
+      where: { companyId },
+    });
+
+    if (tenantConfig && tenantConfig.isActive) {
+      const provider: AIProvider = (() => {
+        const p = tenantConfig.provider;
+        if (['zai', 'gemini', 'openai', 'azure-openai', 'custom'].includes(p)) return p as AIProvider;
+        return 'zai';
+      })();
+
+      const defaults = PROVIDER_DEFAULTS[provider];
+      return {
+        provider,
+        apiKey: tenantConfig.apiKey || '',
+        baseUrl: tenantConfig.baseUrl || defaults.baseUrl,
+        model: tenantConfig.model || defaults.model,
+        maxTokens: tenantConfig.maxTokens,
+        temperature: tenantConfig.temperature,
+        customHeaders: (tenantConfig.customHeaders as unknown as Record<string, string>) || undefined,
+      };
+    }
+  } catch {
+    // TenantAiConfig table may not exist yet during migration
+  }
+
+  // Fall back to global config
+  return getAIProviderConfig();
+}
+
+/**
+ * Get a masked version of the tenant-scoped AI config (safe to send to the client).
+ */
+export async function getTenantAIMaskedConfig(companyId: string): Promise<AIMaskedConfig> {
+  const { db } = await import('@/lib/db');
+
+  try {
+    const tenantConfig = await db.tenantAiConfig.findUnique({
+      where: { companyId },
+    });
+
+    if (tenantConfig && tenantConfig.isActive) {
+      const provider: AIProvider = (() => {
+        const p = tenantConfig.provider;
+        if (['zai', 'gemini', 'openai', 'azure-openai', 'custom'].includes(p)) return p as AIProvider;
+        return 'zai';
+      })();
+
+      const defaults = PROVIDER_DEFAULTS[provider];
+      const apiKeySet = !!tenantConfig.apiKey;
+      const apiKeyMasked = tenantConfig.apiKey
+        ? '••••••••' + tenantConfig.apiKey.slice(-4)
+        : '';
+
+      return {
+        provider,
+        apiKeyMasked,
+        apiKeySet,
+        baseUrl: tenantConfig.baseUrl || defaults.baseUrl,
+        model: tenantConfig.model || defaults.model,
+        maxTokens: tenantConfig.maxTokens,
+        temperature: tenantConfig.temperature,
+        customHeaders: (tenantConfig.customHeaders as unknown as Record<string, string>) || undefined,
+        configured: apiKeySet,
+        source: 'tenant',
+        companyId,
+      };
+    }
+  } catch {
+    // TenantAiConfig table may not exist yet
+  }
+
+  // Fall back to global config
+  const globalConfig = await getAIMaskedConfig();
+  return { ...globalConfig, source: 'global', companyId };
 }
 
 // ─── Legacy ZAI helpers (backward compatible) ───────────────────────

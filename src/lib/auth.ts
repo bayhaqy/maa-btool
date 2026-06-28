@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
+import { hasPermission, isSuperAdmin, isCompanyAdmin, type PermissionContext } from './rbac';
 
 // SECURITY: Fail-fast if JWT_SECRET is missing in production.
 // Never use a hardcoded fallback — that would allow token forgery.
@@ -136,10 +137,33 @@ export function canTransition(currentStatus: string, targetStatus: string): bool
   return STATE_TRANSITIONS[currentStatus]?.includes(targetStatus) ?? false;
 }
 
+// ============================================================
+// Legacy role name → Stibo role type mapping
+// Used during migration to normalize old role names
+// ============================================================
+const LEGACY_ROLE_MAP: Record<string, string> = {
+  'Manager': 'Administrator',
+  'Data Entry': 'Editor',
+  'Doc Writer': 'Data Steward',
+  'AI User': 'Editor',       // AI User maps to Editor (has ai:read + some write)
+  'Viewer': 'Viewer',
+};
+
+/**
+ * Normalize a role name: if it's a legacy role, map it to the Stibo equivalent.
+ * If it's already a Stibo role name, return it as-is.
+ */
+function normalizeRoleName(roleName: string): string {
+  return LEGACY_ROLE_MAP[roleName] ?? roleName;
+}
+
 /**
  * Get a user's full permissions including module-level access and allowed pages.
+ * Company-scoped: module queries are filtered by the user's companyId so that
+ * multi-tenant isolation is enforced at the data level.
+ *
  * @param userId - The user's ID
- * @returns Object with modules, allowedPages, and isSuperAdmin
+ * @returns Object with modules, allowedPages, isSuperAdmin, isCompanyAdmin
  */
 export async function getUserPermissions(userId: string): Promise<{
   modules: Array<{
@@ -153,6 +177,7 @@ export async function getUserPermissions(userId: string): Promise<{
   }>;
   allowedPages: string[];
   isSuperAdmin: boolean;
+  isCompanyAdmin: boolean;
 }> {
   // Get user with roles
   const user = await db.sysUser.findUnique({
@@ -163,22 +188,32 @@ export async function getUserPermissions(userId: string): Promise<{
   });
 
   if (!user) {
-    return { modules: [], allowedPages: [], isSuperAdmin: false };
+    return { modules: [], allowedPages: [], isSuperAdmin: false, isCompanyAdmin: false };
   }
 
-  const roleNames = user.userRoles.map(ur => ur.role.roleName);
-  const isSA = roleNames.includes('Super Admin');
+  // Normalize role names: map legacy names to Stibo role types
+  const rawRoleNames = user.userRoles.map(ur => ur.role.roleName);
+  const roleNames = rawRoleNames.map(normalizeRoleName);
+  const isSA = isSuperAdmin(roleNames);
+  const isCA = isCompanyAdmin(roleNames);
+  const userCompanyId = user.companyId;
 
   // Get all active modules
+  // Note: MetaModule is shared/global — not company-scoped.
+  // Company-level visibility is controlled via RolePermission records.
   const modules = await db.metaModule.findMany({
     where: { isActive: true },
     orderBy: { sortOrder: 'asc' },
   });
 
-  // Get role-level permissions for each module
+  // Get role-level permissions for each module (company-scoped)
   const roleIds = user.userRoles.map(ur => ur.roleId);
   const rolePermissions = await db.rolePermission.findMany({
-    where: { roleId: { in: roleIds } },
+    where: {
+      roleId: { in: roleIds },
+      // Company-scoped: only get permissions for the user's company
+      companyId: userCompanyId,
+    },
   });
 
   // Build module permissions
@@ -186,7 +221,7 @@ export async function getUserPermissions(userId: string): Promise<{
     const perms = rolePermissions.filter(rp => rp.moduleId === mod.id);
     const hasExplicitPerms = perms.length > 0;
 
-    // If Super Admin or no explicit permissions set, derive from role
+    // If Super Admin, full access to everything
     if (isSA) {
       return {
         moduleId: mod.id,
@@ -200,19 +235,19 @@ export async function getUserPermissions(userId: string): Promise<{
     }
 
     if (!hasExplicitPerms) {
-      // No explicit permissions - derive from role defaults
-      const canRead = roleNames.some(r =>
-        ['Manager', 'Data Entry', 'Viewer', 'Doc Writer', 'API Manager', 'SFTP Manager', 'AI User'].includes(r)
-      );
-      const canWrite = roleNames.some(r => ['Manager', 'Data Entry'].includes(r));
+      // No explicit permissions - derive from Stibo role defaults
+      const canRead = hasPermission(roleNames, 'data:read');
+      const canWrite = hasPermission(roleNames, 'data:edit') || hasPermission(roleNames, 'data:create');
+      const canDelete = hasPermission(roleNames, 'data:delete');
+      const canApprove = hasPermission(roleNames, 'data:approve');
       return {
         moduleId: mod.id,
         moduleCode: mod.moduleCode,
         moduleName: mod.moduleName,
         canRead,
         canWrite,
-        canDelete: roleNames.includes('Manager'),
-        canApprove: roleNames.includes('Manager'),
+        canDelete,
+        canApprove,
       };
     }
 
@@ -222,33 +257,54 @@ export async function getUserPermissions(userId: string): Promise<{
       moduleCode: mod.moduleCode,
       moduleName: mod.moduleName,
       canRead: perms.some(p => p.canRead),
-      canWrite: perms.some(p => p.canWrite),
+      canWrite: perms.some(p => p.canCreate || p.canEdit),
       canDelete: perms.some(p => p.canDelete),
       canApprove: perms.some(p => p.canApprove),
     };
   });
 
-  // Determine allowed pages based on roles
+  // Determine allowed pages based on Stibo roles
   const allowedPages: string[] = ['dashboard'];
-  if (isSA || roleNames.some(r => ['Manager', 'Data Entry', 'Viewer'].includes(r))) {
+
+  // Core data pages: any role with data:read
+  if (isSA || hasPermission(roleNames, 'data:read')) {
     allowedPages.push('modules', 'records', 'workflow', 'hierarchy', 'audit', 'bulk-import');
   }
-  if (isSA || roleNames.includes('Doc Writer')) {
+
+  // Documentation: any role with doc:read or data:read
+  if (isSA || hasPermission(roleNames, 'doc:read') || hasPermission(roleNames, 'data:read')) {
     allowedPages.push('documentation');
   }
-  if (isSA || roleNames.includes('API Manager')) {
+
+  // API Management: API Manager role or integration:write
+  if (isSA || hasPermission(roleNames, 'api:manage') || hasPermission(roleNames, 'integration:write')) {
     allowedPages.push('api-management');
   }
+
+  // AI Assistant: any role with ai:read
+  if (isSA || hasPermission(roleNames, 'ai:read')) {
+    allowedPages.push('ai-assistant');
+  }
+
+  // Admin & settings: Super Admin only (system-wide)
   if (isSA) {
     allowedPages.push('admin', 'settings', 'about');
   }
-  if (isSA || roleNames.includes('AI User')) {
-    allowedPages.push('ai-assistant');
+
+  // Company Admin gets company-scoped admin access (not system-wide)
+  if (isCA && !isSA) {
+    allowedPages.push('company-settings');
+  }
+
+  // Tenant management pages: Super Admin or Company Admin
+  if (isSA || isCA) {
+    allowedPages.push('tenant-management');
   }
 
   return {
     modules: modulePerms,
-    allowedPages,
+    allowedPages: [...new Set(allowedPages)], // Deduplicate
     isSuperAdmin: isSA,
+    isCompanyAdmin: isCA,
   };
 }

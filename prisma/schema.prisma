@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider  = "sqlite"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ============================================================
@@ -31,15 +30,21 @@ model TenantCompany {
   maxUsers      Int      @default(50)
   maxRecords    Int      @default(100000)
   dataRetentionDays Int  @default(365)
+  // Tenant provisioning status (Stibo onboarding lifecycle)
+  onboardingStatus     String    @default("PENDING") // PENDING | PROVISIONING | ACTIVE | SUSPENDED
+  provisionedAt        DateTime?
+  defaultRoleTemplateId String?  // reference to a role template used during provisioning
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   users       SysUser[]
+  roles       SysRole[]
   dataRecords DataRecord[]
   apiKeys     ApiKey[]
   sftpConfigs SftpConfig[]
   digitalAssets DigitalAsset[]
   dataExchangeEndpoints DataExchangeEndpoint[]
+  aiConfigs   TenantAiConfig[]
 }
 
 model SysUser {
@@ -76,7 +81,8 @@ model SysUser {
 
 model SysRole {
   id          String  @id @default(cuid())
-  roleName    String  @unique
+  companyId   String  // Tenant scope — roles are company-scoped for multi-tenant isolation
+  roleName    String
   description String?
   // STIBO role types: VIEWER (read-only), EDITOR (create/edit), APPROVER (review/approve),
   // DATA_STEWARD (quality/correction), ADMINISTRATOR (config/manage), SYSTEM_ADMIN (full access)
@@ -85,22 +91,31 @@ model SysRole {
   scope       String  @default("MODULE")
   // Is this a system role (cannot be deleted)?
   isSystem    Boolean @default(false)
+  // Global roles apply across all tenants (e.g. Super Admin); isGlobal roles have companyId pointing to "SYSTEM"
+  isGlobal    Boolean @default(false)
   color       String? // UI color for badges
   icon        String? // UI icon name
 
+  company          TenantCompany  @relation(fields: [companyId], references: [id])
   userRoles        UserRole[]
   rolePermissions  RolePermission[]
+
+  @@unique([companyId, roleName])
+  @@index([companyId])
+  @@index([companyId, roleType])
 }
 
 model UserRole {
-  id     String @id @default(cuid())
-  userId String
-  roleId String
+  id        String @id @default(cuid())
+  userId    String
+  roleId    String
+  companyId String // Tenant context for the role assignment — ensures role assignments are tenant-scoped
 
   user   SysUser @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   SysRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
+  @@index([companyId])
 }
 
 model RolePermission {
@@ -116,11 +131,16 @@ model RolePermission {
   canImport          Boolean @default(false)
   canBulkUpdate      Boolean @default(false)
   // Column-level restrictions (JSON array of restricted field codes)
-  columnRestrictions Json?
+  columnRestrictions String?
   // Row-level filter (JSON condition)
-  rowFilter          Json?
+  rowFilter          String?
   // Workflow-state based restrictions (JSON array of allowed states)
-  allowedStates      Json?
+  // Stibo privilege rules: restrict permissions to specific workflow states
+  // e.g. ["DRAFT","REVIEW"] means the role can only act on records in DRAFT or REVIEW state
+  // Combined with WorkflowState/WorkflowTransition models for full Stibo workflow governance
+  allowedStates      String?
+  // DEPRECATED: Access companyId via role.companyId instead — kept for backward compat queries
+  companyId          String?
 
   role   SysRole    @relation(fields: [roleId], references: [id], onDelete: Cascade)
   module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -205,7 +225,7 @@ model MetaField {
   // STIBO: Inherited from parent classification
   isInherited   Boolean @default(false)
   // STIBO: Category-specific (only applies to certain classifications)
-  categoryScope Json? // JSON array of category codes
+  categoryScope String? // JSON array of category codes
   // Unit of measure (for NUMBER/DECIMAL/CURRENCY types)
   unitOfMeasure String?
   // Min/max for NUMBER/DECIMAL types
@@ -290,7 +310,7 @@ model DataRecord {
   companyId      String
   // STIBO workflow states: DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
   status         String   @default("DRAFT")
-  currentPayload Json
+  currentPayload String
   lockedBy       String?
   version        Int      @default(1)
   // STIBO: Data ownership
@@ -320,7 +340,7 @@ model DataRecord {
 model DataVersion {
   id              String   @id @default(cuid())
   recordId        String
-  payloadSnapshot Json
+  payloadSnapshot String
   versionNumber   Int
   changedById     String?
   changeReason    String?
@@ -383,7 +403,7 @@ model ApprovalTicket {
   requestedById String
   reviewedById  String?
   status        String    @default("PENDING")
-  deltaPayload  Json?
+  deltaPayload  String?
   reviewNotes   String?
   createdAt     DateTime  @default(now())
   reviewedAt    DateTime?
@@ -398,7 +418,7 @@ model ApprovalTicket {
   delegatedFrom String?
   priority      String    @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
   parentTicketId String?
-  workflowHistory Json?
+  workflowHistory String?
 
   record      DataRecord @relation(fields: [recordId], references: [id])
   requestedBy SysUser    @relation("RequestedBy", fields: [requestedById], references: [id])
@@ -415,13 +435,13 @@ model WorkflowTemplate {
   stepCount    Int      @default(1)
   // STIBO: Visual workflow configuration
   // JSON: { states: [{id, name, type, color}], transitions: [{from, to, condition, assignee}] }
-  stepConfig   Json
+  stepConfig   String
   // STIBO: Auto-approval rules
   // JSON: [{condition, targetState}]
-  autoApproveRules Json?
+  autoApproveRules String?
   // STIBO: SLA configuration
   // JSON: { defaultDeadlineHours, escalationRules: [{afterHours, assignToRole}] }
-  slaConfig    Json?
+  slaConfig    String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -453,15 +473,15 @@ model WorkflowTransition {
   toStateId     String
   transitionName String
   // STIBO: Condition for transition (JSON expression)
-  condition     Json?
+  condition     String?
   // STIBO: Role required to execute this transition
   requiredRole  String?
   // STIBO: Business rules to validate before transition
-  businessRuleIds Json? // JSON array of rule IDs
+  businessRuleIds String? // JSON array of rule IDs
   // STIBO: Auto-transition (when condition is met)
   isAuto        Boolean  @default(false)
   // STIBO: Notification config
-  notifyRoles   Json? // JSON array of role names to notify
+  notifyRoles   String? // JSON array of role names to notify
   sortOrder     Int      @default(0)
 
   template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, name: "TemplateTransitions")
@@ -539,12 +559,12 @@ model DigitalAsset {
   // STIBO: Asset status and workflow
   status        String   @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
   // STIBO: Asset tags and categories
-  tags          Json?     // JSON array of tags
+  tags          String?  // JSON array of tags
   category      String?
   // STIBO: Expiry and rights management
   validFrom     DateTime?
   validTo       DateTime?
-  rightsInfo    Json?     // JSON: {license, owner, restrictions}
+  rightsInfo    String?  // JSON: {license, owner, restrictions}
   // STIBO: Upload tracking
   uploadedById  String?
   sortOrder     Int      @default(0)
@@ -608,7 +628,7 @@ model ApiKey {
   keyPrefix   String
   companyId   String?
   userId      String?
-  permissions Json
+  permissions String
   rateLimit   Int       @default(100)
   isActive    Boolean   @default(true)
   lastUsedAt  DateTime?
@@ -655,19 +675,19 @@ model DataExchangeEndpoint {
   // REST: {url, method, headers, authType, authToken}
   // SFTP: {host, port, username, authType, path}
   // DATABASE: {connectionString, query}
-  connectionConfig Json
+  connectionConfig String
   // STIBO: Data mapping configuration (JSON)
   // {fieldMappings: [{source, target, transform}], primaryKey, conflictResolution}
-  mappingConfig Json?
+  mappingConfig String?
   // STIBO: Schedule configuration (JSON)
   // {type: 'cron'|'interval'|'manual', expression: '0 */6 * * *', timezone}
-  scheduleConfig Json?
+  scheduleConfig String?
   // STIBO: Transform rules (JSON array)
   // [{type: 'RENAME'|'FILTER'|'MAP'|'CONCAT'|'SPLIT'|'LOOKUP', config: {...}}]
-  transformRules Json?
+  transformRules String?
   // STIBO: Error handling
   // {onError: 'skip'|'stop'|'log', maxRetries: 3, retryDelay: 1000}
-  errorHandling Json?
+  errorHandling String?
   // STIBO: Module scope
   moduleId      String?
   isActive      Boolean  @default(true)
@@ -801,7 +821,7 @@ model AiConversation {
   pinned       Boolean   @default(false)
   // STIBO: Conversation categories
   category     String?   // DATA_QUALITY, ENRICHMENT, MAPPING, GENERAL
-  tags         Json?      // JSON array of tags
+  tags         String?   // JSON array of tags
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -847,14 +867,14 @@ model BusinessRule {
   // RANGE (check value range), PATTERN (regex validation)
   conditionType String   @default("CROSS_FIELD")
   // JSON: condition configuration
-  conditionJson Json
+  conditionJson String
   // STIBO: Action type for ACTION rules
   // BLOCK (prevent save), SET_VALUE (compute field), SEND_EMAIL, WARN,
   // SET_STATUS (change record status), TRANSITION (workflow state change),
   // TRIGGER_WEBHOOK (call external API), CREATE_TASK (create stewardship task)
   actionType    String   @default("BLOCK")
   // JSON for action configuration
-  actionJson    Json?
+  actionJson    String?
   // STIBO: Error/warning message
   errorMessage  String?
   // STIBO: Severity: ERROR (blocks save), WARNING (shows warning), INFO (informational)
@@ -881,8 +901,8 @@ model SavedView {
   moduleId    String
   name        String
   scope       String   @default("COMBINED")
-  columnConfig Json?
-  filterConfig Json?
+  columnConfig String?
+  filterConfig String?
   sharedWith   String?
   isDefault    Boolean  @default(false)
   lastUsedAt   DateTime?
@@ -902,14 +922,14 @@ model BulkUpdateJob {
   userId        String
   moduleId      String
   name          String?
-  targetFilter  Json
-  operations    Json
+  targetFilter  String
+  operations    String
   status        String    @default("QUEUED")
   mode          String    @default("APPLY")
   totalRecords  Int       @default(0)
   okRecords     Int       @default(0)
   failedRecords Int       @default(0)
-  results       Json?
+  results       String?
   errorLog      String?
   startedAt     DateTime?
   completedAt   DateTime?
@@ -930,7 +950,7 @@ model AiPrompt {
   description     String?
   systemPrompt    String
   userPromptTemplate String
-  inputAttributes  Json?
+  inputAttributes  String?
   outputAttribute String?
   maxChars        Int      @default(500)
   persona         String?
@@ -1036,4 +1056,26 @@ model StewardshipTask {
   record      DataRecord? @relation(fields: [recordId], references: [id])
   assignee    SysUser?   @relation("StewardshipAssignee", fields: [assignedTo], references: [id])
   assigner    SysUser?   @relation("StewardshipAssigner", fields: [assignedBy], references: [id])
+}
+
+// ============================================================
+// 18. TENANT AI CONFIGURATION (Per-company AI provider settings)
+// ============================================================
+
+model TenantAiConfig {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  company     TenantCompany @relation(fields: [companyId], references: [id])
+  provider    String   @default("zai")  // zai | gemini | openai | azure | custom
+  apiKey      String?
+  baseUrl     String?
+  model       String?
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(4096)
+  customHeaders String?  // for custom provider headers (SQLite uses String instead of Json)
+  isActive    Boolean  @default(true)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
