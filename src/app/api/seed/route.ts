@@ -858,70 +858,70 @@ export async function POST(request: NextRequest) {
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'SEPATU', sub_category: 'SEPATU_RUNNING', brand: 'Nike', uom: 'PCS', purchase_price: 1200000, selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — sepatu lari ringan dengan respons cushioning terbaik', is_active: true }),
+          currentPayload: { article_code: 'ART-001', article_name: 'Nike Air Zoom Pegasus 40', category: 'SEPATU', sub_category: 'SEPATU_RUNNING', brand: 'Nike', uom: 'PCS', purchase_price: 1200000, selling_price: 1899000, tags: 'NEW_ARRIVAL,BEST_SELLER', description: 'Nike Air Zoom Pegasus 40 — sepatu lari ringan dengan respons cushioning terbaik', is_active: true },
           createdById: userSuperAdmin.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU', sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000, selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true }),
+          currentPayload: { article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU', sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000, selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userEditorMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU', sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000, selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true }),
+          currentPayload: { article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU', sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000, selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS', sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000, selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true }),
+          currentPayload: { article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS', sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000, selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-005', article_name: 'Consina Briefcase Kerja', category: 'TAS', sub_category: 'TAS_KERJA', brand: 'Consina', uom: 'PCS', purchase_price: 425000, selling_price: 750000, tags: 'PREMIUM', description: 'Tas kerja briefcase Consina kulit PU, muat laptop 15 inch', is_active: true }),
+          currentPayload: { article_code: 'ART-005', article_name: 'Consina Briefcase Kerja', category: 'TAS', sub_category: 'TAS_KERJA', brand: 'Consina', uom: 'PCS', purchase_price: 425000, selling_price: 750000, tags: 'PREMIUM', description: 'Tas kerja briefcase Consina kulit PU, muat laptop 15 inch', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userAdminMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-006', article_name: 'Uniqlo Dry EZ Pria Kaos', category: 'PAKAIAN', sub_category: 'PAKAIAN_PRIA', brand: 'Uniqlo', uom: 'PCS', purchase_price: 79000, selling_price: 149000, tags: 'NEW_ARRIVAL', description: 'Kaos Uniqlo Dry EZ pria, material kering cepat & anti kusut', is_active: true }),
+          currentPayload: { article_code: 'ART-006', article_name: 'Uniqlo Dry EZ Pria Kaos', category: 'PAKAIAN', sub_category: 'PAKAIAN_PRIA', brand: 'Uniqlo', uom: 'PCS', purchase_price: 79000, selling_price: 149000, tags: 'NEW_ARRIVAL', description: 'Kaos Uniqlo Dry EZ pria, material kering cepat & anti kusut', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-007', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS', sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000, selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true }),
+          currentPayload: { article_code: 'ART-007', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS', sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000, selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'DRAFT',
-          currentPayload: JSON.stringify({ article_code: 'ART-008', article_name: 'Komachi Sandal Jepang Slide', category: 'SEPATU', sub_category: 'SEPATU_SANDAL', brand: 'Komachi', uom: 'PCS', purchase_price: 35000, selling_price: 79000, tags: 'SALE', description: 'Sandal jepang slide Komachi empuk, anti slip', is_active: true }),
+          currentPayload: { article_code: 'ART-008', article_name: 'Komachi Sandal Jepang Slide', category: 'SEPATU', sub_category: 'SEPATU_SANDAL', brand: 'Komachi', uom: 'PCS', purchase_price: 35000, selling_price: 79000, tags: 'SALE', description: 'Sandal jepang slide Komachi empuk, anti slip', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userEditorMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'IN_REVIEW',
-          currentPayload: JSON.stringify({ article_code: 'ART-009', article_name: 'Timbuk2 Messenger Tas Tangan', category: 'TAS', sub_category: 'TAS_TANGAN', brand: 'Timbuk2', uom: 'PCS', purchase_price: 650000, selling_price: 1199000, tags: 'LIMITED,FEATURED', description: 'Tas tangan messenger Timbuk2 edisi terbatas, waterproof liner', is_active: true }),
+          currentPayload: { article_code: 'ART-009', article_name: 'Timbuk2 Messenger Tas Tangan', category: 'TAS', sub_category: 'TAS_TANGAN', brand: 'Timbuk2', uom: 'PCS', purchase_price: 650000, selling_price: 1199000, tags: 'LIMITED,FEATURED', description: 'Tas tangan messenger Timbuk2 edisi terbatas, waterproof liner', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userAdminMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ article_code: 'ART-010', article_name: 'Dr. Martens 1460 Boot', category: 'SEPATU', sub_category: 'SEPATU_BOOT', brand: 'Dr. Martens', uom: 'PCS', purchase_price: 1850000, selling_price: 2899000, tags: 'PREMIUM,EXCLUSIVE', description: 'Dr. Martens 1460 boot 8-eye klasik, kulit premium Made In England', is_active: true }),
+          currentPayload: { article_code: 'ART-010', article_name: 'Dr. Martens 1460 Boot', category: 'SEPATU', sub_category: 'SEPATU_BOOT', brand: 'Dr. Martens', uom: 'PCS', purchase_price: 1850000, selling_price: 2899000, tags: 'PREMIUM,EXCLUSIVE', description: 'Dr. Martens 1460 boot 8-eye klasik, kulit premium Made In England', is_active: true },
           createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
@@ -932,35 +932,35 @@ export async function POST(request: NextRequest) {
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ store_code: 'STR-001', store_name: 'MAP Grand Indonesia', region: 'JABODETABEK', city: 'Jakarta', address: 'Grand Indonesia Mall Lt.1, Jl. MH Thamrin No.1', phone: '+62212555789', store_type: 'HYPERMARKET', is_active: true }),
+          currentPayload: { store_code: 'STR-001', store_name: 'MAP Grand Indonesia', region: 'JABODETABEK', city: 'Jakarta', address: 'Grand Indonesia Mall Lt.1, Jl. MH Thamrin No.1', phone: '+62212555789', store_type: 'HYPERMARKET', is_active: true },
           createdById: userSuperAdmin.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ store_code: 'STR-002', store_name: 'MAP Pondok Indah Mall', region: 'JABODETABEK', city: 'Jakarta', address: 'Pondok Indah Mall, Jl. Metro Pondok Indah', phone: '+62212789012', store_type: 'SUPERMARKET', is_active: true }),
+          currentPayload: { store_code: 'STR-002', store_name: 'MAP Pondok Indah Mall', region: 'JABODETABEK', city: 'Jakarta', address: 'Pondok Indah Mall, Jl. Metro Pondok Indah', phone: '+62212789012', store_type: 'SUPERMARKET', is_active: true },
           createdById: userSuperAdmin.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMAPI.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ store_code: 'STR-003', store_name: 'MAP Surabaya Tunjungan', region: 'EAST_JAVA', city: 'Surabaya', address: 'Tunjungan Plaza, Jl. Tunjungan No. 65-71', phone: '+62315678901', store_type: 'HYPERMARKET', is_active: true }),
+          currentPayload: { store_code: 'STR-003', store_name: 'MAP Surabaya Tunjungan', region: 'EAST_JAVA', city: 'Surabaya', address: 'Tunjungan Plaza, Jl. Tunjungan No. 65-71', phone: '+62315678901', store_type: 'HYPERMARKET', is_active: true },
           createdById: userSuperAdmin.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMBA.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ store_code: 'STR-004', store_name: 'Starbucks Pacific Place', region: 'JABODETABEK', city: 'Jakarta', address: 'Pacific Place Mall Lt.G, Jl. SCBD', phone: '+62212555432', store_type: 'SPECIALTY', is_active: true }),
+          currentPayload: { store_code: 'STR-004', store_name: 'Starbucks Pacific Place', region: 'JABODETABEK', city: 'Jakarta', address: 'Pacific Place Mall Lt.G, Jl. SCBD', phone: '+62212555432', store_type: 'SPECIALTY', is_active: true },
           createdById: userEditorMBA.id, updatedById: userEditorMBA.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMAPA.id, status: 'ACTIVE',
-          currentPayload: JSON.stringify({ store_code: 'STR-005', store_name: 'Sports Arena Senayan', region: 'JABODETABEK', city: 'Jakarta', address: 'Senayan City Mall Lt.3, Jl. Asia Afrika', phone: '+62215789012', store_type: 'SPECIALTY', is_active: true }),
+          currentPayload: { store_code: 'STR-005', store_name: 'Sports Arena Senayan', region: 'JABODETABEK', city: 'Jakarta', address: 'Senayan City Mall Lt.3, Jl. Asia Afrika', phone: '+62215789012', store_type: 'SPECIALTY', is_active: true },
           createdById: userAdminMAPA.id, updatedById: userAdminMAPA.id,
         },
       }),
@@ -985,14 +985,14 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < Math.min(5, articleRecords.length); i++) {
       const rec = articleRecords[i];
       let payload: Record<string, unknown> = {};
-      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+      payload = rec.currentPayload as Record<string, any>
 
       // Modify selling price to simulate an update
       const updatedPayload = { ...payload, selling_price: Number(payload.selling_price || 0) * 1.05, tags: (payload.tags || '') + ',UPDATED' };
       await db.dataVersion.create({
         data: {
           recordId: rec.id,
-          payloadSnapshot: JSON.stringify(updatedPayload),
+          payloadSnapshot: updatedPayload,
           versionNumber: 2,
           changedById: userAdminMAPI.id,
           changeReason: 'Price adjustment — 5% increase applied',
@@ -1005,13 +1005,13 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < Math.min(3, articleRecords.length); i++) {
       const rec = articleRecords[i];
       let payload: Record<string, unknown> = {};
-      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+      payload = rec.currentPayload as Record<string, any>
       const activatedPayload = { ...payload, is_active: true };
 
       await db.dataVersion.create({
         data: {
           recordId: rec.id,
-          payloadSnapshot: JSON.stringify(activatedPayload),
+          payloadSnapshot: activatedPayload,
           versionNumber: 3,
           changedById: userSuperAdmin.id,
           changeReason: 'Approved and activated after review',
@@ -1023,13 +1023,13 @@ export async function POST(request: NextRequest) {
     // Add version 2 for store records (address update)
     for (const rec of storeRecords) {
       let payload: Record<string, unknown> = {};
-      try { payload = JSON.parse(rec.currentPayload); } catch { /* */ }
+      payload = rec.currentPayload as Record<string, any>
       const updatedPayload = { ...payload, phone: String(payload.phone || '').replace('+62', '+62-21') };
 
       await db.dataVersion.create({
         data: {
           recordId: rec.id,
-          payloadSnapshot: JSON.stringify(updatedPayload),
+          payloadSnapshot: updatedPayload,
           versionNumber: 2,
           changedById: userSuperAdmin.id,
           changeReason: 'Phone number format update',
