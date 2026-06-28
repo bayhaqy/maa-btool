@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, STATUS_LABELS, STATE_TRANSITIONS } from '@/lib/constants';
@@ -21,11 +21,17 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Save, Send, CheckCircle2, XCircle, Archive,
   Clock, FileText, GitBranch, History,
   Image as ImageIcon, Upload, X, Star, RefreshCw,
-  ChevronDown, Check,
+  ChevronDown, Check, Shield, Activity, Database,
+  TrendingUp, BarChart3, Eye, ArrowRight, User, Layers,
+  Search, Zap, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -306,6 +312,10 @@ export default function RecordDetailPage() {
   const [saving, setSaving] = useState(false);
   const [transitionDialog, setTransitionDialog] = useState<{ target: string; notes: string } | null>(null);
   const [recordImages, setRecordImages] = useState<Record<string, any[]>>({});
+  const [activeDetailTab, setActiveDetailTab] = useState('details');
+  const [auditTrail, setAuditTrail] = useState<any[]>([]);
+  const [relatedRecords, setRelatedRecords] = useState<any[]>([]);
+  const [recordQualityScore, setRecordQualityScore] = useState<number | null>(null);
 
   // Deferred image-save state (Stibo-style asset maintenance).
   // Pending uploads are stored as File objects + a blob URL for instant
@@ -403,6 +413,36 @@ export default function RecordDetailPage() {
         }
         // Load images for this record
         loadImages(selectedRecordId);
+
+        // Load audit trail for this record
+        try {
+          const auditRes = await fetch(`/api/audit?entityType=DataRecord&entityId=${selectedRecordId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const auditData = await auditRes.json();
+          if (auditRes.ok) setAuditTrail(auditData.entries || auditData.audits || []);
+        } catch { /* non-critical */ }
+
+        // Load related records (same module, different records)
+        try {
+          const relRes = await fetch(`/api/records?moduleId=${selectedModuleId}&pageSize=5`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const relData = await relRes.json();
+          if (relRes.ok) setRelatedRecords((relData.records || []).filter((r: any) => r.id !== selectedRecordId).slice(0, 5));
+        } catch { /* non-critical */ }
+
+        // Calculate record quality score
+        try {
+          const qualRes = await fetch(`/api/data-quality?moduleId=${selectedModuleId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const qualData = await qualRes.json();
+          if (qualRes.ok && qualData.moduleBreakdown) {
+            const modQual = qualData.moduleBreakdown.find((m: any) => m.moduleId === selectedModuleId);
+            if (modQual) setRecordQualityScore(modQual.overall);
+          }
+        } catch { /* non-critical */ }
       }
     } catch {
       toast.error('Failed to load data');
@@ -1173,176 +1213,532 @@ export default function RecordDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Form */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Record Data</CardTitle>
-              <CardDescription>
-                {module?.moduleName} — {fields.length} fields
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {fields.map((field: any) => {
-                  const isLongText = field.dataType === 'TEXT' && field.validations?.some((v: any) => v.ruleType === 'MAX_LENGTH' && parseInt(v.ruleValue) > 200);
-                  const isImage = field.dataType === 'IMAGE';
-                  return (
-                    <div key={field.id} className={isLongText || isImage ? 'md:col-span-2' : ''}>
-                      <Label className="text-sm mb-1.5 block">
-                        {field.fieldName}
-                        {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
-                      </Label>
-                      {renderFieldInput(field)}
-                      {field.description && <p className="text-xs text-muted-foreground mt-1">{field.description}</p>}
+      {/* Detail Tabs */}
+      {!isNewRecord && (
+        <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="space-y-4">
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="details" className="gap-1.5">
+              <FileText className="w-4 h-4" /> Details
+            </TabsTrigger>
+            <TabsTrigger value="versions" className="gap-1.5">
+              <History className="w-4 h-4" /> Version History
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="gap-1.5">
+              <Shield className="w-4 h-4" /> Audit Trail
+            </TabsTrigger>
+            <TabsTrigger value="related" className="gap-1.5">
+              <Layers className="w-4 h-4" /> Related
+            </TabsTrigger>
+            <TabsTrigger value="lineage" className="gap-1.5">
+              <GitBranch className="w-4 h-4" /> Lineage
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Details Tab */}
+          <TabsContent value="details">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Main Form */}
+              <div className="lg:col-span-2 space-y-6">
+                <Card className="shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Record Data</CardTitle>
+                    <CardDescription>
+                      {module?.moduleName} — {fields.length} fields
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {fields.map((field: any) => {
+                        const isLongText = field.dataType === 'TEXT' && field.validations?.some((v: any) => v.ruleType === 'MAX_LENGTH' && parseInt(v.ruleValue) > 200);
+                        const isImage = field.dataType === 'IMAGE';
+                        return (
+                          <div key={field.id} className={isLongText || isImage ? 'md:col-span-2' : ''}>
+                            <Label className="text-sm mb-1.5 block">
+                              {field.fieldName}
+                              {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                            </Label>
+                            {renderFieldInput(field)}
+                            {field.description && <p className="text-xs text-muted-foreground mt-1">{field.description}</p>}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </CardContent>
+                </Card>
+
+                {/* Diff Viewer for IN_REVIEW */}
+                {diffs && diffs.length > 0 && (
+                  <Card className="shadow-sm border-amber-200">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <GitBranch className="w-5 h-5 text-amber-600" />
+                        Change Preview
+                      </CardTitle>
+                      <CardDescription>Comparison of proposed changes</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {diffs.map((d) => (
+                          <div key={d.key} className="grid grid-cols-2 gap-4 p-3 rounded-lg border">
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">{d.label} (Current)</p>
+                              <div className="px-3 py-1.5 bg-red-50 text-red-800 rounded border border-red-200 text-sm">
+                                {d.oldVal || <span className="italic text-red-400">empty</span>}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">{d.label} (Proposed)</p>
+                              <div className="px-3 py-1.5 bg-red-50 text-red-800 rounded border border-red-200 text-sm">
+                                {d.newVal || <span className="italic text-red-400">empty</span>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
-            </CardContent>
-          </Card>
 
-          {/* Diff Viewer for IN_REVIEW */}
-          {diffs && diffs.length > 0 && (
-            <Card className="shadow-sm border-amber-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <GitBranch className="w-5 h-5 text-amber-600" />
-                  Change Preview
-                </CardTitle>
-                <CardDescription>Comparison of proposed changes</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {diffs.map((d) => (
-                    <div key={d.key} className="grid grid-cols-2 gap-4 p-3 rounded-lg border">
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">{d.label} (Current)</p>
-                        <div className="px-3 py-1.5 bg-red-50 text-red-800 rounded border border-red-200 text-sm">
-                          {d.oldVal || <span className="italic text-red-400">empty</span>}
+              {/* Sidebar */}
+              <div className="space-y-6">
+                {/* Quality Score */}
+                {recordQualityScore !== null && (
+                  <Card className="shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4" /> Record Quality
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col items-center">
+                      <div className="relative w-24 h-24">
+                        <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                          <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="10" />
+                          <circle
+                            cx="60" cy="60" r="50" fill="none"
+                            className={recordQualityScore >= 85 ? 'text-emerald-500' : recordQualityScore >= 70 ? 'text-amber-500' : 'text-red-500'}
+                            strokeWidth="10"
+                            strokeLinecap="round"
+                            strokeDasharray={`${(recordQualityScore / 100) * 314} 314`}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className={cn('text-xl font-bold', recordQualityScore >= 85 ? 'text-emerald-600' : recordQualityScore >= 70 ? 'text-amber-600' : 'text-red-600')}>
+                            {recordQualityScore}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground">quality</span>
                         </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">{d.label} (Proposed)</p>
-                        <div className="px-3 py-1.5 bg-red-50 text-red-800 rounded border border-red-200 text-sm">
-                          {d.newVal || <span className="italic text-red-400">empty</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Status Transition */}
-          {!isNewRecord && availableTransitions.length > 0 && (
-            <Card className="shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Actions</CardTitle>
-                <CardDescription>Available state transitions</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {availableTransitions.map((target) => {
-                  const Icon = TRANSITION_ICONS[target] || FileText;
-                  return (
-                    <Button
-                      key={target}
-                      variant="outline"
-                      className="w-full justify-start h-11"
-                      onClick={() => setTransitionDialog({ target, notes: '' })}
-                    >
-                      <Icon className="w-4 h-4 mr-2" />
-                      {STATUS_LABELS[target] || target}
-                    </Button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Version History */}
-          {!isNewRecord && record?.versions?.length > 0 && (
-            <Card className="shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <History className="w-5 h-5" />
-                  Version History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar">
-                  {record.versions.map((v: any) => (
-                    <div key={v.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-accent transition-colors">
-                      <div className="p-1.5 rounded bg-muted mt-0.5">
-                        <Clock className="w-3 h-3 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">v{v.versionNumber}</span>
-                          <Badge className={cn('text-xs border', STATUS_COLORS[v.status] || '')}>
-                            {STATUS_LABELS[v.status] || v.status}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {v.changedBy?.displayName || v.changedBy?.username || 'System'} &middot; {v.changeReason || 'No reason'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString()}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Approval History */}
-          {!isNewRecord && record?.approvalTickets?.length > 0 && (
-            <Card className="shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <GitBranch className="w-5 h-5" />
-                  Approval History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar">
-                  {record.approvalTickets.map((t: any) => (
-                    <div key={t.id} className="p-3 rounded-lg border">
-                      <div className="flex items-center gap-2">
-                        <Badge className={cn(
-                          'text-xs border',
-                          t.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                          t.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
-                          'bg-red-50 text-red-700 border-red-200'
-                        )}>
-                          {t.status}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        Requested by {t.requestedBy?.displayName || t.requestedBy?.username}
+                      <p className="text-xs text-muted-foreground mt-2 text-center">
+                        Based on module-level quality metrics
                       </p>
-                      {t.reviewedBy && (
-                        <p className="text-xs text-muted-foreground">
-                          Reviewed by {t.reviewedBy?.displayName || t.reviewedBy?.username}
-                        </p>
-                      )}
-                      {t.reviewNotes && (
-                        <p className="text-xs mt-1 italic">{t.reviewNotes}</p>
-                      )}
-                      <p className="text-xs text-muted-foreground mt-1">{new Date(t.createdAt).toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Status Transition */}
+                {availableTransitions.length > 0 && (
+                  <Card className="shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Actions</CardTitle>
+                      <CardDescription>Available state transitions</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {availableTransitions.map((target) => {
+                        const Icon = TRANSITION_ICONS[target] || FileText;
+                        return (
+                          <Button
+                            key={target}
+                            variant="outline"
+                            className="w-full justify-start h-11"
+                            onClick={() => setTransitionDialog({ target, notes: '' })}
+                          >
+                            <Icon className="w-4 h-4 mr-2" />
+                            {STATUS_LABELS[target] || target}
+                          </Button>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Approval History */}
+                {record?.approvalTickets?.length > 0 && (
+                  <Card className="shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <GitBranch className="w-4 h-4" /> Approval History
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                        {record.approvalTickets.map((t: any) => (
+                          <div key={t.id} className="p-2 rounded-lg border">
+                            <div className="flex items-center gap-2">
+                              <Badge className={cn(
+                                'text-[10px] border',
+                                t.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                t.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                'bg-red-50 text-red-700 border-red-200'
+                              )}>
+                                {t.status}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground">{new Date(t.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            {t.reviewNotes && (
+                              <p className="text-xs mt-1 italic text-muted-foreground">{t.reviewNotes}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Version History Tab */}
+          <TabsContent value="versions">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="w-5 h-5" /> Version History
+                </CardTitle>
+                <CardDescription>All changes made to this record with before/after values</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!record?.versions || record.versions.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <History className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No version history available</p>
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-[500px]">
+                    <div className="space-y-4">
+                      {record.versions.map((v: any, idx: number) => {
+                        const isLatest = idx === 0;
+                        let prevPayload: Record<string, unknown> = {};
+                        if (idx < record.versions.length - 1) {
+                          try { prevPayload = JSON.parse(record.versions[idx + 1]?.payloadSnapshot || '{}'); } catch { /* */ }
+                        }
+                        let currPayload: Record<string, unknown> = {};
+                        try { currPayload = JSON.parse(v.payloadSnapshot || '{}'); } catch { /* */ }
+
+                        // Compute field-level diff
+                        const allKeys = new Set([...Object.keys(prevPayload), ...Object.keys(currPayload)]);
+                        const changes: Array<{ key: string; oldVal: string; newVal: string }> = [];
+                        for (const k of allKeys) {
+                          const oldV = String(prevPayload[k] ?? '');
+                          const newV = String(currPayload[k] ?? '');
+                          if (oldV !== newV) changes.push({ key: k, oldVal: oldV, newVal: newV });
+                        }
+
+                        return (
+                          <motion.div
+                            key={v.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className={cn(
+                              'rounded-lg border p-4',
+                              isLatest && 'border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20'
+                            )}
+                          >
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-sm">v{v.versionNumber}</span>
+                                {isLatest && <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 border">Latest</Badge>}
+                              </div>
+                              <Badge className={cn('text-xs border', STATUS_COLORS[v.status] || '')}>
+                                {STATUS_LABELS[v.status] || v.status}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground ml-auto">
+                                {new Date(v.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              <User className="w-3.5 h-3.5 inline mr-1" />
+                              {v.changedBy?.displayName || v.changedBy?.username || 'System'}
+                              {v.changeReason && <span> — {v.changeReason}</span>}
+                            </p>
+                            {changes.length > 0 && (
+                              <div className="mt-3 space-y-1.5">
+                                <p className="text-xs font-medium text-muted-foreground">{changes.length} field(s) changed</p>
+                                {changes.map((c) => (
+                                  <div key={c.key} className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center text-xs">
+                                    <span className="font-mono font-medium truncate">{c.key}</span>
+                                    <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                                    <div className="flex items-center gap-1">
+                                      {c.oldVal && (
+                                        <span className="px-1.5 py-0.5 bg-red-50 text-red-700 rounded border border-red-200 truncate max-w-[120px] dark:bg-red-950/40 dark:text-red-300">
+                                          {c.oldVal}
+                                        </span>
+                                      )}
+                                      <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-200 truncate max-w-[120px] dark:bg-emerald-950/40 dark:text-emerald-300">
+                                        {c.newVal || '(empty)'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Audit Trail Tab */}
+          <TabsContent value="audit">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="w-5 h-5" /> Audit Trail
+                </CardTitle>
+                <CardDescription>Complete audit log for this specific record</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {auditTrail.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Shield className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No audit entries for this record</p>
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-[500px]">
+                    <div className="space-y-0">
+                      {auditTrail.map((entry: any, idx: number) => {
+                        const actionColors: Record<string, string> = {
+                          RECORD_CREATE: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300',
+                          RECORD_UPDATE: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300',
+                          RECORD_DELETE: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300',
+                          STATUS_CHANGE: 'bg-teal-100 text-teal-700 border-teal-300 dark:bg-teal-900/40 dark:text-teal-300',
+                          APPROVE: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300',
+                          REJECT: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300',
+                        };
+                        const color = actionColors[entry.action] || 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-900/40 dark:text-gray-300';
+                        return (
+                          <div key={entry.id || idx} className="flex gap-3">
+                            <div className="flex flex-col items-center">
+                              <div className={cn('w-7 h-7 rounded-full flex items-center justify-center border text-[10px] font-bold', color)}>
+                                {idx + 1}
+                              </div>
+                              {idx < auditTrail.length - 1 && <div className="w-0.5 flex-1 bg-border my-1" />}
+                            </div>
+                            <div className="pb-4 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge className={cn('text-[10px] border', color)}>{entry.action}</Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {entry.user?.displayName || entry.user?.username || 'System'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {new Date(entry.createdAt).toLocaleString()}
+                              </p>
+                              {entry.description && (
+                                <p className="text-sm mt-1">{entry.description}</p>
+                              )}
+                              {entry.oldValues && entry.newValues && (
+                                <div className="mt-2 p-2 rounded bg-muted/50 text-xs">
+                                  <p className="font-medium mb-1">Changes:</p>
+                                  <pre className="whitespace-pre-wrap font-mono text-[10px]">
+                                    {JSON.stringify(entry.newValues, null, 2).slice(0, 200)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Related Records Tab */}
+          <TabsContent value="related">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Layers className="w-5 h-5" /> Related Records
+                </CardTitle>
+                <CardDescription>Other records in the same module that may be related</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {relatedRecords.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Database className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No related records found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {relatedRecords.map((rel: any) => {
+                      let title = 'Untitled';
+                      try {
+                        const payload = JSON.parse(rel.currentPayload || '{}');
+                        for (const k of ['name', 'title', 'articleName', 'displayName', 'code', 'supplierName', 'storeName']) {
+                          if (payload[k]) { title = String(payload[k]); break; }
+                        }
+                      } catch { /* */ }
+                      return (
+                        <div
+                          key={rel.id}
+                          className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 cursor-pointer transition-colors"
+                          onClick={() => navigate('record-detail', { recordId: rel.id, moduleId: selectedModuleId || undefined })}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{title}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{rel.id.slice(0, 12)}...</p>
+                          </div>
+                          <Badge className={cn('text-[10px] border', STATUS_COLORS[rel.status] || '')}>
+                            {STATUS_LABELS[rel.status] || rel.status}
+                          </Badge>
+                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Data Lineage Tab */}
+          <TabsContent value="lineage">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <GitBranch className="w-5 h-5" /> Data Lineage
+                </CardTitle>
+                <CardDescription>Trace where this record's data came from and how it has been transformed</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {/* Source System */}
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-teal-50 dark:bg-teal-950/30 border-2 border-teal-400 flex items-center justify-center">
+                        <Database className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                      </div>
+                      <span className="text-[10px] mt-1 text-muted-foreground text-center">Source</span>
+                    </div>
+                    <div className="flex-1 border-t-2 border-dashed border-muted-foreground/30 relative">
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-background px-2 text-[10px] text-muted-foreground">MDM Platform</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 flex items-center justify-center">
+                        <Activity className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <span className="text-[10px] mt-1 text-muted-foreground text-center">Processing</span>
+                    </div>
+                    <div className="flex-1 border-t-2 border-dashed border-muted-foreground/30 relative">
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-background px-2 text-[10px] text-muted-foreground">Validation</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-400 flex items-center justify-center">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <span className="text-[10px] mt-1 text-muted-foreground text-center">Active</span>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Lineage details */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Lineage Details</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Source System</p>
+                        <p className="text-sm font-medium">MAA BTOOL MDM Platform</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Module</p>
+                        <p className="text-sm font-medium">{module?.moduleName || 'Unknown'}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Created</p>
+                        <p className="text-sm font-medium">{record?.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown'}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Last Modified</p>
+                        <p className="text-sm font-medium">{record?.updatedAt ? new Date(record.updatedAt).toLocaleString() : 'Unknown'}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Created By</p>
+                        <p className="text-sm font-medium">{record?.createdBy?.displayName || record?.createdBy?.username || 'System'}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Current Version</p>
+                        <p className="text-sm font-medium">v{record?.version || 1}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Transformation History */}
+                  {record?.versions?.length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Transformation History</h4>
+                      <div className="space-y-2">
+                        {record.versions.slice(0, 5).map((v: any, idx: number) => (
+                          <div key={v.id} className="flex items-center gap-3 p-2 rounded-lg border">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-muted text-xs font-bold">
+                              v{v.versionNumber}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium">{v.changeReason || 'Version update'}</p>
+                              <p className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString()}</p>
+                            </div>
+                            <Badge className={cn('text-[10px] border', STATUS_COLORS[v.status] || '')}>
+                              {STATUS_LABELS[v.status] || v.status}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          )}
-        </div>
-      </div>
+          </TabsContent>
+        </Tabs>
+      )}
+
+      {/* New Record Mode - Show form without tabs */}
+      {isNewRecord && (
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg">Record Data</CardTitle>
+            <CardDescription>
+              {module?.moduleName} — {fields.length} fields
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {fields.map((field: any) => {
+                const isLongText = field.dataType === 'TEXT' && field.validations?.some((v: any) => v.ruleType === 'MAX_LENGTH' && parseInt(v.ruleValue) > 200);
+                const isImage = field.dataType === 'IMAGE';
+                return (
+                  <div key={field.id} className={isLongText || isImage ? 'md:col-span-2' : ''}>
+                    <Label className="text-sm mb-1.5 block">
+                      {field.fieldName}
+                      {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                    </Label>
+                    {renderFieldInput(field)}
+                    {field.description && <p className="text-xs text-muted-foreground mt-1">{field.description}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Transition Dialog */}
       <Dialog open={!!transitionDialog} onOpenChange={() => setTransitionDialog(null)}>

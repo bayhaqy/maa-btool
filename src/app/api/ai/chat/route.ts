@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -180,6 +182,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
     }
 
+    // ── Rate limit: AI endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('ai', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
 
@@ -241,6 +252,15 @@ export async function POST(request: NextRequest) {
     const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
     if (!hasAiRole) {
       return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: AI endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('ai', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -352,6 +372,15 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
     }
 
+    // ── Rate limit: AI endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('ai', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { conversationId, action, title } = body;
 
@@ -412,6 +441,15 @@ export async function DELETE(request: NextRequest) {
     const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
     if (!hasAiRole) {
       return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: AI endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('ai', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);

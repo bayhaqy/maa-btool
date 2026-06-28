@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/admin/roles - List all roles with permission counts
 export async function GET(request: NextRequest) {
@@ -14,6 +16,15 @@ export async function GET(request: NextRequest) {
     // Only Super Admin can manage roles
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage roles.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const roles = await db.sysRole.findMany({
@@ -67,6 +78,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create roles.' }, { status: 403 });
     }
 
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { roleName, description, permissions } = body;
 
@@ -113,6 +133,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // ── Audit: role create ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.ROLE_ASSIGN,
+      entityType: 'SysRole',
+      entityId: role.id,
+      description: `Role "${roleName}" created`,
+      newValues: { roleName, description, permissionCount: (permissions || []).length },
+      req: request,
+    });
+
     return NextResponse.json({ role }, { status: 201 });
   } catch (error) {
     console.error('Admin Roles POST error:', error);
@@ -131,6 +161,15 @@ export async function PUT(request: NextRequest) {
     // Only Super Admin can update roles
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update roles.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -204,6 +243,18 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // ── Audit: role update ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.ROLE_ASSIGN,
+      entityType: 'SysRole',
+      entityId: id,
+      description: `Role "${existing.roleName}" updated`,
+      oldValues: { roleName: existing.roleName, description: existing.description },
+      newValues: { roleName, description, permissionCount: permissions?.length },
+      severity: 'warning',
+      req: request,
+    });
+
     return NextResponse.json({ role: updatedRole });
   } catch (error) {
     console.error('Admin Roles PUT error:', error);
@@ -224,6 +275,15 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete roles.' }, { status: 403 });
     }
 
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     let body: Record<string, string> = {};
     try {
       body = await request.json();
@@ -242,6 +302,18 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.sysRole.delete({ where: { id } });
+
+    // ── Audit: role delete ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.ROLE_REMOVE,
+      entityType: 'SysRole',
+      entityId: id,
+      description: `Role "${existing.roleName}" deleted`,
+      severity: 'critical',
+      oldValues: { roleName: existing.roleName },
+      req: request,
+    });
+
     return NextResponse.json({ message: 'Role deleted' });
   } catch (error) {
     console.error('Admin Roles DELETE error:', error);

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_REJECTED } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +30,15 @@ export async function GET(request: NextRequest) {
 
     if (!hasPermission(tokenPayload.roles, 'data:read')) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -136,6 +147,15 @@ export async function PUT(request: NextRequest) {
 
     if (!hasPermission(tokenPayload.roles, 'data:approve')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only managers and admins can approve/reject.' }, { status: 403 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);

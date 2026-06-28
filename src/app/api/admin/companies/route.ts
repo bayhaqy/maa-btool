@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/admin/companies - List all companies
 export async function GET(request: NextRequest) {
@@ -14,6 +16,15 @@ export async function GET(request: NextRequest) {
     // Only Super Admin can manage companies
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage companies.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const companies = await db.tenantCompany.findMany({
@@ -62,6 +73,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create companies.' }, { status: 403 });
     }
 
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { companyCode, companyName } = body;
 
@@ -82,6 +102,16 @@ export async function POST(request: NextRequest) {
       data: { companyCode, companyName },
     });
 
+    // ── Audit: company create ──────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.SETTINGS_CHANGE,
+      entityType: 'TenantCompany',
+      entityId: company.id,
+      description: `Company "${companyName}" (${companyCode}) created`,
+      newValues: { companyCode, companyName },
+      req: request,
+    });
+
     return NextResponse.json({ company }, { status: 201 });
   } catch (error) {
     console.error('Admin Companies POST error:', error);
@@ -100,6 +130,15 @@ export async function PUT(request: NextRequest) {
     // Only Super Admin can update companies
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update companies.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -129,6 +168,17 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // ── Audit: company update ──────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.SETTINGS_CHANGE,
+      entityType: 'TenantCompany',
+      entityId: id,
+      description: `Company "${existing.companyName}" updated`,
+      oldValues: { companyName: existing.companyName, isActive: existing.isActive },
+      newValues: { companyName, isActive, description, logoUrl, website, industry, address, phone, email },
+      req: request,
+    });
+
     return NextResponse.json({ company });
   } catch (error) {
     console.error('Admin Companies PUT error:', error);
@@ -147,6 +197,15 @@ export async function DELETE(request: NextRequest) {
     // Only Super Admin can delete companies
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete companies.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     let body: Record<string, string> = {};
@@ -169,6 +228,18 @@ export async function DELETE(request: NextRequest) {
     const company = await db.tenantCompany.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    // ── Audit: company deactivate ──────────────────────────────────────
+    await logAudit({
+      action: AuditAction.SETTINGS_CHANGE,
+      entityType: 'TenantCompany',
+      entityId: id,
+      description: `Company "${existing.companyName}" deactivated`,
+      oldValues: { isActive: true },
+      newValues: { isActive: false },
+      severity: 'warning',
+      req: request,
     });
 
     return NextResponse.json({ company: { id: company.id, companyCode: company.companyCode, isActive: company.isActive } });

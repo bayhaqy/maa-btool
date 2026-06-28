@@ -1,43 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, generateAccessToken, generateRefreshToken, setAuthCookies } from '@/lib/auth';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitByCategory, rateLimitResponse } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
+import { validateInput, sanitizeString } from '@/lib/api-security';
+import { createSession } from '@/lib/session';
 
-// Extract the client IP from request headers. On Vercel, `x-forwarded-for`
-// is set by the platform; in local dev we fall back to `x-real-ip` or an
-// unknown sentinel so the limiter still has a key to track.
+// Extract the client IP from request headers.
 function getClientIp(request: NextRequest): string {
   const xff = request.headers.get('x-forwarded-for');
-  if (xff) {
-    // x-forwarded-for can be a comma-separated list; the first entry is
-    // the original client IP.
-    return xff.split(',')[0].trim();
-  }
+  if (xff) return xff.split(',')[0].trim();
   return request.headers.get('x-real-ip') || 'unknown';
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // ── Rate limit: 10 login attempts per IP per 5 minutes ───────────────
+    // ── Rate limit: 10 login attempts per IP per minute ───────────────
     const ip = getClientIp(request);
-    const rl = rateLimit(`login:${ip}`, { limit: 10, windowMs: 5 * 60 * 1000 });
+    const rl = rateLimitByCategory('auth', ip);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many login attempts. Please try again later.' },
-        {
-          status: 429,
-          headers: {
-            'Retry-After': String(rl.retryAfterSeconds),
-            'X-RateLimit-Limit': '10',
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
-          },
-        }
+        rateLimitResponse(rl, 'auth')
       );
     }
 
-    const body = await request.json();
-    const { username, password } = body;
+    // ── Input validation ─────────────────────────────────────────────
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const validation = validateInput(body, { username: 'string', password: 'string' });
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.errors.join(', ') }, { status: 400 });
+    }
+
+    const username = sanitizeString(body.username as string);
+    const password = body.password as string; // Don't sanitize password — it's hashed
 
     if (!username || !password) {
       return NextResponse.json(
@@ -57,6 +59,16 @@ export async function POST(request: NextRequest) {
     });
 
     if (!user || !user.isActive) {
+      // ── Audit: failed login ──────────────────────────────────────────
+      await logAudit({
+        action: AuditAction.AUTH_FAILED,
+        entityType: 'SysUser',
+        description: `Failed login attempt for username "${username}"`,
+        severity: 'warning',
+        ipAddress: ip,
+        userAgent: request.headers.get('user-agent') || 'unknown',
+      });
+
       return NextResponse.json(
         { error: 'Invalid credentials' },
         { status: 401 }
@@ -65,6 +77,19 @@ export async function POST(request: NextRequest) {
 
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
+      // ── Audit: failed login ──────────────────────────────────────────
+      await logAudit({
+        action: AuditAction.AUTH_FAILED,
+        entityType: 'SysUser',
+        entityId: user.id,
+        description: `Failed login attempt for user "${username}"`,
+        severity: 'warning',
+        userId: user.id,
+        companyId: user.companyId,
+        ipAddress: ip,
+        userAgent: request.headers.get('user-agent') || 'unknown',
+      });
+
       return NextResponse.json(
         { error: 'Invalid credentials' },
         { status: 401 }
@@ -84,6 +109,27 @@ export async function POST(request: NextRequest) {
     const accessToken = generateAccessToken(tokenPayload);
     const refreshToken = generateRefreshToken(tokenPayload);
     const cookieHeaders = setAuthCookies(accessToken, refreshToken);
+
+    // ── Create session ──────────────────────────────────────────────────
+    createSession({
+      userId: user.id,
+      username: user.username,
+      companyId: user.companyId,
+      ipAddress: ip,
+      userAgent: request.headers.get('user-agent') || 'unknown',
+    });
+
+    // ── Audit: successful login ─────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.AUTH_LOGIN,
+      entityType: 'SysUser',
+      entityId: user.id,
+      description: `User "${username}" logged in successfully`,
+      userId: user.id,
+      companyId: user.companyId,
+      ipAddress: ip,
+      userAgent: request.headers.get('user-agent') || 'unknown',
+    });
 
     const response = NextResponse.json({
       token: accessToken,

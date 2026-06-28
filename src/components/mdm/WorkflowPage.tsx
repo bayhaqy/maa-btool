@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -26,13 +27,19 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   GitBranch, CheckCircle2, XCircle, Clock, User,
   FileText, FileSearch, ChevronRight, Mail, Package, Building2, Hash,
   ArrowRight, Plus, Minus, Pencil, AlertTriangle, Zap, Timer,
   Workflow, ListChecks, LayoutTemplate, Trash2, Copy, Users,
   ChevronDown, ChevronUp, CircleDot, ArrowUpRight, Shield,
+  TrendingUp, BarChart3, Target, Activity, RotateCcw,
+  ChevronLeft, ChevronLast, GripVertical, Search, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,7 +128,7 @@ const RECORD_TITLE_FIELDS = [
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; icon: typeof AlertTriangle }> = {
   LOW: { label: 'Low', color: 'bg-gray-100 text-gray-600 border-gray-300', icon: ChevronDown },
-  NORMAL: { label: 'Normal', color: 'bg-sky-50 text-sky-700 border-sky-200', icon: CircleDot },
+  NORMAL: { label: 'Normal', color: 'bg-teal-50 text-teal-700 border-teal-200', icon: CircleDot },
   HIGH: { label: 'High', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: ChevronUp },
   URGENT: { label: 'Urgent', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
 };
@@ -131,6 +138,12 @@ const WORKFLOW_TYPE_LABELS: Record<string, string> = {
   MULTI_STEP: 'Multi-Step',
   PARALLEL: 'Parallel',
 };
+
+const PIPELINE_STAGES = [
+  { key: 'PENDING', label: 'In Review', icon: Clock, color: 'border-amber-400 bg-amber-50 dark:bg-amber-950/30' },
+  { key: 'APPROVED', label: 'Approved', icon: CheckCircle2, color: 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' },
+  { key: 'REJECTED', label: 'Rejected', icon: XCircle, color: 'border-red-400 bg-red-50 dark:bg-red-950/30' },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -233,7 +246,6 @@ function WorkflowTimeline({ currentStep, totalSteps, stepName, workflowType, his
   workflowType: string;
   history: WorkflowHistoryEntry[];
 }) {
-  // Build step labels from history or infer
   const steps: Array<{ step: number; name: string; status: 'completed' | 'current' | 'pending' }> = [];
   for (let i = 1; i <= totalSteps; i++) {
     const hasCompleted = history.some(h => h.step === i && (h.action === 'APPROVED' || h.action === 'DELEGATED' || h.action === 'REASSIGNED'));
@@ -331,14 +343,18 @@ function WorkflowHistoryTimeline({ history, users }: { history: WorkflowHistoryE
     REJECTED: XCircle,
     DELEGATED: ArrowUpRight,
     REASSIGNED: Users,
+    ESCALATED: Zap,
+    REQUEST_CHANGES: RotateCcw,
   };
 
   const actionColors: Record<string, string> = {
-    CREATED: 'bg-sky-100 text-sky-700 border-sky-300',
-    APPROVED: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-    REJECTED: 'bg-red-100 text-red-700 border-red-300',
-    DELEGATED: 'bg-amber-100 text-amber-700 border-amber-300',
-    REASSIGNED: 'bg-violet-100 text-violet-700 border-violet-300',
+    CREATED: 'bg-teal-100 text-teal-700 border-teal-300 dark:bg-teal-900/40 dark:text-teal-300',
+    APPROVED: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300',
+    REJECTED: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300',
+    DELEGATED: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300',
+    REASSIGNED: 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/40 dark:text-purple-300',
+    ESCALATED: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300',
+    REQUEST_CHANGES: 'bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/40 dark:text-sky-300',
   };
 
   return (
@@ -397,6 +413,73 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
   );
 }
 
+/** Pipeline stage card showing count and percentage */
+function PipelineStageCard({ stage, tickets, allTickets, onClick, isActive }: {
+  stage: typeof PIPELINE_STAGES[number];
+  tickets: ApprovalTicket[];
+  allTickets: ApprovalTicket[];
+  onClick: () => void;
+  isActive: boolean;
+}) {
+  const count = tickets.length;
+  const pct = allTickets.length > 0 ? Math.round((count / allTickets.length) * 100) : 0;
+  const Icon = stage.icon;
+
+  return (
+    <motion.div
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      className={cn(
+        'cursor-pointer rounded-xl border-2 p-4 transition-all',
+        stage.color,
+        isActive ? 'ring-2 ring-primary shadow-lg' : 'hover:shadow-md',
+      )}
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className="w-5 h-5" />
+        <span className="font-semibold text-sm">{stage.label}</span>
+      </div>
+      <div className="flex items-end gap-2">
+        <span className="text-3xl font-bold">{count}</span>
+        <span className="text-sm text-muted-foreground mb-1">({pct}%)</span>
+      </div>
+      <Progress value={pct} className="h-1.5 mt-2" />
+    </motion.div>
+  );
+}
+
+/** SoD Warning Banner */
+function SoDWarningBanner({ onOverride }: { onOverride: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border-2 border-orange-300 bg-orange-50 dark:bg-orange-950/30 p-4"
+    >
+      <div className="flex items-start gap-3">
+        <Shield className="w-6 h-6 text-orange-600 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <h4 className="font-semibold text-orange-800 dark:text-orange-300 text-sm">
+            Segregation of Duties Violation
+          </h4>
+          <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
+            The same user who submitted this record cannot approve it per Segregation of Duties policy.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 border-orange-300 text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+            onClick={onOverride}
+          >
+            <Shield className="w-3.5 h-3.5 mr-1" /> Override (Super Admin Only)
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -411,7 +494,7 @@ export default function WorkflowPage() {
   const [stats, setStats] = useState<WorkflowStats>({ totalPending: 0, approvedToday: 0, overdue: 0, avgResolutionHours: 0 });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('PENDING');
-  const [mainTab, setMainTab] = useState('tickets'); // tickets | templates
+  const [mainTab, setMainTab] = useState('pipeline'); // pipeline | tickets | templates | statistics
   const [actionDialog, setActionDialog] = useState<{ ticketId: string; action: 'approve' | 'reject'; notes: string } | null>(null);
   const [processing, setProcessing] = useState(false);
   const [detailTicket, setDetailTicket] = useState<ApprovalTicket | null>(null);
@@ -423,6 +506,15 @@ export default function WorkflowPage() {
   // Delegation
   const [delegateDialog, setDelegateDialog] = useState<{ ticketId: string; userId: string; notes: string } | null>(null);
   const [users, setUsers] = useState<SysUser[]>([]);
+
+  // Request Changes
+  const [requestChangesDialog, setRequestChangesDialog] = useState<{ ticketId: string; notes: string } | null>(null);
+
+  // Escalate
+  const [escalateDialog, setEscalateDialog] = useState<{ ticketId: string; userId: string; notes: string } | null>(null);
+
+  // SoD warning
+  const [sodWarning, setSodWarning] = useState<string | null>(null);
 
   // Filters
   const [filterPriority, setFilterPriority] = useState<string>('all');
@@ -463,6 +555,19 @@ export default function WorkflowPage() {
     }
   }, [token, activeTab, filterPriority, filterWorkflowType, filterDeadline]);
 
+  // Load all tickets for pipeline view
+  const [allTickets, setAllTickets] = useState<ApprovalTicket[]>([]);
+  const loadAllTickets = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/approvals?status=all', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setAllTickets(data.tickets || []);
+    } catch {
+      // Non-critical
+    }
+  }, [token]);
+
   // Load users for delegation
   const loadUsers = useCallback(async () => {
     if (!token) return;
@@ -494,9 +599,84 @@ export default function WorkflowPage() {
     }
   }, [token]);
 
-  useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => { loadTickets(); loadAllTickets(); }, [loadTickets, loadAllTickets]);
   useEffect(() => { loadUsers(); }, [loadUsers]);
   useEffect(() => { if (mainTab === 'templates') loadTemplates(); }, [mainTab, loadTemplates]);
+
+  // Pipeline tickets by status
+  const pipelineTickets = useMemo(() => {
+    const grouped: Record<string, ApprovalTicket[]> = {
+      PENDING: [],
+      APPROVED: [],
+      REJECTED: [],
+    };
+    for (const t of allTickets) {
+      if (grouped[t.status]) grouped[t.status].push(t);
+    }
+    return grouped;
+  }, [allTickets]);
+
+  // Workflow statistics calculations
+  const workflowStatistics = useMemo(() => {
+    const total = allTickets.length;
+    const approved = allTickets.filter(t => t.status === 'APPROVED').length;
+    const rejected = allTickets.filter(t => t.status === 'REJECTED').length;
+    const pending = allTickets.filter(t => t.status === 'PENDING').length;
+    const approvalRate = total > 0 ? Math.round((approved / total) * 100) : 0;
+
+    // Rejection reasons from review notes
+    const rejectionReasons: Record<string, number> = {};
+    allTickets
+      .filter(t => t.status === 'REJECTED' && t.reviewNotes)
+      .forEach(t => {
+        const note = t.reviewNotes!.slice(0, 50);
+        rejectionReasons[note] = (rejectionReasons[note] || 0) + 1;
+      });
+
+    // Bottleneck detection: avg time per step
+    const stepDurations: Record<number, { totalMs: number; count: number }> = {};
+    allTickets.forEach(t => {
+      const history = parseWorkflowHistory(t.workflowHistory);
+      for (let i = 0; i < history.length - 1; i++) {
+        const step = history[i].step;
+        const duration = new Date(history[i + 1].timestamp).getTime() - new Date(history[i].timestamp).getTime();
+        if (!stepDurations[step]) stepDurations[step] = { totalMs: 0, count: 0 };
+        stepDurations[step].totalMs += duration;
+        stepDurations[step].count++;
+      }
+    });
+
+    const bottleneckSteps = Object.entries(stepDurations)
+      .map(([step, { totalMs, count }]) => ({
+        step: parseInt(step),
+        avgHours: count > 0 ? Math.round((totalMs / count / (1000 * 60 * 60)) * 10) / 10 : 0,
+      }))
+      .sort((a, b) => b.avgHours - a.avgHours);
+
+    // Avg time to approve (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentApproved = allTickets.filter(t =>
+      t.status === 'APPROVED' && t.reviewedAt && new Date(t.reviewedAt) >= sevenDaysAgo
+    );
+    const avgTime7d = recentApproved.length > 0
+      ? Math.round(recentApproved.reduce((acc, t) => {
+          const dur = new Date(t.reviewedAt!).getTime() - new Date(t.createdAt).getTime();
+          return acc + dur;
+        }, 0) / recentApproved.length / (1000 * 60 * 60) * 10) / 10
+      : 0;
+
+    return {
+      total,
+      approved,
+      rejected,
+      pending,
+      approvalRate,
+      rejectionReasons,
+      bottleneckSteps,
+      avgTime7d,
+    };
+  }, [allTickets]);
 
   // Bulk actions
   const handleBulkAction = async () => {
@@ -526,6 +706,7 @@ export default function WorkflowPage() {
       setSelectedIds(new Set());
       setBulkDialog(null);
       loadTickets();
+      loadAllTickets();
     } catch {
       toast.error('Network error');
     } finally {
@@ -533,7 +714,7 @@ export default function WorkflowPage() {
     }
   };
 
-  // Single action
+  // Single action (approve/reject)
   const handleAction = async () => {
     if (!token || !actionDialog) return;
     setProcessing(true);
@@ -547,13 +728,23 @@ export default function WorkflowPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || 'Failed'); return; }
+      if (!res.ok) {
+        // Check for SoD violation
+        if (data.error?.includes('Separation of Duties')) {
+          setSodWarning(actionDialog.ticketId);
+          toast.error('SoD violation detected');
+        } else {
+          toast.error(data.error || 'Failed');
+        }
+        return;
+      }
       toast.success(actionDialog.action === 'approve' ? 'Approved successfully' : 'Rejected');
       setActionDialog(null);
       if (detailTicket && detailTicket.id === actionDialog.ticketId) {
         setDetailTicket(null);
       }
       loadTickets();
+      loadAllTickets();
     } catch {
       toast.error('Network error');
     } finally {
@@ -580,6 +771,97 @@ export default function WorkflowPage() {
       toast.success('Ticket delegated successfully');
       setDelegateDialog(null);
       loadTickets();
+      loadAllTickets();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Request Changes (send back to draft with revision notes)
+  const handleRequestChanges = async () => {
+    if (!token || !requestChangesDialog) return;
+    setProcessing(true);
+    try {
+      // Reject with special notes indicating request for changes
+      const res = await fetch('/api/approvals?action=reject', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ticketId: requestChangesDialog.ticketId,
+          reviewNotes: `[REQUEST CHANGES] ${requestChangesDialog.notes}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error?.includes('Separation of Duties')) {
+          setSodWarning(requestChangesDialog.ticketId);
+        } else {
+          toast.error(data.error || 'Failed');
+        }
+        return;
+      }
+      toast.success('Changes requested — record sent back for revision');
+      setRequestChangesDialog(null);
+      loadTickets();
+      loadAllTickets();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Escalate
+  const handleEscalate = async () => {
+    if (!token || !escalateDialog) return;
+    setProcessing(true);
+    try {
+      // Delegate to escalation target
+      const res = await fetch('/api/approvals?action=delegate', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ticketId: escalateDialog.ticketId,
+          delegateToUserId: escalateDialog.userId,
+          reviewNotes: `[ESCALATED] ${escalateDialog.notes}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed'); return; }
+      toast.success('Ticket escalated successfully');
+      setEscalateDialog(null);
+      loadTickets();
+      loadAllTickets();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // SoD Override (Super Admin only)
+  const handleSodOverride = async (ticketId: string) => {
+    if (!token || !isSuperAdmin) return;
+    setProcessing(true);
+    try {
+      // Re-attempt the approve with override note
+      const res = await fetch('/api/approvals?action=approve', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ticketId,
+          reviewNotes: '[SoD OVERRIDE] Approved by Super Admin with override of Segregation of Duties policy',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed'); return; }
+      toast.success('Approved with SoD override');
+      setSodWarning(null);
+      setActionDialog(null);
+      loadTickets();
+      loadAllTickets();
     } catch {
       toast.error('Network error');
     } finally {
@@ -653,6 +935,11 @@ export default function WorkflowPage() {
     }
   };
 
+  // Check SoD: is current user the requester of a ticket?
+  const isSodViolation = (ticket: ApprovalTicket) => {
+    return user && ticket.requestedById === user.userId;
+  };
+
   // Computed values for detail dialog
   const detailDiffs = detailTicket ? getPayloadDiff(detailTicket) : [];
   const detailRecordTitle = detailTicket ? extractRecordTitle(detailTicket) : 'Untitled Record';
@@ -675,41 +962,206 @@ export default function WorkflowPage() {
           </h2>
           <p className="text-muted-foreground text-sm mt-1">Review, manage, and configure approval workflows</p>
         </div>
-        {canApprove && selectedIds.size > 0 && (
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">{selectedIds.size} selected</Badge>
-            <Button
-              size="sm"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-              onClick={() => setBulkDialog({ action: 'approve', notes: '' })}
-            >
-              <CheckCircle2 className="w-4 h-4" /> Bulk Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              className="gap-1"
-              onClick={() => setBulkDialog({ action: 'reject', notes: '' })}
-            >
-              <XCircle className="w-4 h-4" /> Bulk Reject
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
-              Clear
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {canApprove && selectedIds.size > 0 && (
+            <>
+              <Badge variant="outline" className="text-xs">{selectedIds.size} selected</Badge>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                onClick={() => setBulkDialog({ action: 'approve', notes: '' })}
+              >
+                <CheckCircle2 className="w-4 h-4" /> Bulk Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1"
+                onClick={() => setBulkDialog({ action: 'reject', notes: '' })}
+              >
+                <XCircle className="w-4 h-4" /> Bulk Reject
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
+                Clear
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className="gap-1" onClick={() => { loadTickets(); loadAllTickets(); }}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+        </div>
       </div>
 
-      {/* Main Tabs: Tickets vs Templates */}
+      {/* Main Tabs */}
       <Tabs value={mainTab} onValueChange={setMainTab}>
-        <TabsList>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="pipeline" className="gap-1.5">
+            <GitBranch className="w-4 h-4" /> Pipeline
+          </TabsTrigger>
           <TabsTrigger value="tickets" className="gap-1.5">
             <ListChecks className="w-4 h-4" /> Tickets
+          </TabsTrigger>
+          <TabsTrigger value="statistics" className="gap-1.5">
+            <BarChart3 className="w-4 h-4" /> Statistics
           </TabsTrigger>
           <TabsTrigger value="templates" className="gap-1.5">
             <LayoutTemplate className="w-4 h-4" /> Templates
           </TabsTrigger>
         </TabsList>
+
+        {/* ============= PIPELINE TAB ============= */}
+        <TabsContent value="pipeline" className="space-y-4 mt-4">
+          {/* Pipeline cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {PIPELINE_STAGES.map((stage) => (
+              <PipelineStageCard
+                key={stage.key}
+                stage={stage}
+                tickets={pipelineTickets[stage.key] || []}
+                allTickets={allTickets}
+                isActive={activeTab === stage.key}
+                onClick={() => {
+                  setActiveTab(stage.key);
+                  setMainTab('tickets');
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Horizontal pipeline visualization */}
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Workflow className="w-5 h-5" /> Workflow Pipeline
+              </CardTitle>
+              <CardDescription>Visual representation of record lifecycle stages</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-0 overflow-x-auto pb-2">
+                {/* Draft Stage */}
+                <div className="flex flex-col items-center min-w-[100px]">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 border-2 border-gray-300 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                  </div>
+                  <span className="text-xs font-medium mt-2">Draft</span>
+                </div>
+                <ArrowRight className="w-6 h-6 text-muted-foreground shrink-0" />
+
+                {/* In Review Stage */}
+                <div className="flex flex-col items-center min-w-[100px]">
+                  <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400 flex items-center justify-center relative">
+                    <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                    {workflowStatistics.pending > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                        {workflowStatistics.pending}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs font-medium mt-2">In Review</span>
+                </div>
+                <ArrowRight className="w-6 h-6 text-muted-foreground shrink-0" />
+
+                {/* Approved / Rejected Branch */}
+                <div className="flex flex-col items-center">
+                  <div className="flex gap-4">
+                    <div className="flex flex-col items-center min-w-[100px]">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-400 flex items-center justify-center relative">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                        {workflowStatistics.approved > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                            {workflowStatistics.approved}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-medium mt-2 text-emerald-700 dark:text-emerald-400">Approved</span>
+                    </div>
+                    <div className="flex flex-col items-center min-w-[100px]">
+                      <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-950/40 border-2 border-red-400 flex items-center justify-center relative">
+                        <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                        {workflowStatistics.rejected > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                            {workflowStatistics.rejected}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-medium mt-2 text-red-700 dark:text-red-400">Rejected</span>
+                    </div>
+                  </div>
+                </div>
+                <ArrowRight className="w-6 h-6 text-muted-foreground shrink-0" />
+
+                {/* Active Stage */}
+                <div className="flex flex-col items-center min-w-[100px]">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 border-2 border-emerald-500 flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-700 dark:text-emerald-300" />
+                  </div>
+                  <span className="text-xs font-medium mt-2">Active</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent pipeline tickets */}
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Recent Activity</CardTitle>
+                  <CardDescription>Latest tickets across all stages</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {allTickets.length === 0 ? (
+                <div className="py-8 text-center">
+                  <GitBranch className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">No workflow tickets yet</p>
+                </div>
+              ) : (
+                <ScrollArea className="max-h-96">
+                  <div className="space-y-2">
+                    {allTickets.slice(0, 10).map((ticket) => {
+                      const deadlineInfo = getDeadlineInfo(ticket.deadline);
+                      return (
+                        <motion.div
+                          key={ticket.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => setDetailTicket(ticket)}
+                        >
+                          <div className={cn(
+                            'w-2 h-2 rounded-full shrink-0',
+                            ticket.status === 'PENDING' ? 'bg-amber-500' :
+                            ticket.status === 'APPROVED' ? 'bg-emerald-500' :
+                            'bg-red-500'
+                          )} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{extractRecordTitle(ticket)}</p>
+                            <p className="text-xs text-muted-foreground">{ticket.record?.module?.moduleName}</p>
+                          </div>
+                          <PriorityBadge priority={ticket.priority} />
+                          {deadlineInfo.isOverdue && (
+                            <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] border">
+                              <AlertTriangle className="w-3 h-3 mr-0.5" /> Overdue
+                            </Badge>
+                          )}
+                          <Badge className={cn('text-[10px] border',
+                            ticket.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            ticket.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            'bg-red-50 text-red-700 border-red-200'
+                          )}>
+                            {ticket.status}
+                          </Badge>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* ============= TICKETS TAB ============= */}
         <TabsContent value="tickets" className="space-y-4 mt-4">
@@ -719,25 +1171,25 @@ export default function WorkflowPage() {
               title="Total Pending"
               value={stats.totalPending}
               icon={Clock}
-              color="bg-amber-100 text-amber-700"
+              color="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
             />
             <StatCard
               title="Approved Today"
               value={stats.approvedToday}
               icon={CheckCircle2}
-              color="bg-emerald-100 text-emerald-700"
+              color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
             />
             <StatCard
               title="Overdue"
               value={stats.overdue}
               icon={AlertTriangle}
-              color="bg-red-100 text-red-700"
+              color="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
             />
             <StatCard
               title="Avg Resolution"
               value={stats.avgResolutionHours > 0 ? `${stats.avgResolutionHours}h` : '—'}
               icon={Timer}
-              color="bg-sky-100 text-sky-700"
+              color="bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
               subtitle={stats.avgResolutionHours > 0 ? 'last 30 days' : ''}
             />
           </div>
@@ -830,183 +1282,424 @@ export default function WorkflowPage() {
                   const history = parseWorkflowHistory(ticket.workflowHistory);
                   const isPending = ticket.status === 'PENDING';
                   const isDelegated = !!ticket.delegatedFrom;
+                  const isEscalated = !!ticket.escalatedTo;
+                  const sodViolation = isSodViolation(ticket);
 
                   return (
-                    <Card key={ticket.id} className={cn(
-                      'shadow-sm transition-all',
-                      deadlineInfo.isOverdue && isPending && 'border-red-300 ring-1 ring-red-200',
-                      selectedIds.has(ticket.id) && 'ring-2 ring-primary border-primary/50',
-                    )}>
-                      <CardContent className="p-4 lg:p-6">
-                        <div className="flex flex-col lg:flex-row gap-4">
-                          {/* Checkbox */}
-                          {isPending && canApprove && (
-                            <div className="flex items-start pt-1">
-                              <Checkbox
-                                checked={selectedIds.has(ticket.id)}
-                                onCheckedChange={() => toggleSelect(ticket.id)}
-                              />
-                            </div>
-                          )}
-
-                          {/* Ticket Info */}
-                          <div className="flex-1 space-y-3 min-w-0">
-                            {/* Top badges row */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge className={cn(
-                                'text-xs border',
-                                ticket.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                ticket.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
-                                'bg-red-50 text-red-700 border-red-200'
-                              )}>
-                                {ticket.status}
-                              </Badge>
-                              <Badge className={cn('text-xs border', STATUS_COLORS[ticket.record?.status] || '')}>
-                                Record: {STATUS_LABELS[ticket.record?.status] || ticket.record?.status}
-                              </Badge>
-                              <PriorityBadge priority={ticket.priority} />
-                              {ticket.workflowType !== 'SIMPLE' && (
-                                <Badge variant="outline" className="text-[10px] gap-0.5">
-                                  <GitBranch className="w-3 h-3" />
-                                  {WORKFLOW_TYPE_LABELS[ticket.workflowType] || ticket.workflowType}
-                                </Badge>
-                              )}
-                              {isDelegated && (
-                                <Badge className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] border gap-0.5">
-                                  <ArrowUpRight className="w-3 h-3" /> Delegated
-                                </Badge>
-                              )}
-                              {ticket.escalatedTo && (
-                                <Badge className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] border gap-0.5">
-                                  <Zap className="w-3 h-3" /> Escalated
-                                </Badge>
-                              )}
-                            </div>
-
-                            {/* Title & Module */}
-                            <div>
-                              <h3 className="font-semibold text-lg">{extractRecordTitle(ticket)}</h3>
-                              <p className="text-sm text-muted-foreground">
-                                {ticket.record?.module?.moduleName || 'Unknown Module'}
-                                {' · '}
-                                <span className="font-mono text-xs">{ticket.recordId.slice(0, 8)}...</span>
-                              </p>
-                            </div>
-
-                            {/* Workflow Timeline for multi-step */}
-                            {(ticket.workflowType === 'MULTI_STEP' || ticket.workflowType === 'PARALLEL') && (
-                              <div className="bg-muted/30 rounded-lg p-3">
-                                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                  <Workflow className="w-3.5 h-3.5" /> Workflow Progress (Step {ticket.currentStep}/{ticket.totalSteps})
-                                </p>
-                                <WorkflowTimeline
-                                  currentStep={ticket.currentStep}
-                                  totalSteps={ticket.totalSteps}
-                                  stepName={ticket.stepName}
-                                  workflowType={ticket.workflowType}
-                                  history={history}
+                    <motion.div
+                      key={ticket.id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <Card className={cn(
+                        'shadow-sm transition-all',
+                        deadlineInfo.isOverdue && isPending && 'border-red-300 ring-1 ring-red-200',
+                        selectedIds.has(ticket.id) && 'ring-2 ring-primary border-primary/50',
+                      )}>
+                        <CardContent className="p-4 lg:p-6">
+                          <div className="flex flex-col lg:flex-row gap-4">
+                            {/* Checkbox */}
+                            {isPending && canApprove && (
+                              <div className="flex items-start pt-1">
+                                <Checkbox
+                                  checked={selectedIds.has(ticket.id)}
+                                  onCheckedChange={() => toggleSelect(ticket.id)}
                                 />
                               </div>
                             )}
 
-                            {/* Meta row */}
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                              <div className="flex items-center gap-1">
-                                <User className="w-4 h-4" />
-                                {ticket.requestedBy?.displayName || ticket.requestedBy?.username}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Clock className="w-4 h-4" />
-                                {new Date(ticket.createdAt).toLocaleString()}
-                              </div>
-                              <DeadlineDisplay deadline={ticket.deadline} />
-                            </div>
-
-                            {ticket.reviewedBy && (
-                              <p className="text-sm text-muted-foreground">
-                                Reviewed by {ticket.reviewedBy?.displayName || ticket.reviewedBy?.username}
-                                {ticket.reviewedAt && ` on ${new Date(ticket.reviewedAt).toLocaleString()}`}
-                              </p>
-                            )}
-
-                            {ticket.reviewNotes && (
-                              <div className="p-3 bg-muted/50 rounded-lg">
-                                <p className="text-sm"><span className="font-medium">Notes:</span> {ticket.reviewNotes}</p>
-                              </div>
-                            )}
-
-                            {/* Action buttons */}
-                            {isPending && canApprove && (
-                              <div className="flex gap-2 pt-2 flex-wrap">
-                                <Button
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-9"
-                                  onClick={() => setActionDialog({ ticketId: ticket.id, action: 'approve', notes: '' })}
-                                >
-                                  <CheckCircle2 className="w-4 h-4 mr-1" /> Approve
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  className="h-9"
-                                  onClick={() => setActionDialog({ ticketId: ticket.id, action: 'reject', notes: '' })}
-                                >
-                                  <XCircle className="w-4 h-4 mr-1" /> Reject
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  className="h-9 gap-1"
-                                  onClick={() => setDelegateDialog({ ticketId: ticket.id, userId: '', notes: '' })}
-                                >
-                                  <ArrowUpRight className="w-4 h-4" /> Delegate
-                                </Button>
-                              </div>
-                            )}
-
-                            {/* Detail button */}
-                            <Button
-                              variant="outline"
-                              className="w-full h-9 gap-2 border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800"
-                              onClick={() => setDetailTicket(ticket)}
-                            >
-                              <FileSearch className="w-4 h-4" />
-                              View Details
-                              <ChevronRight className="w-4 h-4 ml-auto" />
-                            </Button>
-                          </div>
-
-                          {/* Diff Viewer (compact) */}
-                          {diffs.length > 0 && (
-                            <div className="lg:w-72 space-y-2">
-                              <p className="text-sm font-medium text-muted-foreground">Changes ({diffs.length})</p>
-                              <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-                                {diffs.slice(0, 5).map((d) => (
-                                  <div key={d.key} className="rounded-md border p-2 text-sm">
-                                    <p className="font-medium text-xs mb-1 truncate">{d.key}</p>
-                                    <div className="space-y-0.5">
-                                      <div className="px-1.5 py-0.5 bg-red-50 text-red-800 rounded text-xs border border-red-200 truncate">
-                                        - {d.oldVal || '(empty)'}
-                                      </div>
-                                      <div className="px-1.5 py-0.5 bg-green-50 text-green-800 rounded text-xs border border-green-200 truncate">
-                                        + {d.newVal || '(empty)'}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                                {diffs.length > 5 && (
-                                  <p className="text-xs text-muted-foreground text-center">
-                                    +{diffs.length - 5} more changes
-                                  </p>
+                            {/* Ticket Info */}
+                            <div className="flex-1 space-y-3 min-w-0">
+                              {/* Top badges row */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge className={cn(
+                                  'text-xs border',
+                                  ticket.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                  ticket.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
+                                  'bg-red-50 text-red-700 border-red-200'
+                                )}>
+                                  {ticket.status}
+                                </Badge>
+                                <Badge className={cn('text-xs border', STATUS_COLORS[ticket.record?.status] || '')}>
+                                  Record: {STATUS_LABELS[ticket.record?.status] || ticket.record?.status}
+                                </Badge>
+                                <PriorityBadge priority={ticket.priority} />
+                                {ticket.workflowType !== 'SIMPLE' && (
+                                  <Badge variant="outline" className="text-[10px] gap-0.5">
+                                    <GitBranch className="w-3 h-3" />
+                                    {WORKFLOW_TYPE_LABELS[ticket.workflowType] || ticket.workflowType}
+                                  </Badge>
+                                )}
+                                {isDelegated && (
+                                  <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] border gap-0.5">
+                                    <ArrowUpRight className="w-3 h-3" /> Delegated
+                                  </Badge>
+                                )}
+                                {isEscalated && (
+                                  <Badge className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] border gap-0.5">
+                                    <Zap className="w-3 h-3" /> Escalated
+                                  </Badge>
                                 )}
                               </div>
+
+                              {/* SoD Warning inline */}
+                              {sodViolation && isPending && canApprove && (
+                                <div className="flex items-center gap-2 p-2 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200">
+                                  <Shield className="w-4 h-4 text-orange-600 shrink-0" />
+                                  <span className="text-xs text-orange-700 dark:text-orange-400">
+                                    SoD: You submitted this record and cannot approve it
+                                  </span>
+                                  {isSuperAdmin && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="ml-auto h-6 text-[10px] border-orange-300 text-orange-700 hover:bg-orange-100"
+                                      onClick={() => handleSodOverride(ticket.id)}
+                                    >
+                                      Override
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Title & Module */}
+                              <div>
+                                <h3 className="font-semibold text-lg">{extractRecordTitle(ticket)}</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  {ticket.record?.module?.moduleName || 'Unknown Module'}
+                                  {' · '}
+                                  <span className="font-mono text-xs">{ticket.recordId.slice(0, 8)}...</span>
+                                </p>
+                              </div>
+
+                              {/* Workflow Timeline for multi-step */}
+                              {(ticket.workflowType === 'MULTI_STEP' || ticket.workflowType === 'PARALLEL') && (
+                                <div className="bg-muted/30 rounded-lg p-3">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <Workflow className="w-3.5 h-3.5" /> Workflow Progress (Step {ticket.currentStep}/{ticket.totalSteps})
+                                  </p>
+                                  <WorkflowTimeline
+                                    currentStep={ticket.currentStep}
+                                    totalSteps={ticket.totalSteps}
+                                    stepName={ticket.stepName}
+                                    workflowType={ticket.workflowType}
+                                    history={history}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Change Summary (compact) */}
+                              {diffs.length > 0 && (
+                                <div className="bg-muted/30 rounded-lg p-3">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <FileSearch className="w-3.5 h-3.5" /> Change Summary ({diffs.length} fields changed)
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {diffs.slice(0, 6).map((d) => {
+                                      const isAdded = !d.oldVal && d.newVal;
+                                      const isRemoved = d.oldVal && !d.newVal;
+                                      return (
+                                        <TooltipProvider key={d.key}>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Badge className={cn(
+                                                'text-[10px] border cursor-help',
+                                                isAdded ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                isRemoved ? 'bg-red-50 text-red-700 border-red-200' :
+                                                'bg-amber-50 text-amber-700 border-amber-200'
+                                              )}>
+                                                {d.key}
+                                              </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-xs">
+                                              <div className="space-y-1 text-xs">
+                                                <p className="font-medium">{d.key}</p>
+                                                <p className="text-red-300">- {d.oldVal || '(empty)'}</p>
+                                                <p className="text-emerald-300">+ {d.newVal || '(empty)'}</p>
+                                              </div>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
+                                      );
+                                    })}
+                                    {diffs.length > 6 && (
+                                      <Badge variant="outline" className="text-[10px]">+{diffs.length - 6} more</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Meta row */}
+                              <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                                <div className="flex items-center gap-1">
+                                  <User className="w-4 h-4" />
+                                  {ticket.requestedBy?.displayName || ticket.requestedBy?.username}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Clock className="w-4 h-4" />
+                                  {new Date(ticket.createdAt).toLocaleString()}
+                                </div>
+                                <DeadlineDisplay deadline={ticket.deadline} />
+                              </div>
+
+                              {/* Delegation Chain */}
+                              {isDelegated && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Users className="w-3.5 h-3.5" />
+                                  <span>Delegated from {ticket.delegatedFrom?.slice(0, 8)}...</span>
+                                </div>
+                              )}
+
+                              {ticket.reviewedBy && (
+                                <p className="text-sm text-muted-foreground">
+                                  Reviewed by {ticket.reviewedBy?.displayName || ticket.reviewedBy?.username}
+                                  {ticket.reviewedAt && ` on ${new Date(ticket.reviewedAt).toLocaleString()}`}
+                                </p>
+                              )}
+
+                              {ticket.reviewNotes && (
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                  <p className="text-sm"><span className="font-medium">Notes:</span> {ticket.reviewNotes}</p>
+                                </div>
+                              )}
+
+                              {/* Action buttons */}
+                              {isPending && canApprove && (
+                                <div className="flex gap-2 pt-2 flex-wrap">
+                                  <Button
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-9"
+                                    onClick={() => setActionDialog({ ticketId: ticket.id, action: 'approve', notes: '' })}
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 mr-1" /> Approve
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    className="h-9"
+                                    onClick={() => setActionDialog({ ticketId: ticket.id, action: 'reject', notes: '' })}
+                                  >
+                                    <XCircle className="w-4 h-4 mr-1" /> Reject
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    className="h-9 gap-1 border-teal-200 text-teal-700 hover:bg-teal-50"
+                                    onClick={() => setRequestChangesDialog({ ticketId: ticket.id, notes: '' })}
+                                  >
+                                    <RotateCcw className="w-4 h-4" /> Request Changes
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    className="h-9 gap-1"
+                                    onClick={() => setDelegateDialog({ ticketId: ticket.id, userId: '', notes: '' })}
+                                  >
+                                    <ArrowUpRight className="w-4 h-4" /> Delegate
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    className="h-9 gap-1 border-orange-200 text-orange-700 hover:bg-orange-50"
+                                    onClick={() => setEscalateDialog({ ticketId: ticket.id, userId: '', notes: '' })}
+                                  >
+                                    <Zap className="w-4 h-4" /> Escalate
+                                  </Button>
+                                </div>
+                              )}
+
+                              {/* Detail button */}
+                              <Button
+                                variant="outline"
+                                className="w-full h-9 gap-2 border-teal-200 text-teal-700 hover:bg-teal-50 hover:text-teal-800"
+                                onClick={() => setDetailTicket(ticket)}
+                              >
+                                <FileSearch className="w-4 h-4" />
+                                View Details
+                                <ChevronRight className="w-4 h-4 ml-auto" />
+                              </Button>
                             </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
+
+                            {/* Diff Viewer (compact) */}
+                            {diffs.length > 0 && (
+                              <div className="lg:w-72 space-y-2">
+                                <p className="text-sm font-medium text-muted-foreground">Changes ({diffs.length})</p>
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                                  {diffs.slice(0, 5).map((d) => (
+                                    <div key={d.key} className="rounded-md border p-2 text-sm">
+                                      <p className="font-medium text-xs mb-1 truncate">{d.key}</p>
+                                      <div className="space-y-0.5">
+                                        <div className="px-1.5 py-0.5 bg-red-50 text-red-800 rounded text-xs border border-red-200 truncate dark:bg-red-950/40 dark:text-red-300">
+                                          - {d.oldVal || '(empty)'}
+                                        </div>
+                                        <div className="px-1.5 py-0.5 bg-green-50 text-green-800 rounded text-xs border border-green-200 truncate dark:bg-green-950/40 dark:text-green-300">
+                                          + {d.newVal || '(empty)'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {diffs.length > 5 && (
+                                    <p className="text-xs text-muted-foreground text-center">
+                                      +{diffs.length - 5} more changes
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   );
                 })}
               </div>
             </div>
           )}
+        </TabsContent>
+
+        {/* ============= STATISTICS TAB ============= */}
+        <TabsContent value="statistics" className="space-y-4 mt-4">
+          {/* Key Metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard
+              title="Approval Rate"
+              value={`${workflowStatistics.approvalRate}%`}
+              icon={TrendingUp}
+              color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+              subtitle="all time"
+            />
+            <StatCard
+              title="Avg Time (7d)"
+              value={workflowStatistics.avgTime7d > 0 ? `${workflowStatistics.avgTime7d}h` : '—'}
+              icon={Timer}
+              color="bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
+              subtitle="avg approval time"
+            />
+            <StatCard
+              title="Rejected"
+              value={workflowStatistics.rejected}
+              icon={XCircle}
+              color="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+            />
+            <StatCard
+              title="Total Tickets"
+              value={workflowStatistics.total}
+              icon={ListChecks}
+              color="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Approval Rate Gauge */}
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="w-5 h-5" /> Approval Rate
+                </CardTitle>
+                <CardDescription>Percentage of tickets approved vs rejected</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center py-4">
+                <div className="relative w-36 h-36">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="10" />
+                    <circle
+                      cx="60" cy="60" r="50" fill="none"
+                      className="text-emerald-500"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(workflowStatistics.approvalRate / 100) * 314} 314`}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{workflowStatistics.approvalRate}%</span>
+                    <span className="text-[10px] text-muted-foreground">approved</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 mt-4 text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                    <span>Approved: {workflowStatistics.approved}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500" />
+                    <span>Rejected: {workflowStatistics.rejected}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Rejection Reasons */}
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <XCircle className="w-5 h-5" /> Rejection Reasons
+                </CardTitle>
+                <CardDescription>Breakdown of rejection reasons from review notes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {Object.keys(workflowStatistics.rejectionReasons).length === 0 ? (
+                  <div className="py-8 text-center">
+                    <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
+                    <p className="text-sm text-muted-foreground">No rejections recorded yet</p>
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-64">
+                    <div className="space-y-2">
+                      {Object.entries(workflowStatistics.rejectionReasons)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([reason, count]) => (
+                          <div key={reason} className="flex items-center gap-3 p-2 rounded-lg border">
+                            <Badge className="bg-red-100 text-red-700 border-red-200 text-xs border shrink-0">
+                              {count}×
+                            </Badge>
+                            <span className="text-sm truncate">{reason}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Bottleneck Detection */}
+            <Card className="shadow-sm lg:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Activity className="w-5 h-5" /> Bottleneck Detection
+                </CardTitle>
+                <CardDescription>Average time spent at each workflow step — identifies the slowest stages</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {workflowStatistics.bottleneckSteps.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Timer className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No multi-step workflow data available</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {workflowStatistics.bottleneckSteps.map(({ step, avgHours }) => (
+                      <div key={step} className="flex items-center gap-4">
+                        <span className="text-sm font-medium w-20 shrink-0">Step {step}</span>
+                        <div className="flex-1 h-6 bg-muted/30 rounded-full overflow-hidden relative">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min((avgHours / (workflowStatistics.bottleneckSteps[0]?.avgHours || 1)) * 100, 100)}%` }}
+                            transition={{ duration: 0.5, ease: 'easeOut' }}
+                            className={cn(
+                              'h-full rounded-full',
+                              avgHours > 48 ? 'bg-red-400' : avgHours > 24 ? 'bg-amber-400' : 'bg-emerald-400'
+                            )}
+                          />
+                        </div>
+                        <span className={cn(
+                          'text-sm font-bold w-20 text-right',
+                          avgHours > 48 ? 'text-red-600' : avgHours > 24 ? 'text-amber-600' : 'text-emerald-600'
+                        )}>
+                          {avgHours}h avg
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* ============= TEMPLATES TAB ============= */}
@@ -1091,17 +1784,14 @@ export default function WorkflowPage() {
                         {steps.map((step, idx) => (
                           <div key={idx} className="flex items-center">
                             <div className="flex flex-col items-center min-w-[60px]">
-                              <div className={cn(
-                                'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border',
-                                'bg-primary/10 border-primary/30 text-primary'
-                              )}>
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border bg-primary/10 border-primary/30 text-primary">
                                 {idx + 1}
                               </div>
                               <span className="text-[9px] mt-0.5 text-center max-w-[60px] truncate text-muted-foreground">
                                 {step.name}
                               </span>
                               {step.isParallel && (
-                                <Badge className="text-[8px] px-1 py-0 bg-violet-50 text-violet-700 border-violet-200 border">
+                                <Badge className="text-[8px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200 border">
                                   <Users className="w-2 h-2 mr-0.5" /> Parallel
                                 </Badge>
                               )}
@@ -1138,34 +1828,74 @@ export default function WorkflowPage() {
 
       {/* ============= DIALOGS ============= */}
 
-      {/* Action Dialog (Approve/Reject) */}
+      {/* SoD Warning Dialog */}
+      <Dialog open={!!sodWarning} onOpenChange={() => setSodWarning(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700">
+              <Shield className="w-5 h-5" /> Segregation of Duties Violation
+            </DialogTitle>
+            <DialogDescription>
+              The same user who submitted this record cannot approve it per Segregation of Duties policy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 p-4">
+              <p className="text-sm text-orange-800 dark:text-orange-300">
+                This action violates the Segregation of Duties policy because the approver is also the submitter of this record.
+                Only a Super Admin can override this policy.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSodWarning(null)}>Cancel</Button>
+            {isSuperAdmin && (
+              <Button
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+                onClick={() => sodWarning && handleSodOverride(sodWarning)}
+                disabled={processing}
+              >
+                <Shield className="w-4 h-4 mr-1" /> Override (Super Admin)
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve/Reject Dialog */}
       <Dialog open={!!actionDialog} onOpenChange={() => setActionDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{actionDialog?.action === 'approve' ? 'Approve Request' : 'Reject Request'}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {actionDialog?.action === 'approve' ? (
+                <><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Approve Ticket</>
+              ) : (
+                <><XCircle className="w-5 h-5 text-red-600" /> Reject Ticket</>
+              )}
+            </DialogTitle>
             <DialogDescription>
               {actionDialog?.action === 'approve'
-                ? 'This will activate the record and create a new version.'
-                : 'This will reject the record and send it back to the requester.'}
+                ? 'Add optional notes for this approval.'
+                : 'A reason is required when rejecting a ticket.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Review Notes</Label>
+              <Label>{actionDialog?.action === 'approve' ? 'Notes (optional)' : 'Reason (required)'}</Label>
               <Textarea
                 value={actionDialog?.notes || ''}
                 onChange={(e) => setActionDialog(prev => prev ? { ...prev, notes: e.target.value } : null)}
-                placeholder="Add your review comments..."
+                placeholder={actionDialog?.action === 'approve' ? 'Optional approval notes...' : 'Required: explain why this is rejected...'}
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setActionDialog(null)} disabled={processing}>Cancel</Button>
             <Button
               onClick={handleAction}
-              disabled={processing}
-              className={actionDialog?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-destructive hover:bg-destructive/90 text-white'}
+              disabled={processing || (actionDialog?.action === 'reject' && !actionDialog?.notes)}
+              className={actionDialog?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
             >
               {processing ? 'Processing...' : actionDialog?.action === 'approve' ? 'Approve' : 'Reject'}
             </Button>
@@ -1173,38 +1903,40 @@ export default function WorkflowPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Action Dialog */}
+      {/* Bulk Approve/Reject Dialog */}
       <Dialog open={!!bulkDialog} onOpenChange={() => setBulkDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Bulk {bulkDialog?.action === 'approve' ? 'Approve' : 'Reject'}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {bulkDialog?.action === 'approve' ? (
+                <><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Bulk Approve</>
+              ) : (
+                <><XCircle className="w-5 h-5 text-red-600" /> Bulk Reject</>
+              )}
+            </DialogTitle>
             <DialogDescription>
-              You are about to {bulkDialog?.action} {selectedIds.size} ticket(s).
+              {selectedIds.size} ticket(s) will be {bulkDialog?.action === 'approve' ? 'approved' : 'rejected'}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="flex items-center gap-2 text-sm">
-              <Shield className="w-4 h-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Separation of Duties: Self-approvals will be skipped automatically.</span>
-            </div>
             <div className="space-y-2">
-              <Label>Review Notes (applied to all)</Label>
+              <Label>Notes</Label>
               <Textarea
                 value={bulkDialog?.notes || ''}
                 onChange={(e) => setBulkDialog(prev => prev ? { ...prev, notes: e.target.value } : null)}
-                placeholder="Add review comments for all tickets..."
+                placeholder="Add notes for all selected tickets..."
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setBulkDialog(null)} disabled={processing}>Cancel</Button>
             <Button
               onClick={handleBulkAction}
               disabled={processing}
-              className={bulkDialog?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-destructive hover:bg-destructive/90 text-white'}
+              className={bulkDialog?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
             >
-              {processing ? 'Processing...' : `${bulkDialog?.action === 'approve' ? 'Approve' : 'Reject'} ${selectedIds.size} Tickets`}
+              {processing ? 'Processing...' : `Bulk ${bulkDialog?.action === 'approve' ? 'Approve' : 'Reject'} (${selectedIds.size})`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1215,10 +1947,10 @@ export default function WorkflowPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ArrowUpRight className="w-5 h-5" /> Delegate Ticket
+              <ArrowUpRight className="w-5 h-5 text-purple-600" /> Delegate Ticket
             </DialogTitle>
             <DialogDescription>
-              Transfer this approval to another reviewer. They will be responsible for the final decision.
+              Delegate this ticket to another user for review.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1226,77 +1958,145 @@ export default function WorkflowPage() {
               <Label>Delegate To</Label>
               <Select
                 value={delegateDialog?.userId || ''}
-                onValueChange={(val) => setDelegateDialog(prev => prev ? { ...prev, userId: val } : null)}
+                onValueChange={(v) => setDelegateDialog(prev => prev ? { ...prev, userId: v } : null)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a user to delegate to" />
+                  <SelectValue placeholder="Select a user" />
                 </SelectTrigger>
                 <SelectContent>
-                  {users
-                    .filter(u => u.id !== user?.userId) // Cannot delegate to self
-                    .map(u => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.displayName || u.username} {u.email ? `(${u.email})` : ''}
-                      </SelectItem>
-                    ))}
+                  {users.filter(u => u.id !== user?.userId).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName || u.username} {u.email ? `(${u.email})` : ''}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Delegation Notes</Label>
+              <Label>Reason</Label>
               <Textarea
                 value={delegateDialog?.notes || ''}
                 onChange={(e) => setDelegateDialog(prev => prev ? { ...prev, notes: e.target.value } : null)}
-                placeholder="Why are you delegating this ticket?"
+                placeholder="Explain why you are delegating..."
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDelegateDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDelegateDialog(null)} disabled={processing}>Cancel</Button>
             <Button
               onClick={handleDelegate}
               disabled={processing || !delegateDialog?.userId}
-              className="bg-violet-600 hover:bg-violet-700 text-white"
+              className="bg-purple-600 hover:bg-purple-700 text-white"
             >
-              {processing ? 'Delegating...' : 'Delegate'}
+              {processing ? 'Processing...' : 'Delegate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Changes Dialog */}
+      <Dialog open={!!requestChangesDialog} onOpenChange={() => setRequestChangesDialog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-teal-600" /> Request Changes
+            </DialogTitle>
+            <DialogDescription>
+              Send this record back to draft with revision notes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Revision Notes (required)</Label>
+              <Textarea
+                value={requestChangesDialog?.notes || ''}
+                onChange={(e) => setRequestChangesDialog(prev => prev ? { ...prev, notes: e.target.value } : null)}
+                placeholder="Describe what changes are needed..."
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequestChangesDialog(null)} disabled={processing}>Cancel</Button>
+            <Button
+              onClick={handleRequestChanges}
+              disabled={processing || !requestChangesDialog?.notes}
+              className="bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              {processing ? 'Processing...' : 'Request Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Escalate Dialog */}
+      <Dialog open={!!escalateDialog} onOpenChange={() => setEscalateDialog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-orange-600" /> Escalate Ticket
+            </DialogTitle>
+            <DialogDescription>
+              Escalate this ticket to a higher authority for review.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Escalate To</Label>
+              <Select
+                value={escalateDialog?.userId || ''}
+                onValueChange={(v) => setEscalateDialog(prev => prev ? { ...prev, userId: v } : null)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select authority" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.filter(u => u.id !== user?.userId).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName || u.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Escalation Reason</Label>
+              <Textarea
+                value={escalateDialog?.notes || ''}
+                onChange={(e) => setEscalateDialog(prev => prev ? { ...prev, notes: e.target.value } : null)}
+                placeholder="Explain why this needs escalation..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEscalateDialog(null)} disabled={processing}>Cancel</Button>
+            <Button
+              onClick={handleEscalate}
+              disabled={processing || !escalateDialog?.userId}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              {processing ? 'Processing...' : 'Escalate'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Detail Dialog */}
-      <Dialog open={!!detailTicket} onOpenChange={(open) => { if (!open) setDetailTicket(null); }}>
+      <Dialog open={!!detailTicket} onOpenChange={() => setDetailTicket(null)}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
           {detailTicket && (
             <>
-              <DialogHeader className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={cn(
-                    'text-xs border',
-                    detailTicket.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                    detailTicket.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
-                    'bg-red-50 text-red-700 border-red-200'
-                  )}>
-                    {detailTicket.status}
-                  </Badge>
-                  <Badge className={cn('text-xs border', STATUS_COLORS[detailTicket.record?.status] || '')}>
-                    Record: {STATUS_LABELS[detailTicket.record?.status] || detailTicket.record?.status}
-                  </Badge>
-                  <PriorityBadge priority={detailTicket.priority} />
-                  <Badge variant="outline" className="text-xs font-mono">
-                    <Hash className="w-3 h-3 mr-1" />
-                    {detailTicket.recordId?.slice(0, 8)}…
-                  </Badge>
-                </div>
-                <DialogTitle className="text-xl flex items-start gap-2">
-                  <FileText className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
-                  <span className="break-words">{detailRecordTitle}</span>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileSearch className="w-5 h-5" />
+                  {detailRecordTitle}
                 </DialogTitle>
-                <DialogDescription className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <DialogDescription className="flex items-center gap-3 flex-wrap">
                   <span className="inline-flex items-center gap-1">
                     <Package className="w-4 h-4" />
-                    {detailTicket.record?.module?.moduleName || detailTicket.record?.module?.moduleCode || 'Unknown Module'}
+                    {detailTicket.record?.module?.moduleName}
                   </span>
                   {detailTicket.record?.company && (
                     <span className="inline-flex items-center gap-1">
@@ -1309,6 +2109,11 @@ export default function WorkflowPage() {
 
               <ScrollArea className="flex-1 pr-4 -mr-4">
                 <div className="space-y-6 pr-2">
+                  {/* SoD Warning */}
+                  {isSodViolation(detailTicket) && detailTicket.status === 'PENDING' && (
+                    <SoDWarningBanner onOverride={() => handleSodOverride(detailTicket.id)} />
+                  )}
+
                   {/* Workflow Timeline */}
                   {(detailTicket.workflowType === 'MULTI_STEP' || detailTicket.workflowType === 'PARALLEL') && (
                     <section className="space-y-2">
@@ -1335,7 +2140,7 @@ export default function WorkflowPage() {
                       </h4>
                       <div className={cn(
                         'rounded-lg border p-3 flex items-center gap-3',
-                        getDeadlineInfo(detailTicket.deadline).isOverdue ? 'border-red-300 bg-red-50' : 'border-border'
+                        getDeadlineInfo(detailTicket.deadline).isOverdue ? 'border-red-300 bg-red-50 dark:bg-red-950/30' : 'border-border'
                       )}>
                         <DeadlineDisplay deadline={detailTicket.deadline} />
                         <span className="text-sm text-muted-foreground">
@@ -1423,11 +2228,11 @@ export default function WorkflowPage() {
                       Comparison of old → new values for each changed field.
                     </p>
                     {detailDiffs.length === 0 ? (
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start gap-3">
-                        <FileSearch className="w-5 h-5 text-gray-600 mt-0.5 shrink-0" />
+                      <div className="rounded-lg border bg-muted/30 p-4 flex items-start gap-3">
+                        <FileSearch className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
                         <div>
-                          <p className="text-sm font-medium text-gray-900">No Changes Detected</p>
-                          <p className="text-xs text-gray-700 mt-0.5">No field changes were detected on this ticket.</p>
+                          <p className="text-sm font-medium">No Changes Detected</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">No field changes were detected on this ticket.</p>
                         </div>
                       </div>
                     ) : (
@@ -1477,8 +2282,8 @@ export default function WorkflowPage() {
                                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2">
                                   <div className={cn(
                                     'rounded px-2 py-1.5 text-xs font-mono break-words border',
-                                    isAdded ? 'bg-gray-50 text-muted-foreground border-gray-200' :
-                                    'bg-red-50 text-red-900 border-red-200',
+                                    isAdded ? 'bg-muted/30 text-muted-foreground border-muted' :
+                                    'bg-red-50 text-red-900 border-red-200 dark:bg-red-950/40 dark:text-red-300',
                                   )}>
                                     {isAdded ? (
                                       <span className="italic">(not set)</span>
@@ -1491,8 +2296,8 @@ export default function WorkflowPage() {
                                   </div>
                                   <div className={cn(
                                     'rounded px-2 py-1.5 text-xs font-mono break-words border',
-                                    isRemoved ? 'bg-gray-50 text-muted-foreground border-gray-200 line-through' :
-                                    'bg-emerald-50 text-emerald-900 border-emerald-200',
+                                    isRemoved ? 'bg-muted/30 text-muted-foreground border-muted line-through' :
+                                    'bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300',
                                   )}>
                                     {isRemoved ? (
                                       <span className="italic">(removed)</span>
@@ -1516,9 +2321,6 @@ export default function WorkflowPage() {
                     <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                       <FileText className="w-4 h-4" /> Complete Record Data
                     </h4>
-                    <p className="text-xs text-muted-foreground">
-                      Full record data that will be saved if this ticket is approved.
-                    </p>
                     <ScrollArea className="h-64 rounded-md border bg-muted/40">
                       <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
                         {detailRecordJson}
@@ -1533,11 +2335,33 @@ export default function WorkflowPage() {
                   Close
                 </Button>
                 {detailTicket.status === 'PENDING' && canApprove && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50"
+                      className="gap-1.5 border-orange-200 text-orange-700 hover:bg-orange-50"
+                      onClick={() => {
+                        setDetailTicket(null);
+                        setEscalateDialog({ ticketId: detailTicket.id, userId: '', notes: '' });
+                      }}
+                    >
+                      <Zap className="w-4 h-4" /> Escalate
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 border-teal-200 text-teal-700 hover:bg-teal-50"
+                      onClick={() => {
+                        setDetailTicket(null);
+                        setRequestChangesDialog({ ticketId: detailTicket.id, notes: '' });
+                      }}
+                    >
+                      <RotateCcw className="w-4 h-4" /> Request Changes
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50"
                       onClick={() => {
                         setDetailTicket(null);
                         setDelegateDialog({ ticketId: detailTicket.id, userId: '', notes: '' });
@@ -1583,7 +2407,6 @@ export default function WorkflowPage() {
 
           <ScrollArea className="flex-1 -mx-6 px-6">
             <div className="space-y-5 py-2">
-              {/* Template basics */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Template Name</Label>
@@ -1615,7 +2438,6 @@ export default function WorkflowPage() {
 
               <Separator />
 
-              {/* Steps builder */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-base font-semibold">Steps Configuration</Label>
@@ -1723,7 +2545,6 @@ export default function WorkflowPage() {
                   ))}
                 </div>
 
-                {/* Step Preview Timeline */}
                 {templateDialog && templateDialog.steps.length > 1 && (
                   <div className="bg-muted/30 rounded-lg p-4">
                     <p className="text-xs font-medium text-muted-foreground mb-2">Preview</p>

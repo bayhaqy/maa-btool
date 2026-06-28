@@ -2117,3 +2117,207 @@ Work Log:
 - Prisma generate completed successfully
 - All API routes use existing auth/RBAC middleware
 - Dashboard API uses efficient Prisma queries with Promise.all for parallel execution
+
+---
+Task ID: P2+P3
+Agent: Enhancement Agent
+Task: Enhance Workflow Engine and Data Quality Framework
+
+Work Log:
+- Read worklog.md to understand previous work context
+- Explored project structure: all 4 target components, API routes, Prisma schema, stores
+- Read existing WorkflowPage.tsx (1758 lines), DataQualityPage.tsx (463 lines), RecordDetailPage.tsx (1378 lines), HierarchyPage.tsx (251 lines)
+- Read existing API routes: /api/data-quality, /api/approvals, /api/hierarchies
+
+### 1. WorkflowPage.tsx Enhancement (Complete Rewrite)
+- **Visual Workflow Pipeline**: Added horizontal pipeline view showing Draft → In Review → Approved/Rejected → Active with animated node counts and progress indicators
+- **Pipeline Tab**: New "Pipeline" tab with PipelineStageCard components showing count and percentage per stage, and full lifecycle visualization with SVG node diagram
+- **Enhanced Ticket View**: Added inline change summary badges (with tooltips showing before/after), delegation chain display, and improved badge layout
+- **Approval Actions**: Added 5 action types:
+  - Approve (with optional notes)
+  - Reject (with required reason)
+  - Request Changes (sends back to draft with revision notes)
+  - Delegate (to another user with reason)
+  - Escalate (to higher authority with reason)
+- **SoD Check**: Added inline SoD warning when current user is the requester of a ticket, with Super Admin override button
+- **SoD Warning Dialog**: Dedicated dialog with full explanation of Segregation of Duties violation
+- **Workflow Statistics Tab**: New "Statistics" tab with:
+  - Approval rate gauge (SVG circular)
+  - Avg time to approve (7 days)
+  - Rejection reasons breakdown
+  - Bottleneck detection (avg time per step, color-coded)
+- **Framer Motion animations**: AnimatePresence, motion.div for cards and pipeline stages
+- **Dark mode support**: All colors use dark: variants
+- **Refresh button**: Added to header for manual data refresh
+- **No indigo/blue colors**: Used teal, emerald, amber, red palette
+
+### 2. DataQualityPage.tsx Enhancement (Complete Rewrite)
+- **Real API Connection**: Replaced all mock data with live API calls to /api/data-quality
+- **Overall Quality Score**: SVG circular gauge with real overallQuality from API
+- **Quality Dimensions**: Rendered from API response (completeness, accuracy, consistency, timeliness, uniqueness)
+- **Per-Module Quality Breakdown**: Table with real data from moduleBreakdown array (including moduleCode, all dimension scores)
+- **30-Day Quality Trend**: Renders qualityTrend array with animated bar chart, handles null data points
+- **Deduplication Panel**: 
+  - Shows merge candidates from API deduplication.mergeCandidates
+  - Side-by-side comparison dialog with field-by-field selection (survivor rule)
+  - Auto-merge button for high-confidence matches (>95%)
+  - Compare and Merge actions
+- **Data Profiling**: Generated field profiles from module breakdown data with null %, unique values, patterns, data types, and most common values
+- **Refresh button**: Manual refresh capability
+- **Dark mode support**: Full dark: variants throughout
+
+### 3. RecordDetailPage.tsx Enhancement (Incremental Edit)
+- **Added 5 new tab views** for existing records:
+  - **Details**: Original form with quality score card added to sidebar
+  - **Version History**: Full version diff view with field-by-field before/after comparison, latest version highlighting
+  - **Audit Trail**: Timeline view of audit entries loaded from /api/audit, with action-type colored badges
+  - **Related Records**: Records from same module loaded from /api/records, clickable to navigate
+  - **Data Lineage**: Visual pipeline (Source → Processing → Active), lineage details grid, transformation history from versions
+- **Quality Score**: SVG circular gauge in sidebar, loaded from /api/data-quality for the record's module
+- **New imports**: Tabs, ScrollArea, Progress, motion/AnimatePresence, additional Lucide icons
+- **New state**: activeDetailTab, auditTrail, relatedRecords, recordQualityScore
+- **New API calls** in loadData: audit, related records, quality score
+- **New Record Mode**: Shows form without tabs for new record creation
+
+### 4. HierarchyPage.tsx Enhancement (Complete Rewrite)
+- **Better Tree Visualization**: 
+  - Full TreeNode recursive component with expand/collapse
+  - Animated expand/collapse with Framer Motion AnimatePresence
+  - Depth-based indentation (20px per level)
+  - Folder icons per node
+  - Record count badges on parent nodes
+  - "Linked" badge for nodes with linked records
+- **Expand/Collapse All**: Buttons in tree toolbar
+- **Search Within Hierarchy**: Search input with highlighting of matching nodes
+- **Drag-and-Drop**: HTML5 drag/drop to reparent nodes (GripVertical handle on hover)
+- **Record Count Per Node**: Children count shown as badge
+- **Quick View Tree**: Inline tree view panel within the page, loads from /api/hierarchies?action=nodes
+- **Classification Rules**: New dialog to create auto-classification rules (field code + pattern → target node)
+- **Node CRUD**: Create/edit/delete nodes from within the tree view
+- **Tree Stats**: Total nodes, root nodes, max depth badges
+- **Dark mode support**: Full dark: variants
+- **No indigo/blue colors**: Teal primary palette
+
+### 5. Prisma Schema
+- Ran: `cp prisma/schema.sqlite.prisma prisma/schema.prisma && npx prisma generate`
+- Successfully generated Prisma Client
+
+### 6. Lint & Dev Log
+- ESLint passed for all 4 modified files with no errors
+- Dev server running and responding (HTTP 200)
+- Page loads correctly (54KB response)
+
+Files Modified:
+- /src/components/mdm/WorkflowPage.tsx (complete rewrite, ~1600 lines)
+- /src/components/mdm/DataQualityPage.tsx (complete rewrite, ~800 lines)
+- /src/components/mdm/RecordDetailPage.tsx (incremental edit, added ~530 lines)
+- /src/components/mdm/HierarchyPage.tsx (complete rewrite, ~500 lines)
+- /prisma/schema.prisma (replaced with SQLite variant)
+
+---
+Task ID: P4
+Agent: Security Hardening Agent
+Task: Security Hardening — RBAC, Audit, Session, API Security
+
+Work Log:
+
+1. **Enhanced RBAC System** (`/src/lib/rbac.ts`):
+   - Added granular permission constants: `data:read`, `data:write`, `data:delete`, `data:approve`, `schema:read`, `schema:write`, `admin:read`, `admin:write`, `audit:read`, `ai:read`, `ai:write`, `integration:read`, `integration:write`
+   - Updated `ROLE_PERMISSIONS` mapping with new permissions:
+     - Super Admin: ALL permissions (*)
+     - Manager: data:*, schema:read, audit:read, ai:read, doc:*, hierarchy:*, bulk:*
+     - Data Entry: data:read/write, schema:read, ai:read, doc:read, hierarchy:read, bulk:*
+     - Viewer: data:read, schema:read, audit:read, doc:read, hierarchy:read
+     - Doc Writer: data:read, schema:read, doc:read/write
+     - API Manager: data:read, integration:read/write, api:manage
+     - SFTP Manager: data:read, integration:read, sftp:manage
+     - AI User: data:read, ai:read, doc:read
+   - Added `requirePermission()` (throws), `filterByPermission<T>()`, `checkPermission()` helper functions
+   - Preserved backward compatibility with `checkAuthAndPermission()`, `isSuperAdmin()`, `checkModulePermission()`, `hasAnyPermission()`
+
+2. **Enhanced Audit Trail** (`/src/lib/audit.ts`):
+   - Added `AuditAction` constants for 30+ event types: AUTH_LOGIN/LOGOUT/FAILED/PASSWORD_CHANGE, RECORD_CREATE/UPDATE/DELETE/STATUS_CHANGE, MODULE_CREATE/UPDATE/DELETE, WORKFLOW_APPROVE/REJECT/DELEGATE, USER_CREATE/UPDATE/DELETE/IMPERSONATE, ROLE_ASSIGN/REMOVE, SETTINGS_CHANGE, AI_CONFIG_CHANGE, BULK_IMPORT/EXPORT/UPDATE, DATA_QUALITY_CHECK, DEDUP_MERGE, BUSINESS_RULE_TRIGGER, RATE_LIMIT_VIOLATION
+   - Added `AuditSeverity` levels (info/warning/critical) with auto-severity mapping per action type
+   - Enhanced `logAudit()` function to accept structured `AuditEvent` with:
+     - Auto-extraction of userId/companyId/username from request token
+     - Auto-extraction of IP address and User-Agent from request headers
+     - Severity auto-defaulting based on action type
+     - Console warning for critical events
+   - Preserved backward compatibility with `logAuditLegacy()`, `sanitizeInput()`, `validateSafeString()`
+
+3. **Rate Limiting Enhancement** (`/src/lib/rate-limit.ts`):
+   - Added endpoint category presets: auth (10/min per IP), read (100/min per user), write (30/min per user), admin (15/min per user), ai (20/min per user)
+   - Added `rateLimitByCategory()` function with auto-audit logging on violations
+   - Added `rateLimitResponse()` helper for standard 429 responses with Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset headers
+   - Preserved backward compatibility with original `rateLimit()` function
+
+4. **Session Management** (`/src/lib/session.ts`):
+   - 30-minute inactivity timeout
+   - 8-hour maximum session duration
+   - In-memory session store with auto-cleanup (5-minute intervals)
+   - `createSession()`, `touchSession()`, `destroySession()`, `getUserSessions()`, `destroyOtherSessions()`
+   - `validateSessionToken()` for JWT validation
+   - `requiresReAuth()` for sensitive operations (password_change, user_delete, role_change, impersonate, hard_delete, admin_settings, ai_config) with 15-minute window
+   - Sensitive operations registry (`SENSITIVE_OPERATIONS`)
+
+5. **API Security Middleware** (`/src/lib/api-security.ts`):
+   - `validateInput(data, schema)` — validates input against a type schema (string, number, email, url, boolean, date, array, object) with optional (?) fields
+   - `sanitizeString(input)` — XSS prevention with script tag removal, event handler stripping, javascript:/data: URL blocking, HTML entity encoding
+   - `checkCSRF(origin, host)` — Origin vs Host validation for CSRF protection, localhost allowed in development
+   - `rateLimitByUser(userId, endpoint)` — async per-user rate limiting
+   - `apiSecurityCheck()` — combined auth + CSRF + rate limit + permission check in one call
+
+6. **Security Applied to API Routes**:
+   - `/api/auth/login` — auth rate limiting (10/min per IP), input validation, sanitized username, login/failed audit logging, session creation
+   - `/api/auth/me` — read rate limiting (100/min per user)
+   - `/api/auth/change-password` — write rate limiting, re-auth check for sensitive operation, input validation, audit logging for success/failure
+   - `/api/auth/permissions` — read rate limiting
+   - `/api/records` — read rate limiting on GET, write rate limiting on POST/PUT/DELETE
+   - `/api/modules` — schema:read permission check on GET, admin rate limiting on POST/PUT/DELETE, audit logging for create/update/delete/clone/export
+   - `/api/admin/users` — admin rate limiting on all methods, audit logging for create/update/deactivate
+   - `/api/admin/companies` — admin rate limiting, audit logging for create/update/deactivate
+   - `/api/admin/roles` — admin rate limiting, audit logging for create/update/delete
+   - `/api/admin/users/impersonate` — admin rate limiting, critical severity audit logging
+   - `/api/admin/users/hard-delete` — admin rate limiting, critical severity audit logging
+   - `/api/settings` — read rate limiting on GET, admin rate limiting on PUT, audit logging for settings changes
+   - `/api/ai/config` — read rate limiting on GET, admin rate limiting on PUT, AI rate limiting on POST, audit logging for AI config changes
+   - `/api/ai/chat` — AI rate limiting on GET/POST/PATCH/DELETE
+   - `/api/audit` — read rate limiting
+   - `/api/approvals` — read rate limiting on GET, write rate limiting on PUT
+   - `/api/api-keys` — read rate limiting on GET, write rate limiting on POST/PATCH/DELETE
+   - `/api/bulk` — read rate limiting on GET, write rate limiting on POST
+   - `/api/bulk-update` — read rate limiting on GET, write rate limiting on POST
+
+7. **Verification**:
+   - Ran `cp prisma/schema.sqlite.prisma prisma/schema.prisma && npx prisma generate` — successful
+   - ESLint passed on all modified files (no new errors)
+   - TypeScript compilation passed for all security files and API routes
+   - Dev server running without errors
+   - No breaking changes to existing functionality
+
+Files Modified:
+- /src/lib/rbac.ts (enhanced with granular permissions, helper functions)
+- /src/lib/audit.ts (enhanced with AuditAction constants, structured logAudit, severity)
+- /src/lib/rate-limit.ts (enhanced with endpoint categories, rateLimitByCategory, rateLimitResponse)
+- /src/lib/session.ts (NEW — session management, inactivity timeout, re-auth)
+- /src/lib/api-security.ts (NEW — validateInput, sanitizeString, checkCSRF, rateLimitByUser)
+- /src/app/api/auth/login/route.ts (added rate limiting, input validation, audit logging)
+- /src/app/api/auth/me/route.ts (added rate limiting)
+- /src/app/api/auth/change-password/route.ts (added rate limiting, re-auth check, audit logging)
+- /src/app/api/auth/permissions/route.ts (added rate limiting)
+- /src/app/api/records/route.ts (added rate limiting)
+- /src/app/api/modules/route.ts (added rate limiting, audit logging, schema:read permission)
+- /src/app/api/admin/users/route.ts (added rate limiting, audit logging)
+- /src/app/api/admin/companies/route.ts (added rate limiting, audit logging)
+- /src/app/api/admin/roles/route.ts (added rate limiting, audit logging)
+- /src/app/api/admin/users/impersonate/route.ts (added rate limiting, audit logging)
+- /src/app/api/admin/users/hard-delete/route.ts (added rate limiting, audit logging)
+- /src/app/api/settings/route.ts (added rate limiting, audit logging)
+- /src/app/api/ai/config/route.ts (added rate limiting, audit logging)
+- /src/app/api/ai/chat/route.ts (added rate limiting)
+- /src/app/api/audit/route.ts (added rate limiting)
+- /src/app/api/approvals/route.ts (added rate limiting)
+- /src/app/api/api-keys/route.ts (added rate limiting)
+- /src/app/api/bulk/route.ts (added rate limiting)
+- /src/app/api/bulk-update/route.ts (added rate limiting)
+- /prisma/schema.prisma (regenerated from SQLite template)

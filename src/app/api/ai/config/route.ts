@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { getAIMaskedConfig, getAIProviderConfig, clearAICache, type AIProvider } from '@/lib/ai';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,11 +37,11 @@ interface TestConnectionResult {
 
 // ─── Helper ──────────────────────────────────────────────────────────
 
-function requireSuperAdmin(headers: Headers): { authorized: boolean; userId?: string } {
+function requireSuperAdmin(headers: Headers): { authorized: boolean; userId?: string; username?: string } {
   const tokenPayload = getTokenFromHeaders(headers);
   if (!tokenPayload) return { authorized: false };
   if (!tokenPayload.roles.includes('Super Admin')) return { authorized: false };
-  return { authorized: true, userId: tokenPayload.userId };
+  return { authorized: true, userId: tokenPayload.userId, username: tokenPayload.username };
 }
 
 /**
@@ -55,8 +57,22 @@ async function upsertSetting(key: string, value: string, updatedById?: string): 
 
 // ─── GET — Current AI config (masked) ────────────────────────────────
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const config = await getAIMaskedConfig();
     return NextResponse.json({ config });
   } catch (error) {
@@ -69,9 +85,18 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { authorized, userId } = requireSuperAdmin(request.headers);
+    const { authorized, userId, username } = requireSuperAdmin(request.headers);
     if (!authorized) {
       return NextResponse.json({ error: 'Access denied. Super Admin role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', userId!);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body: AIConfigUpdate = await request.json();
@@ -115,6 +140,16 @@ export async function PUT(request: NextRequest) {
     // Clear cached config so next read picks up changes
     clearAICache();
 
+    // ── Audit: AI config change ────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.AI_CONFIG_CHANGE,
+      entityType: 'AppSettings',
+      description: `AI configuration updated by "${username}": ${updates.map(u => u.key).join(', ')}`,
+      newValues: Object.fromEntries(updates.map(u => [u.key, u.key === 'AI_API_KEY' ? '***masked***' : u.value])),
+      severity: 'warning',
+      req: request,
+    });
+
     // Return updated (masked) config
     const config = await getAIMaskedConfig();
     return NextResponse.json({ success: true, config });
@@ -128,9 +163,18 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { authorized } = requireSuperAdmin(request.headers);
+    const { authorized, userId } = requireSuperAdmin(request.headers);
     if (!authorized) {
       return NextResponse.json({ error: 'Access denied. Super Admin role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: AI endpoints ───────────────────────────────────────
+    const rl = rateLimitByCategory('ai', userId!);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const config = await getAIProviderConfig();

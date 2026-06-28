@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/modules - List all modules (with field counts)
 // GET /api/modules?action=detail&id=xxx - Get module with fields, validations, and lookup data
@@ -10,9 +12,18 @@ import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    const authCheck = checkAuthAndPermission(tokenPayload, 'data:read');
+    const authCheck = checkAuthAndPermission(tokenPayload, 'schema:read');
     if (authCheck.error) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload!.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -164,6 +175,15 @@ export async function GET(request: NextRequest) {
         })),
       };
 
+      // ── Audit: export ─────────────────────────────────────────────────
+      await logAudit({
+        action: AuditAction.BULK_EXPORT,
+        entityType: 'MetaModule',
+        entityId: id,
+        description: `Module "${metaModule.moduleName}" exported as JSON`,
+        req: request,
+      });
+
       return NextResponse.json(exportData);
     }
 
@@ -211,6 +231,15 @@ export async function POST(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Only Super Admin can create modules' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -296,6 +325,16 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // ── Audit: module clone ────────────────────────────────────────────
+      await logAudit({
+        action: AuditAction.MODULE_CREATE,
+        entityType: 'MetaModule',
+        entityId: clonedModule.id,
+        description: `Module "${newName}" cloned from "${sourceModule.moduleName}"`,
+        newValues: { moduleCode: newCode, moduleName: newName, sourceModuleId: sourceId },
+        req: request,
+      });
+
       return NextResponse.json({ module: clonedModule }, { status: 201 });
     }
 
@@ -324,6 +363,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // ── Audit: module create ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.MODULE_CREATE,
+      entityType: 'MetaModule',
+      entityId: metaModule.id,
+      description: `Module "${moduleName}" (${moduleCode}) created`,
+      newValues: { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive },
+      req: request,
+    });
+
     return NextResponse.json({ module: metaModule }, { status: 201 });
   } catch (error) {
     console.error('Modules POST error:', error);
@@ -337,6 +386,15 @@ export async function PUT(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Only Super Admin can update modules' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -371,6 +429,25 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // ── Audit: module update ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.MODULE_UPDATE,
+      entityType: 'MetaModule',
+      entityId: id,
+      description: `Module "${existing.moduleName}" updated`,
+      oldValues: {
+        moduleCode: existing.moduleCode,
+        moduleName: existing.moduleName,
+        moduleIcon: existing.moduleIcon,
+        description: existing.description,
+        requireApproval: existing.requireApproval,
+        sortOrder: existing.sortOrder,
+        isActive: existing.isActive,
+      },
+      newValues: { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive },
+      req: request,
+    });
+
     return NextResponse.json({ module: metaModule });
   } catch (error) {
     console.error('Modules PUT error:', error);
@@ -384,6 +461,15 @@ export async function DELETE(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
       return NextResponse.json({ error: 'Only Super Admin can delete modules' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -401,6 +487,18 @@ export async function DELETE(request: NextRequest) {
     const metaModule = await db.metaModule.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    // ── Audit: module delete ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.MODULE_DELETE,
+      entityType: 'MetaModule',
+      entityId: id,
+      description: `Module "${existing.moduleName}" (${existing.moduleCode}) soft-deleted`,
+      severity: 'critical',
+      oldValues: { moduleCode: existing.moduleCode, moduleName: existing.moduleName, isActive: true },
+      newValues: { isActive: false },
+      req: request,
     });
 
     return NextResponse.json({ module: metaModule });
