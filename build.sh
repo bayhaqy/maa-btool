@@ -7,31 +7,31 @@ npx prisma generate
 
 echo "▶ Pushing schema to database..."
 
-# Function to attempt schema push
-try_push() {
-  local url="$1"
-  local flags="$2"
-
-  if [ -n "$url" ]; then
-    echo "  Using direct connection for schema push..."
-    DATABASE_URL="$url" npx prisma db push $flags 2>&1
-  else
-    echo "  Using DATABASE_URL for schema push..."
-    npx prisma db push $flags 2>&1
-  fi
-}
-
-# First try with --accept-data-loss (preserves data)
-PUSH_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
+# Try with --accept-data-loss first (preserves data)
 echo "  Attempting schema push with --accept-data-loss (data-preserving)..."
-if try_push "$DIRECT_DATABASE_URL" "--accept-data-loss" 2>&1 | grep -q "cannot be executed"; then
-  echo "  ⚠️  Incremental push failed. Trying --force-reset (will re-seed data)..."
-  if ! try_push "$DIRECT_DATABASE_URL" "--force-reset" 2>&1; then
-    echo "  ⚠️  Force-reset also failed. Trying pooler URL..."
+if [ -n "$DIRECT_DATABASE_URL" ]; then
+  PUSH_RESULT=$(DATABASE_URL="$DIRECT_DATABASE_URL" npx prisma db push --accept-data-loss 2>&1)
+else
+  PUSH_RESULT=$(npx prisma db push --accept-data-loss 2>&1)
+fi
+echo "$PUSH_RESULT"
+
+if echo "$PUSH_RESULT" | grep -q "cannot be executed"; then
+  echo "  ⚠️  Incremental push failed - schema drift too large. Using --force-reset..."
+  if [ -n "$DIRECT_DATABASE_URL" ]; then
+    DATABASE_URL="$DIRECT_DATABASE_URL" npx prisma db push --force-reset 2>&1 || {
+      echo "  ⚠️  Force-reset failed. Trying pooler URL..."
+      npx prisma db push --force-reset 2>&1 || {
+        echo "  ⚠️  All schema push attempts failed — continuing with build"
+      }
+    }
+  else
     npx prisma db push --force-reset 2>&1 || {
-      echo "  ⚠️  All schema push attempts failed — continuing with build"
+      echo "  ⚠️  Force-reset failed — continuing with build"
     }
   fi
+elif echo "$PUSH_RESULT" | grep -qi "error"; then
+  echo "  ⚠️  Schema push had errors — continuing with build"
 else
   echo "  ✅ Schema push succeeded (data preserved)"
 fi
