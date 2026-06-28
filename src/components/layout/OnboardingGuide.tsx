@@ -581,6 +581,21 @@ export default function OnboardingGuide() {
   const { user, navigate, completeOnboarding, onboardingTrigger } = useAppStore();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
+
+  /* Wait for zustand persist to hydrate before checking onboarding status.
+   * Without this, the onboarding dialog shows on every login because the
+   * check fires before the persisted `onboardingCompleted` map is loaded
+   * from localStorage. */
+  useEffect(() => {
+    const api = useAppStore.persist;
+    if (api.hasHydrated()) {
+      setHydrated(true);
+    } else {
+      const unsub = api.onFinishHydration(() => setHydrated(true));
+      return unsub;
+    }
+  }, []);
 
   /* Build the role-filtered step list */
   const steps = useMemo<OnboardingStep[]>(() => {
@@ -595,15 +610,17 @@ export default function OnboardingGuide() {
     });
   }, [user]);
 
-  /* Auto-show on first login OR when replayOnboarding is triggered */
+  /* Auto-show on first login OR when replayOnboarding is triggered.
+   * Guarded by `hydrated` to avoid the race condition where the check
+   * fires before the persisted onboardingCompleted map is loaded. */
   useEffect(() => {
-    if (!user) return;
+    if (!user || !hydrated) return;
     const completed = useAppStore.getState().onboardingCompleted[user.username];
     if (!completed) {
       const t = setTimeout(() => setOpen(true), 600);
       return () => clearTimeout(t);
     }
-  }, [user, onboardingTrigger]);
+  }, [user, hydrated, onboardingTrigger]);
 
   const handleFinish = useCallback(() => {
     if (user) completeOnboarding(user.username);

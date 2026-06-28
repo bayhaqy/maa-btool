@@ -40,6 +40,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
+  ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -666,6 +670,23 @@ export default function WorkflowPage() {
         }, 0) / recentApproved.length / (1000 * 60 * 60) * 10) / 10
       : 0;
 
+    // Throughput: tickets resolved per day (last 7 days)
+    const throughput: Array<{ day: string; approved: number; rejected: number }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dayStart = new Date(date.setHours(0, 0, 0, 0));
+      const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+      const dayLabel = dayStart.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayApproved = allTickets.filter(t =>
+        t.status === 'APPROVED' && t.reviewedAt && new Date(t.reviewedAt) >= dayStart && new Date(t.reviewedAt) <= dayEnd
+      ).length;
+      const dayRejected = allTickets.filter(t =>
+        t.status === 'REJECTED' && t.reviewedAt && new Date(t.reviewedAt) >= dayStart && new Date(t.reviewedAt) <= dayEnd
+      ).length;
+      throughput.push({ day: dayLabel, approved: dayApproved, rejected: dayRejected });
+    }
+
     return {
       total,
       approved,
@@ -675,6 +696,7 @@ export default function WorkflowPage() {
       rejectionReasons,
       bottleneckSteps,
       avgTime7d,
+      throughput,
     };
   }, [allTickets]);
 
@@ -1666,13 +1688,23 @@ export default function WorkflowPage() {
                 <CardDescription>Average time spent at each workflow step — identifies the slowest stages</CardDescription>
               </CardHeader>
               <CardContent>
-                {workflowStatistics.bottleneckSteps.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <Timer className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">No multi-step workflow data available</p>
+                {workflowStatistics.bottleneckSteps.length === 0 && workflowStatistics.avgTime7d === 0 ? (
+                  <div className="py-4">
+                    <p className="text-sm text-muted-foreground text-center mb-3">
+                      Avg resolution time (7d): <span className="font-bold text-foreground">{workflowStatistics.avgTime7d > 0 ? `${workflowStatistics.avgTime7d}h` : 'N/A'}</span>
+                    </p>
+                    <div className="rounded-lg border bg-muted/30 p-4">
+                      <p className="text-sm text-muted-foreground text-center">No multi-step workflow data available yet. Resolution times will appear as more tickets are processed.</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
+                    {workflowStatistics.avgTime7d > 0 && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                        <span className="text-sm font-medium">Average Resolution Time (7d)</span>
+                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{workflowStatistics.avgTime7d}h</span>
+                      </div>
+                    )}
                     {workflowStatistics.bottleneckSteps.map(({ step, avgHours }) => (
                       <div key={step} className="flex items-center gap-4">
                         <span className="text-sm font-medium w-20 shrink-0">Step {step}</span>
@@ -1695,6 +1727,40 @@ export default function WorkflowPage() {
                         </span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Throughput Chart */}
+            <Card className="shadow-sm lg:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" /> Throughput (Last 7 Days)
+                </CardTitle>
+                <CardDescription>Tickets resolved per day — approved vs rejected</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {workflowStatistics.throughput.every(d => d.approved === 0 && d.rejected === 0) ? (
+                  <div className="py-8 text-center">
+                    <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No tickets resolved in the last 7 days</p>
+                  </div>
+                ) : (
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={workflowStatistics.throughput} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                        <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                        <RechartsTooltip
+                          contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                          formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
+                        />
+                        <Bar dataKey="approved" fill="#10b981" radius={[4, 4, 0, 0]} name="approved" />
+                        <Bar dataKey="rejected" fill="#ef4444" radius={[4, 4, 0, 0]} name="rejected" />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
               </CardContent>

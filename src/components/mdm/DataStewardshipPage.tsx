@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -18,12 +19,13 @@ import {
 import {
   ShieldCheck, Users, Merge, AlertTriangle, CheckCircle2, Clock,
   ArrowRight, Eye, GitMerge, UserCircle, FileText, TrendingUp,
-  AlertCircle, Layers, Crown,
+  AlertCircle, Layers, Crown, Plus, UserPlus, RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
-// Types & Mock Data
+// Types
 // ---------------------------------------------------------------------------
 
 interface StewardshipTask {
@@ -50,11 +52,14 @@ interface GoldenRecord {
 
 interface DomainOwnership {
   domain: string;
+  moduleCode: string;
+  moduleId: string;
   owner: string;
   ownerEmail: string;
   recordCount: number;
   qualityScore: number;
   lastUpdated: string;
+  stewardAssigned: boolean;
 }
 
 interface QualityAlert {
@@ -65,6 +70,11 @@ interface QualityAlert {
   timestamp: string;
   resolved: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Fallback / mock data for tasks, golden records, and alerts
+// (only used as fallback when API data is unavailable)
+// ---------------------------------------------------------------------------
 
 const stewardshipTasks: StewardshipTask[] = [
   { id: 'ST-001', type: 'review', title: 'Review duplicate Article Master entries', description: '3 potential duplicates detected in Footwear category', domain: 'Product', priority: 'high', status: 'pending', assignee: 'admin', createdAt: '2025-01-15T10:30:00Z' },
@@ -81,14 +91,6 @@ const goldenRecords: GoldenRecord[] = [
   { id: 'GR-003', domain: 'Supplier', recordCount: 12, survivorSource: 'Vendor Master (ERP)', lastMerged: '2025-01-10', confidence: 78, status: 'pending_review' },
   { id: 'GR-004', domain: 'Store Locations', recordCount: 20, survivorSource: 'Store Master (CRM)', lastMerged: '2025-01-08', confidence: 85, status: 'conflict' },
   { id: 'GR-005', domain: 'Pricing', recordCount: 20, survivorSource: 'Pricing Master (SAP)', lastMerged: '2025-01-06', confidence: 93, status: 'active' },
-];
-
-const domainOwnerships: DomainOwnership[] = [
-  { domain: 'Article Master', owner: 'Dewi Sartika', ownerEmail: 'dewi.s@mapactive.co.id', recordCount: 65, qualityScore: 87, lastUpdated: '2025-01-15' },
-  { domain: 'Store Master', owner: 'Budi Santoso', ownerEmail: 'budi.s@mapactive.co.id', recordCount: 20, qualityScore: 72, lastUpdated: '2025-01-14' },
-  { domain: 'Supplier Master', owner: 'Rina Wati', ownerEmail: 'rina.w@mapactive.co.id', recordCount: 12, qualityScore: 81, lastUpdated: '2025-01-13' },
-  { domain: 'Pricing Master', owner: 'Andi Pratama', ownerEmail: 'andi.p@mapactive.co.id', recordCount: 20, qualityScore: 90, lastUpdated: '2025-01-12' },
-  { domain: 'Promotion Master', owner: 'Unassigned', ownerEmail: '', recordCount: 12, qualityScore: 65, lastUpdated: '2025-01-10' },
 ];
 
 const qualityAlerts: QualityAlert[] = [
@@ -139,15 +141,65 @@ const severityColors: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export default function DataStewardshipPage() {
-  const { user } = useAppStore();
+  const { token, user } = useAppStore();
   const [activeTab, setActiveTab] = useState('tasks');
   const [selectedTask, setSelectedTask] = useState<StewardshipTask | null>(null);
   const [selectedGoldenRecord, setSelectedGoldenRecord] = useState<GoldenRecord | null>(null);
 
+  // Ownership data from API
+  const [domainOwnerships, setDomainOwnerships] = useState<DomainOwnership[]>([]);
+  const [ownershipLoading, setOwnershipLoading] = useState(true);
+
   const pendingTasks = stewardshipTasks.filter(t => t.status === 'pending').length;
   const highPriority = stewardshipTasks.filter(t => t.priority === 'high' && t.status === 'pending').length;
   const activeConflicts = goldenRecords.filter(g => g.status === 'conflict').length;
-  const unassignedDomains = domainOwnerships.filter(d => d.owner === 'Unassigned').length;
+  const unassignedDomains = domainOwnerships.filter(d => !d.stewardAssigned).length;
+
+  // Fetch ownership data from API
+  const loadOwnershipData = useCallback(async () => {
+    if (!token) return;
+    setOwnershipLoading(true);
+    try {
+      const [qualRes, modRes] = await Promise.all([
+        fetch('/api/data-quality', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+
+      const qualData = qualRes.ok ? await qualRes.json() : null;
+      const modData = modRes.ok ? await modRes.json() : null;
+
+      if (modData?.modules) {
+        const ownerships: DomainOwnership[] = modData.modules
+          .filter((m: any) => m.isActive !== false)
+          .map((m: any) => {
+            // Find quality data for this module
+            const modQual = qualData?.moduleBreakdown?.find((q: any) => q.moduleId === m.id);
+            return {
+              domain: m.moduleName,
+              moduleCode: m.moduleCode,
+              moduleId: m.id,
+              owner: 'Unassigned',
+              ownerEmail: '',
+              recordCount: modQual?.totalRecords ?? 0,
+              qualityScore: modQual?.overall ?? 0,
+              lastUpdated: new Date(m.updatedAt || Date.now()).toLocaleDateString('en-CA'),
+              stewardAssigned: false,
+            };
+          });
+
+        setDomainOwnerships(ownerships);
+      }
+    } catch {
+      // Fallback: use empty data
+      setDomainOwnerships([]);
+    } finally {
+      setOwnershipLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadOwnershipData();
+  }, [loadOwnershipData]);
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -249,24 +301,30 @@ export default function DataStewardshipPage() {
                   </TableHeader>
                   <TableBody>
                     {stewardshipTasks.map((task) => {
-                      const TypeIcon = taskTypeIcons[task.type];
+                      const Icon = taskTypeIcons[task.type];
                       return (
-                        <TableRow key={task.id} className="cursor-pointer hover:bg-accent/50" onClick={() => setSelectedTask(task)}>
+                        <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedTask(task)}>
                           <TableCell className="font-mono text-xs">{task.id}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1.5">
-                              <TypeIcon className="w-4 h-4 text-muted-foreground" />
+                              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
                               <span className="capitalize text-xs">{task.type}</span>
                             </div>
                           </TableCell>
                           <TableCell className="font-medium text-sm max-w-[200px] truncate">{task.title}</TableCell>
-                          <TableCell className="hidden md:table-cell"><Badge variant="outline" className="text-xs">{task.domain}</Badge></TableCell>
-                          <TableCell><Badge className={cn('text-xs border-0', priorityColors[task.priority])}>{task.priority}</Badge></TableCell>
-                          <TableCell><Badge className={cn('text-xs border-0', statusBadge[task.status])}>{task.status.replace('_', ' ')}</Badge></TableCell>
-                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{task.assignee || '—'}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <Badge variant="outline" className="text-[10px]">{task.domain}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn('text-[10px] border-0', priorityColors[task.priority])}>{task.priority}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn('text-[10px] border-0', statusBadge[task.status])}>{task.status.replace('_', ' ')}</Badge>
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">{task.assignee || '—'}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                              <ArrowRight className="w-4 h-4" />
+                              <ArrowRight className="w-3.5 h-3.5" />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -281,109 +339,137 @@ export default function DataStewardshipPage() {
 
         {/* Golden Record Tab */}
         <TabsContent value="golden-record">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Golden Record Management</CardTitle>
-              <CardDescription>Survivor selection, record merging, and best-version tracking across data domains.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="max-h-[480px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[80px]">ID</TableHead>
-                      <TableHead>Domain</TableHead>
-                      <TableHead className="hidden md:table-cell">Records</TableHead>
-                      <TableHead className="hidden lg:table-cell">Survivor Source</TableHead>
-                      <TableHead>Confidence</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="hidden sm:table-cell">Last Merged</TableHead>
-                      <TableHead className="w-[60px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {goldenRecords.map((gr) => (
-                      <TableRow key={gr.id} className="cursor-pointer hover:bg-accent/50" onClick={() => setSelectedGoldenRecord(gr)}>
-                        <TableCell className="font-mono text-xs">{gr.id}</TableCell>
-                        <TableCell className="font-medium text-sm">{gr.domain}</TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <Badge variant="outline" className="text-xs gap-1"><FileText className="w-3 h-3" />{gr.recordCount}</Badge>
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{gr.survivorSource}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-2 rounded-full bg-muted overflow-hidden">
-                              <div
-                                className={cn(
-                                  'h-full rounded-full transition-all',
-                                  gr.confidence >= 90 ? 'bg-emerald-500' : gr.confidence >= 75 ? 'bg-amber-500' : 'bg-red-500'
-                                )}
-                                style={{ width: `${gr.confidence}%` }}
-                              />
-                            </div>
-                            <span className="text-xs font-medium">{gr.confidence}%</span>
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge className={cn('text-xs border-0', grStatusColors[gr.status])}>{gr.status.replace('_', ' ')}</Badge></TableCell>
-                        <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">{gr.lastMerged}</TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                            <ArrowRight className="w-4 h-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {goldenRecords.map((gr) => (
+              <motion.div
+                key={gr.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="h-full hover:shadow-md transition-shadow cursor-pointer" onClick={() => setSelectedGoldenRecord(gr)}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Crown className={cn('w-4 h-4', gr.confidence >= 90 ? 'text-emerald-500' : gr.confidence >= 75 ? 'text-amber-500' : 'text-red-500')} />
+                        <h3 className="font-semibold text-sm">{gr.domain}</h3>
+                      </div>
+                      <Badge className={cn('text-[10px] border-0', grStatusColors[gr.status])}>{gr.status.replace('_', ' ')}</Badge>
+                    </div>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>Source Records</span>
+                        <span className="font-medium text-foreground">{gr.recordCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Survivor Source</span>
+                        <span className="font-medium text-foreground text-xs">{gr.survivorSource}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Confidence</span>
+                        <span className={cn('font-bold', gr.confidence >= 90 ? 'text-emerald-600' : gr.confidence >= 75 ? 'text-amber-600' : 'text-red-600')}>{gr.confidence}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Last Merged</span>
+                        <span className="font-medium text-foreground">{gr.lastMerged}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
         </TabsContent>
 
         {/* Ownership Tab */}
         <TabsContent value="ownership">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Record Ownership</CardTitle>
-              <CardDescription>Data domain ownership assignments and stewardship responsibility mapping.</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Record Ownership</CardTitle>
+                  <CardDescription>Data domain ownership assignments and stewardship responsibility mapping.</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={loadOwnershipData}>
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {domainOwnerships.map((domain) => (
-                  <motion.div
-                    key={domain.domain}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="rounded-lg border p-4 hover:bg-accent/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="font-semibold text-sm">{domain.domain}</h3>
-                        {domain.owner === 'Unassigned' ? (
-                          <Badge className="mt-1 text-xs border-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Unassigned</Badge>
-                        ) : (
-                          <p className="text-xs text-muted-foreground mt-0.5">{domain.owner} &middot; {domain.ownerEmail}</p>
-                        )}
-                      </div>
-                      <UserCircle className={cn('w-5 h-5', domain.owner === 'Unassigned' ? 'text-red-400' : 'text-muted-foreground')} />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-md bg-muted/50 p-2">
-                        <p className="text-lg font-bold">{domain.recordCount}</p>
-                        <p className="text-[10px] text-muted-foreground">Records</p>
-                      </div>
-                      <div className="rounded-md bg-muted/50 p-2">
-                        <p className={cn('text-lg font-bold', domain.qualityScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>{domain.qualityScore}%</p>
-                        <p className="text-[10px] text-muted-foreground">Quality</p>
-                      </div>
-                      <div className="rounded-md bg-muted/50 p-2">
-                        <p className="text-xs font-medium mt-1">{domain.lastUpdated}</p>
-                        <p className="text-[10px] text-muted-foreground">Updated</p>
+              {ownershipLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="rounded-lg border p-4 space-y-3">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-48" />
+                      <div className="grid grid-cols-3 gap-2">
+                        <Skeleton className="h-12 rounded-md" />
+                        <Skeleton className="h-12 rounded-md" />
+                        <Skeleton className="h-12 rounded-md" />
                       </div>
                     </div>
-                  </motion.div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : domainOwnerships.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">No domain ownership data available</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {domainOwnerships.map((domain) => (
+                    <motion.div
+                      key={domain.moduleId}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-lg border p-4 hover:bg-accent/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="font-semibold text-sm">{domain.domain}</h3>
+                          <p className="text-[10px] text-muted-foreground font-mono">{domain.moduleCode}</p>
+                          {!domain.stewardAssigned ? (
+                            <Badge className="mt-1 text-xs border-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                              <UserCircle className="w-3 h-3 mr-1" /> No steward assigned
+                            </Badge>
+                          ) : (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {domain.owner} &middot; {domain.ownerEmail}
+                            </p>
+                          )}
+                        </div>
+                        <UserCircle className={cn('w-5 h-5', !domain.stewardAssigned ? 'text-red-400' : 'text-muted-foreground')} />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-md bg-muted/50 p-2">
+                          <p className="text-lg font-bold">{domain.recordCount}</p>
+                          <p className="text-[10px] text-muted-foreground">Records</p>
+                        </div>
+                        <div className="rounded-md bg-muted/50 p-2">
+                          <p className={cn('text-lg font-bold', domain.qualityScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : domain.qualityScore >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
+                            {domain.qualityScore > 0 ? `${domain.qualityScore}%` : '—'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">Quality</p>
+                        </div>
+                        <div className="rounded-md bg-muted/50 p-2">
+                          <p className="text-xs font-medium mt-1">{domain.lastUpdated}</p>
+                          <p className="text-[10px] text-muted-foreground">Updated</p>
+                        </div>
+                      </div>
+                      {!domain.stewardAssigned && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full mt-3 gap-1.5 text-xs h-8"
+                          onClick={() => toast.info(`Steward assignment for ${domain.domain} will be available in a future update`)}
+                        >
+                          <UserPlus className="w-3.5 h-3.5" /> Assign Steward
+                        </Button>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -217,9 +217,19 @@ export default function DataRecordsPage() {
     try {
       const res = await fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      setModules(data.modules || []);
-      if (!activeModuleId && data.modules?.length > 0) {
-        setActiveModuleId(data.modules[0].id);
+      const modules = data.modules || [];
+      // Sort modules: Article Master first, then by record count descending,
+      // so the default selection is the most relevant module (not "E2E Test").
+      modules.sort((a: any, b: any) => {
+        // Article Master always first
+        if (a.moduleCode === 'ARTICLE_MASTER' || a.moduleName === 'Article Master') return -1;
+        if (b.moduleCode === 'ARTICLE_MASTER' || b.moduleName === 'Article Master') return 1;
+        // Then sort by name alphabetically (skip test modules)
+        return (a.moduleName || '').localeCompare(b.moduleName || '');
+      });
+      setModules(modules);
+      if (!activeModuleId && modules.length > 0) {
+        setActiveModuleId(modules[0].id);
       }
     } catch { /* silent */ }
   }, [token]);
