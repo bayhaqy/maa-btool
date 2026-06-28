@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.stibosystems.com/platform/data-integration",
+    "name": "Dynamic Data Integration | Master Data Management - Stibo Systems",
+    "snippet": "Stibo Systems Platform offers robust, scalable architecture for seamless integration of data across multiple sources and systems.",
+    "host_name": "www.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/master-data-management-tools-a-complete-guide",
+    "name": "Master Data Management Tools: A Complete Guide - Stibo Systems",
+    "snippet": "A strong MDM tool makes it easy to share consistent data across departments, but also with partners and throughout your supply chain, through ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/other/2024-1-customer-update-overview-deck.pdf",
+    "name": "[PDF] Update Overview - Stibo Systems",
+    "snippet": "With 2023.3, we introduced support for Customer, Supplier and. Location domain uses cases (Entities, Data Containers) enabling a consistent ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://apptad.com/insights/a-practical-guide-to-migrating-stibo-mdm-on-prem-to-stibo-mdm-cloud",
+    "name": "A Practical Guide to Migrating STIBO MDM On-Prem to  - Apptad",
+    "snippet": "This guide provides a practitioner-level blueprint to plan and execute a migration, covering architecture, data, integrations, governance, and ...",
+    "host_name": "apptad.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=lDF9ZsBBUYM",
+    "name": "Bulk-Create Items in Stibo Systems' 2025.1 New UI - YouTube",
+    "snippet": "Accelerate your Master Data Management (MDM) implementation with Stibo Systems' 2025.1 release! This video demonstrates how to significantly ...",
+    "host_name": "www.youtube.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/brochure/brochure-step-en.pdf",
+    "name": "[PDF] brochure-step-en.pdf - Stibo Systems",
+    "snippet": "• Accelerate operations on complex data models, including workflow transitions, object approvals and UI displays. • Quickly complete heavy ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/posts/akshatgoyal10_stiboworkflows-mdm-stibosystems-activity-7358413969943937024-fzt7",
+    "name": "How Stibo Configurable Workflows Automate Data Operations",
+    "snippet": "What are Stibo Workflows? In Stibo Systems MDM, workflows are visual rule-based processes that automate steps across the data lifecycle.",
+    "host_name": "www.linkedin.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/good-to-great-how-to-supercharge-your-back-end-systems-using-mdm",
+    "name": "How to Improve Back-End Systems Using Master Data Management",
+    "snippet": "Data integration capabilities connect your MDM system to existing databases, applications and data sources. These connectors pull information ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=7bdsqm1fq2E",
+    "name": "Stibo Systems PDX: Importing Assets into Your Master Data",
+    "snippet": "... Stibo Systems Product Data Exchange (PDX) Master Data Management (MDM) system. This tutorial demonstrates different methods for importing ...",
+    "host_name": "www.youtube.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://unitofmeasure.com/tag/stibo-step-workflow",
+    "name": "stibo step workflow | PIM and MDM Consultants for Stibo Systems",
+    "snippet": "STEP can help CPG companies to improve their data quality and governance, increase efficiency and revenue, and gain valuable insights for decision making.",
+    "host_name": "unitofmeasure.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

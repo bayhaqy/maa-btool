@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://doc.stibosystems.com/doc/version/2025.3/web/content/busrules/introwritingbusrules.html?TocPath=Business%20Rules%7C_____4",
+    "name": "Introduction to Writing Business Rules - Stibo Systems Documentation",
+    "snippet": "This topic discusses determining the type of business rule needed, understanding the business requirements, implementing the logical parts of the requirements, ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://service.stibosystems.com/documentation/STEP%20Business%20Rules%20-%20Good%20Practices.pdf",
+    "name": "[PDF] STEP Business Rules - Good Practices - Stibo Systems Service Portal",
+    "snippet": "This document describes good practice guidelines for writing STEP business rules. We have 3 types of business rules in STEP. Business conditions, Business ...\n▫ Types of business rules. We have 3 types of business rules in STEP. Business conditions, Business actions and Business functions. And then ...",
+    "host_name": "service.stibosystems.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/9.1/pdf/BusinessRulesUserGuide.pdf",
+    "name": "Business Rules User Guide - Stibo Systems Documentation",
+    "snippet": "JavaScript business rule bind for Conditional Validity. It is possible to make use of the Conditionally Invalid Values bind in a JavaScript business action.\nA number of STEP and Java types are available. Note: Use caution when changing an input parameter type for an active JavaScript Function business rule.",
+    "host_name": "doc.stibosystems.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=4vLFCMyXwRs",
+    "name": "Workflows, Business Rules, and Web UI in Stibo STEP - YouTube",
+    "snippet": "... rules, and web UI in the STEP platform from Stibo Systems as the next installment of the Ask the Experts series.",
+    "host_name": "www.youtube.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/mdm-academy/course/dev-250-javascript-business-rules",
+    "name": "JavaScript Business Rules | MDM Academy - Stibo Systems",
+    "snippet": "In this course, you will gain the information and expertise needed to design and implement JavaScript business rules to solve business requirements.",
+    "host_name": "www.stibosystems.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.ibm.com/think/topics/business-rules",
+    "name": "What Are Business Rules? | IBM",
+    "snippet": "Business rules guide everyday decision-making within businesses by outlining relationships between objects.",
+    "host_name": "www.ibm.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://blog.ploeh.dk/2023/06/26/validation-and-business-rules",
+    "name": "Validation and business rules - ploeh blog",
+    "snippet": "A definition of validation as distinguished from business rules. This article suggests a definition of validation in software development.",
+    "host_name": "blog.ploeh.dk",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/the-complete-a-z-of-master-data-management",
+    "name": "A Complete Master Data Management Glossary - Stibo Systems",
+    "snippet": "Business rules are the conditions or actions that modify data and data processes according to your data policies.",
+    "host_name": "www.stibosystems.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://community.boomi.com/s/article/whentousethebusinessrulesshape",
+    "name": "Article: When to use the Business Rules step - Boomi Community",
+    "snippet": "The Business Rules Logic Step allows the developer to combine multiple Decision Steps within one catch-all container.",
+    "host_name": "community.boomi.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/posts/akshatgoyal10_stibosystems-businessrules-mdm-activity-7345662449389379584-lNRj",
+    "name": "How Business Rules in Stibo MDM Ensure Data Quality - LinkedIn",
+    "snippet": "Master Data Management setup, especially in Stibo Systems, Business Rules act as the gatekeepers of clean, trustworthy data ... Let's break down ...",
+    "host_name": "www.linkedin.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

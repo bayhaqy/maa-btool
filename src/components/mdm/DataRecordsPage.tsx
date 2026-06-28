@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { STATUS_LABELS } from '@/lib/constants';
+import { STATUS_LABELS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,9 +34,10 @@ import {
   LayoutGrid, List, Filter, SlidersHorizontal, Eye, EyeOff, ArrowUpDown,
   ArrowUp, ArrowDown, Copy, Trash2, Pencil, ThumbsUp,
   Save, X, ExternalLink, Check, Columns3, Clock, User,
-  RefreshCw,
+  RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
 
 // ============================================================================
 // Constants
@@ -54,8 +55,8 @@ const STATUS_BADGE_CONFIG: Record<string, { bg: string; text: string; border: st
 const STATUS_TABS = ['ALL', 'DRAFT', 'IN_REVIEW', 'ACTIVE', 'REVISION_PENDING', 'REJECTED', 'ARCHIVED'];
 
 const QUICK_FILTERS = [
-  { key: 'ALL', label: 'All Records', icon: List },
-  { key: 'MY', label: 'My Records', icon: User },
+  { key: 'ALL', label: 'All Instances', icon: List },
+  { key: 'MY', label: 'My Instances', icon: User },
   { key: 'PENDING', label: 'Pending Review', icon: Clock },
   { key: 'RECENT', label: 'Recently Modified', icon: RefreshCw },
 ];
@@ -66,12 +67,24 @@ const QUICK_FILTERS = [
 
 function StatusBadge({ status }: { status: string }) {
   const config = STATUS_BADGE_CONFIG[status];
-  if (!config) return <Badge className="text-xs border">{STATUS_LABELS[status] || status}</Badge>;
+  const label = WORKFLOW_STATE_LABELS[status] || STATUS_LABELS[status] || status;
+  if (!config) return <Badge className="text-xs border">{label}</Badge>;
   return (
-    <Badge className={cn('text-xs border inline-flex items-center gap-1.5 font-medium', config.bg, config.text, config.border)}>
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
-      {STATUS_LABELS[status] || status}
-    </Badge>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge className={cn('text-xs border inline-flex items-center gap-1.5 font-medium', config.bg, config.text, config.border)}>
+            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
+            {label}
+          </Badge>
+        </TooltipTrigger>
+        {WORKFLOW_STATE_DESCRIPTIONS[status] && (
+          <TooltipContent side="bottom" className="text-xs">
+            {WORKFLOW_STATE_DESCRIPTIONS[status]}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -92,22 +105,30 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
     <div className="flex items-center justify-center h-full text-muted-foreground text-sm p-8">
       <div className="text-center">
         <Eye className="w-10 h-10 mx-auto mb-3 opacity-30" />
-        <p>Select a record to preview</p>
+        <p>Select an entity instance to preview</p>
       </div>
     </div>
   );
 
   const payload = (() => { try { return JSON.parse(record.currentPayload || '{}'); } catch { return {}; } })();
 
+  // Calculate completeness: percentage of non-empty fields
+  const totalFields = fields.length || 1;
+  const filledFields = fields.filter((f: any) => {
+    const val = payload[f.fieldCode];
+    return val !== undefined && val !== null && val !== '';
+  }).length;
+  const completeness = Math.round((filledFields / totalFields) * 100);
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-lg">Record Preview</h3>
+        <h3 className="font-semibold text-lg">Instance Preview</h3>
         <Button
           size="sm" className="h-8 text-xs bg-red-600 hover:bg-red-700 text-white gap-1.5"
           onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: record.id })}
         >
-          <ExternalLink className="w-3.5 h-3.5" /> Open Full Record
+          <ExternalLink className="w-3.5 h-3.5" /> Open Detail
         </Button>
       </div>
 
@@ -117,6 +138,40 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
           <span className="text-xs text-muted-foreground">
             Updated {new Date(record.updatedAt).toLocaleDateString()}
           </span>
+        </div>
+
+        {/* Quality / Completeness indicators */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg border p-2.5 bg-muted/20">
+            <div className="flex items-center gap-1.5 mb-1">
+              <BarChart3 className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Completeness</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    completeness >= 85 ? 'bg-emerald-500' :
+                    completeness >= 60 ? 'bg-amber-500' : 'bg-red-500'
+                  )}
+                  style={{ width: `${completeness}%` }}
+                />
+              </div>
+              <span className={cn(
+                'text-xs font-bold tabular-nums',
+                completeness >= 85 ? 'text-emerald-600' :
+                completeness >= 60 ? 'text-amber-600' : 'text-red-600'
+              )}>{completeness}%</span>
+            </div>
+          </div>
+          <div className="rounded-lg border p-2.5 bg-muted/20">
+            <div className="flex items-center gap-1.5 mb-1">
+              <CircleDot className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Attributes</span>
+            </div>
+            <p className="text-xs font-bold">{filledFields}<span className="text-muted-foreground font-normal">/{totalFields}</span> <span className="text-muted-foreground font-normal text-[10px]">filled</span></p>
+          </div>
         </div>
 
         <Separator />
@@ -135,7 +190,7 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
 
           <Separator />
 
-          {fields.map((f: any) => (
+          {fields.slice(0, 6).map((f: any) => (
             <div key={f.id} className="grid grid-cols-[1fr_2fr] gap-2 text-sm">
               <p className="text-muted-foreground text-xs truncate" title={f.fieldName}>{f.fieldName}</p>
               <p className="font-medium truncate" title={String(payload[f.fieldCode] ?? '-')}>
@@ -143,6 +198,9 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
               </p>
             </div>
           ))}
+          {fields.length > 6 && (
+            <p className="text-xs text-muted-foreground italic">+{fields.length - 6} more attributes</p>
+          )}
         </div>
       </div>
 
@@ -196,6 +254,10 @@ export default function DataRecordsPage() {
   const [savedViews, setSavedViews] = useState<Array<{ id: string; name: string; filterConfig?: string | null; isDefault?: boolean }>>([]);
   const [filterLogic, setFilterLogic] = useState<'AND' | 'OR'>('AND');
   const [columnFilters, setColumnFilters] = useState<Array<{ fieldCode: string; operator: string; value: string }>>([]);
+  const [recordImagesMap, setRecordImagesMap] = useState<Record<string, any[]>>({});
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const limit = 20;
 
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +319,29 @@ export default function DataRecordsPage() {
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, [token, activeModuleId, activeStatus, page]);
+
+  const loadRecordImages = useCallback(async () => {
+    if (!token || records.length === 0) return;
+    const newMap: Record<string, any[]> = {};
+    // Load images for each record in parallel (limit to first 20 for performance)
+    const ids = records.slice(0, 20).map((r: any) => r.id);
+    await Promise.all(ids.map(async (recId: string) => {
+      try {
+        const res = await fetch(`/api/images?recordId=${recId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok && data.images?.length > 0) {
+          newMap[recId] = data.images;
+        }
+      } catch { /* silent */ }
+    }));
+    setRecordImagesMap(newMap);
+  }, [token, records]);
+
+  useEffect(() => {
+    if (records.length > 0) loadRecordImages();
+  }, [records, loadRecordImages]);
 
   const loadFields = useCallback(async () => {
     if (!token || !activeModuleId) return;
@@ -492,8 +577,8 @@ export default function DataRecordsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold">Data Records</h2>
-          <p className="text-muted-foreground text-sm mt-1">Browse and manage master data records</p>
+          <h2 className="text-2xl font-bold">Entity Instances</h2>
+          <p className="text-muted-foreground text-sm mt-1">Browse and manage master data entity instances</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Select value={activeModuleId} onValueChange={setActiveModuleId}>
@@ -541,7 +626,7 @@ export default function DataRecordsPage() {
             <LayoutGrid className="w-4 h-4 mr-2" /> Grid View
           </Button>
           <Button className="bg-red-600 hover:bg-red-700 text-white h-10" onClick={() => { if (activeModuleId) navigate('record-detail', { moduleId: activeModuleId }); }} disabled={!activeModuleId}>
-            <Plus className="w-4 h-4 mr-2" /> New Record
+            <Plus className="w-4 h-4 mr-2" /> New Instance
           </Button>
         </div>
       </div>
@@ -551,12 +636,12 @@ export default function DataRecordsPage() {
           <CardContent className="py-12 text-center">
             <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium">Select a module</h3>
-            <p className="text-muted-foreground text-sm mt-1">Choose a module to view its records</p>
+            <p className="text-muted-foreground text-sm mt-1">Choose a module to view its entity instances</p>
           </CardContent>
         </Card>
       ) : (
         <Card className="shadow-sm flex flex-col">
-          {/* ── Status Workflow Bar ── */}
+          {/* ── Workflow State Bar ── */}
           <div className="px-4 py-3 border-b bg-muted/20">
             <div className="flex items-center gap-1 overflow-x-auto pb-2">
               {STATUS_TABS.map((s) => {
@@ -613,7 +698,7 @@ export default function DataRecordsPage() {
               >
                 <div className="p-4 border-b bg-muted/10 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">Advanced Filters</p>
+                    <p className="text-sm font-medium">Attribute Filters</p>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">Logic:</span>
@@ -788,7 +873,7 @@ export default function DataRecordsPage() {
           <div className="px-4 py-2 border-b bg-muted/30">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
-                Showing {filteredRecords.length} of {total} record{total !== 1 ? 's' : ''}
+                Showing {filteredRecords.length} of {total} instance{total !== 1 ? 's' : ''}
                 {searchQuery && <span> matching &ldquo;{searchQuery}&rdquo;</span>}
                 {companyFilter !== 'ALL' && <span> (filtered by company)</span>}
               </p>
@@ -807,17 +892,17 @@ export default function DataRecordsPage() {
                 {searchQuery || companyFilter !== 'ALL' || columnFilters.length > 0 ? (
                   <>
                     <Search className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-                    <h3 className="text-lg font-medium">No matching records</h3>
+                    <h3 className="text-lg font-medium">No matching entity instances</h3>
                     <p className="text-muted-foreground text-sm mt-1">Try adjusting your search or filters</p>
                     <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(''); setCompanyFilter('ALL'); setColumnFilters([]); }}>Clear Filters</Button>
                   </>
                 ) : (
                   <>
                     <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-                    <h3 className="text-lg font-medium">No records found</h3>
-                    <p className="text-muted-foreground text-sm mt-1">Create your first record to get started</p>
+                    <h3 className="text-lg font-medium">No entity instances found</h3>
+                    <p className="text-muted-foreground text-sm mt-1">Create your first instance to get started</p>
                     <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => navigate('record-detail', { moduleId: activeModuleId })}>
-                      <Plus className="w-4 h-4 mr-1.5" /> New Record
+                      <Plus className="w-4 h-4 mr-1.5" /> New Instance
                     </Button>
                   </>
                 )}
@@ -835,8 +920,9 @@ export default function DataRecordsPage() {
                           </TableHead>
                           <TableHead className="w-10">#</TableHead>
                           <TableHead className="cursor-pointer select-none hover:bg-accent/50" onClick={() => handleSort('status')}>
-                            <div className="flex items-center gap-1">Status <SortIcon columnKey="status" sortConfig={sortConfig} /></div>
+                            <div className="flex items-center gap-1">Workflow State <SortIcon columnKey="status" sortConfig={sortConfig} /></div>
                           </TableHead>
+                          <TableHead className="w-10">Image</TableHead>
                           {displayFields.map((f: any) => (
                             <TableHead key={f.id} className="cursor-pointer select-none hover:bg-accent/50" onClick={() => handleSort(f.fieldCode)}>
                               <div className="flex items-center gap-1">{f.fieldName} <SortIcon columnKey={f.fieldCode} sortConfig={sortConfig} /></div>
@@ -866,6 +952,43 @@ export default function DataRecordsPage() {
                                 </TableCell>
                                 <TableCell className="text-muted-foreground text-xs">{(page - 1) * limit + idx + 1}</TableCell>
                                 <TableCell><StatusBadge status={r.status} /></TableCell>
+                                <TableCell>
+                                  {recordImagesMap[r.id]?.length > 0 ? (
+                                    <button
+                                      type="button"
+                                      className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const imgs = (recordImagesMap[r.id] || []).map((img: any) => ({
+                                          id: img.id,
+                                          fileName: img.fileName,
+                                          filePath: img.filePath,
+                                          altText: img.altText,
+                                          isPrimary: img.isPrimary,
+                                          sortOrder: img.sortOrder,
+                                          fileSize: img.fileSize,
+                                          mimeType: img.mimeType,
+                                          variants: img.variants,
+                                        }));
+                                        setLightboxImages(imgs);
+                                        setLightboxIndex(imgs.findIndex((i: any) => i.isPrimary) || 0);
+                                        setLightboxOpen(true);
+                                      }}
+                                      title="View images"
+                                    >
+                                      <img
+                                        src={recordImagesMap[r.id][0]?.variants?.thumbnail || recordImagesMap[r.id][0]?.filePath}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.2'; }}
+                                      />
+                                    </button>
+                                  ) : (
+                                    <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
+                                      <ImageIcon className="w-3 h-3" />
+                                    </div>
+                                  )}
+                                </TableCell>
                                 {displayFields.map((f: any) => (
                                   <TableCell key={f.id} className="max-w-[200px]">
                                     {editingCell?.recordId === r.id && editingCell?.fieldCode === f.fieldCode ? (
@@ -925,8 +1048,9 @@ export default function DataRecordsPage() {
                       </TableHead>
                       <TableHead className="w-10">#</TableHead>
                       <TableHead className="cursor-pointer select-none hover:bg-accent/50" onClick={() => handleSort('status')}>
-                        <div className="flex items-center gap-1">Status <SortIcon columnKey="status" sortConfig={sortConfig} /></div>
+                        <div className="flex items-center gap-1">Workflow State <SortIcon columnKey="status" sortConfig={sortConfig} /></div>
                       </TableHead>
+                      <TableHead className="w-10">Image</TableHead>
                       {displayFields.map((f: any) => (
                         <TableHead key={f.id} className="cursor-pointer select-none hover:bg-accent/50" onClick={() => handleSort(f.fieldCode)}>
                           <div className="flex items-center gap-1">{f.fieldName} <SortIcon columnKey={f.fieldCode} sortConfig={sortConfig} /></div>
@@ -951,6 +1075,43 @@ export default function DataRecordsPage() {
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{(page - 1) * limit + idx + 1}</TableCell>
                             <TableCell><StatusBadge status={r.status} /></TableCell>
+                            <TableCell>
+                              {recordImagesMap[r.id]?.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const imgs = (recordImagesMap[r.id] || []).map((img: any) => ({
+                                      id: img.id,
+                                      fileName: img.fileName,
+                                      filePath: img.filePath,
+                                      altText: img.altText,
+                                      isPrimary: img.isPrimary,
+                                      sortOrder: img.sortOrder,
+                                      fileSize: img.fileSize,
+                                      mimeType: img.mimeType,
+                                      variants: img.variants,
+                                    }));
+                                    setLightboxImages(imgs);
+                                    setLightboxIndex(imgs.findIndex((i: any) => i.isPrimary) || 0);
+                                    setLightboxOpen(true);
+                                  }}
+                                  title="View images"
+                                >
+                                  <img
+                                    src={recordImagesMap[r.id][0]?.variants?.thumbnail || recordImagesMap[r.id][0]?.filePath}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.2'; }}
+                                  />
+                                </button>
+                              ) : (
+                                <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
+                                  <ImageIcon className="w-3 h-3" />
+                                </div>
+                              )}
+                            </TableCell>
                             {displayFields.map((f: any) => (
                               <TableCell key={f.id} className="max-w-[200px]">
                                 {editingCell?.recordId === r.id && editingCell?.fieldCode === f.fieldCode ? (
@@ -1013,6 +1174,19 @@ export default function DataRecordsPage() {
           )}
         </Card>
       )}
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        onDelete={(imageId) => {
+          setLightboxImages((prev) => prev.filter((img) => img.id !== imageId));
+          if (lightboxImages.length <= 1) setLightboxOpen(false);
+        }}
+        token={token}
+      />
     </div>
   );
 }

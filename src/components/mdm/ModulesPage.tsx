@@ -23,19 +23,34 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Database, Plus, MoreVertical, Pencil, Trash2, ArrowRight,
   Package, DollarSign, Building2, Store, Truck, Tag, Gift,
-  Copy, Download, Clock, FileText, BarChart3, Users, ToggleLeft,
-  Settings2,
+  Copy, Download, Clock, FileText, BarChart3, ToggleLeft,
+  Settings2, Layers, MapPin, MonitorSmartphone,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// ============================================================
+// Stibo Entity Types
+// ============================================================
+const ENTITY_TYPES = [
+  { value: 'PRODUCT', label: 'Product', icon: Package, color: 'bg-red-50 text-red-700 border-red-200' },
+  { value: 'CUSTOMER', label: 'Customer', icon: Building2, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'SUPPLIER', label: 'Supplier', icon: Truck, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'LOCATION', label: 'Location', icon: MapPin, color: 'bg-sky-50 text-sky-700 border-sky-200' },
+  { value: 'ASSET', label: 'Asset', icon: Tag, color: 'bg-violet-50 text-violet-700 border-violet-200' },
+  { value: 'DIGITAL_ASSET', label: 'Digital Asset', icon: MonitorSmartphone, color: 'bg-pink-50 text-pink-700 border-pink-200' },
+] as const;
+
+const entityTypeMap = Object.fromEntries(ENTITY_TYPES.map(e => [e.value, e]));
+
 const moduleIcons: Record<string, React.ElementType> = {
-  Package, DollarSign, Building2, Store, Database, Truck, Tag, Gift,
+  Package, DollarSign, Building2, Store, Database, Truck, Tag, Gift, MapPin, MonitorSmartphone, Layers,
 };
 
 interface ModuleStat {
   id: string;
   moduleCode: string;
   moduleName: string;
+  entityType: string;
   moduleIcon: string;
   description: string | null;
   requireApproval: boolean;
@@ -55,19 +70,25 @@ export default function ModulesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editModule, setEditModule] = useState<any>(null);
-  const [form, setForm] = useState({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
+  const [form, setForm] = useState({
+    moduleCode: '', moduleName: '', entityType: 'PRODUCT', moduleIcon: 'Database',
+    description: '', requireApproval: true, sortOrder: 0, isActive: true,
+  });
   const [saving, setSaving] = useState(false);
 
-  // Quick edit dialog (name, description, requireApproval)
+  // Quick edit dialog
   const [quickEditOpen, setQuickEditOpen] = useState(false);
   const [quickEditModule, setQuickEditModule] = useState<any>(null);
-  const [quickEditForm, setQuickEditForm] = useState({ moduleName: '', description: '', requireApproval: true });
+  const [quickEditForm, setQuickEditForm] = useState({ moduleName: '', description: '', requireApproval: true, entityType: 'PRODUCT' });
   const [quickEditSaving, setQuickEditSaving] = useState(false);
 
   // Clone dialog
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const [cloneSource, setCloneSource] = useState<any>(null);
-  const [cloneForm, setCloneForm] = useState({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true });
+  const [cloneForm, setCloneForm] = useState({
+    moduleCode: '', moduleName: '', entityType: 'PRODUCT', moduleIcon: 'Database',
+    description: '', requireApproval: true,
+  });
   const [cloneSaving, setCloneSaving] = useState(false);
 
   useEffect(() => {
@@ -78,7 +99,6 @@ export default function ModulesPage() {
     if (!token) return;
     setLoading(true);
     try {
-      // Load both modules and stats in parallel
       const [modRes, statsRes] = await Promise.all([
         fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/modules?action=stats', { headers: { Authorization: `Bearer ${token}` } }),
@@ -110,6 +130,18 @@ export default function ModulesPage() {
     }
   };
 
+  const getEntityBadge = (entityType: string) => {
+    const et = entityTypeMap[entityType];
+    if (!et) return null;
+    const Icon = et.icon;
+    return (
+      <Badge className={cn('text-[10px] gap-1', et.color)}>
+        <Icon className="w-3 h-3" />
+        {et.label}
+      </Badge>
+    );
+  };
+
   const handleSave = async () => {
     if (!token) return;
     setSaving(true);
@@ -122,7 +154,7 @@ export default function ModulesPage() {
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || 'Failed to update'); return; }
-        toast.success('Module updated successfully');
+        toast.success('Entity Type updated successfully');
       } else {
         const res = await fetch('/api/modules', {
           method: 'POST',
@@ -131,11 +163,11 @@ export default function ModulesPage() {
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || 'Failed to create'); return; }
-        toast.success('Module created successfully');
+        toast.success('Entity Type created successfully');
       }
       setDialogOpen(false);
       setEditModule(null);
-      setForm({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
+      setForm({ moduleCode: '', moduleName: '', entityType: 'PRODUCT', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
       loadModules();
     } catch {
       toast.error('Network error');
@@ -145,7 +177,7 @@ export default function ModulesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!token || !confirm('Are you sure you want to delete this module?')) return;
+    if (!token || !confirm('Are you sure you want to delete this Entity Type?')) return;
     try {
       const res = await fetch('/api/modules', {
         method: 'DELETE',
@@ -154,7 +186,7 @@ export default function ModulesPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to delete'); return; }
-      toast.success('Module deleted');
+      toast.success('Entity Type deleted');
       loadModules();
     } catch {
       toast.error('Network error');
@@ -172,7 +204,7 @@ export default function ModulesPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to clone'); return; }
-      toast.success(`Module cloned as "${cloneForm.moduleName}"`);
+      toast.success(`Entity Type cloned as "${cloneForm.moduleName}"`);
       setCloneDialogOpen(false);
       setCloneSource(null);
       loadModules();
@@ -192,7 +224,6 @@ export default function ModulesPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to export'); return; }
 
-      // Download as JSON file
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -202,9 +233,9 @@ export default function ModulesPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Module exported');
+      toast.success('Entity Type exported');
     } catch {
-      toast.error('Failed to export module');
+      toast.error('Failed to export');
     }
   };
 
@@ -213,6 +244,7 @@ export default function ModulesPage() {
     setForm({
       moduleCode: m.moduleCode,
       moduleName: m.moduleName,
+      entityType: m.entityType || 'PRODUCT',
       moduleIcon: m.moduleIcon || 'Database',
       description: m.description || '',
       requireApproval: m.requireApproval,
@@ -228,6 +260,7 @@ export default function ModulesPage() {
       moduleName: m.moduleName || '',
       description: m.description || '',
       requireApproval: m.requireApproval ?? true,
+      entityType: m.entityType || 'PRODUCT',
     });
     setQuickEditOpen(true);
   };
@@ -243,6 +276,7 @@ export default function ModulesPage() {
           id: quickEditModule.id,
           moduleCode: quickEditModule.moduleCode,
           moduleName: quickEditForm.moduleName,
+          entityType: quickEditForm.entityType,
           moduleIcon: quickEditModule.moduleIcon,
           description: quickEditForm.description,
           requireApproval: quickEditForm.requireApproval,
@@ -252,7 +286,7 @@ export default function ModulesPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to update'); return; }
-      toast.success('Module updated successfully');
+      toast.success('Entity Type updated successfully');
       setQuickEditOpen(false);
       setQuickEditModule(null);
       loadModules();
@@ -265,7 +299,7 @@ export default function ModulesPage() {
 
   const openCreate = () => {
     setEditModule(null);
-    setForm({ moduleCode: '', moduleName: '', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
+    setForm({ moduleCode: '', moduleName: '', entityType: 'PRODUCT', moduleIcon: 'Database', description: '', requireApproval: true, sortOrder: 0, isActive: true });
     setDialogOpen(true);
   };
 
@@ -274,6 +308,7 @@ export default function ModulesPage() {
     setCloneForm({
       moduleCode: `${m.moduleCode}_COPY`,
       moduleName: `${m.moduleName} (Copy)`,
+      entityType: m.entityType || 'PRODUCT',
       moduleIcon: m.moduleIcon || 'Database',
       description: m.description || '',
       requireApproval: m.requireApproval,
@@ -286,7 +321,7 @@ export default function ModulesPage() {
       <div className="p-6 space-y-4">
         <div className="flex justify-between items-center">
           <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-10 w-40" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-52 rounded-xl" />)}
@@ -299,12 +334,17 @@ export default function ModulesPage() {
     <div className="p-4 lg:p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Modules</h2>
-          <p className="text-muted-foreground text-sm mt-1">Manage master data modules and their schemas</p>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Layers className="w-6 h-6 text-red-600" />
+            Entity Types
+          </h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            Stibo MDM — Manage entity types (modules) and their attribute schemas
+          </p>
         </div>
         {canManage && (
           <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
-            <Plus className="w-4 h-4 mr-2" /> New Module
+            <Plus className="w-4 h-4 mr-2" /> New Entity Type
           </Button>
         )}
       </div>
@@ -315,11 +355,11 @@ export default function ModulesPage() {
           <Card className="shadow-sm">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="p-2 rounded-lg bg-red-50">
-                <Database className="w-4 h-4 text-red-600" />
+                <Layers className="w-4 h-4 text-red-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{modules.length}</p>
-                <p className="text-xs text-muted-foreground">Total Modules</p>
+                <p className="text-xs text-muted-foreground">Entity Types</p>
               </div>
             </CardContent>
           </Card>
@@ -330,7 +370,7 @@ export default function ModulesPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{modules.reduce((sum: number, m: any) => sum + (m.fieldCount || 0), 0)}</p>
-                <p className="text-xs text-muted-foreground">Total Fields</p>
+                <p className="text-xs text-muted-foreground">Total Attributes</p>
               </div>
             </CardContent>
           </Card>
@@ -362,11 +402,11 @@ export default function ModulesPage() {
       {modules.length === 0 ? (
         <Card className="shadow-sm">
           <CardContent className="py-12 text-center">
-            <Database className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No modules yet</h3>
-            <p className="text-muted-foreground text-sm mt-1">Create your first master data module to get started.</p>
+            <Layers className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium">No entity types yet</h3>
+            <p className="text-muted-foreground text-sm mt-1">Create your first entity type to start building your MDM schema.</p>
             <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" onClick={openCreate}>
-              <Plus className="w-4 h-4 mr-2" /> Create Module
+              <Plus className="w-4 h-4 mr-2" /> Create Entity Type
             </Button>
           </CardContent>
         </Card>
@@ -375,6 +415,8 @@ export default function ModulesPage() {
           {modules.map((m) => {
             const Icon = moduleIcons[m.moduleIcon] || Database;
             const stats = getModuleStats(m.id);
+            const entityType = entityTypeMap[m.entityType] || entityTypeMap.PRODUCT;
+            const EntityIcon = entityType.icon;
             return (
               <Card key={m.id} className="shadow-sm hover:shadow-md transition-shadow group">
                 <CardHeader className="pb-2">
@@ -407,7 +449,7 @@ export default function ModulesPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
                           <DropdownMenuItem onClick={() => navigate('module-detail', { moduleId: m.id })}>
-                            <ArrowRight className="w-4 h-4 mr-2" /> Open Builder
+                            <ArrowRight className="w-4 h-4 mr-2" /> Open Attribute Builder
                           </DropdownMenuItem>
                           {canManage && (
                             <DropdownMenuItem onClick={() => openQuickEdit(m)}>
@@ -443,11 +485,21 @@ export default function ModulesPage() {
                 <CardContent className="pt-0 space-y-3">
                   <p className="text-sm text-muted-foreground line-clamp-2">{m.description || 'No description'}</p>
 
+                  {/* Entity Type Badge */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {getEntityBadge(m.entityType || 'PRODUCT')}
+                    {m.requireApproval ? (
+                      <Badge className="text-xs bg-amber-50 text-amber-700 border-amber-200">Approval Required</Badge>
+                    ) : (
+                      <Badge className="text-xs bg-green-50 text-green-700 border-green-200">Auto-approve</Badge>
+                    )}
+                  </div>
+
                   {/* Stats Row */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="text-center p-1.5 rounded-md bg-muted/50">
                       <p className="text-sm font-semibold">{m.fieldCount || 0}</p>
-                      <p className="text-[10px] text-muted-foreground">Fields</p>
+                      <p className="text-[10px] text-muted-foreground">Attributes</p>
                     </div>
                     <div className="text-center p-1.5 rounded-md bg-muted/50">
                       <p className="text-sm font-semibold">{stats?.activeCount ?? m.recordCount ?? 0}</p>
@@ -459,27 +511,20 @@ export default function ModulesPage() {
                     </div>
                   </div>
 
-                  {/* Tags Row */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {m.requireApproval ? (
-                      <Badge className="text-xs bg-amber-50 text-amber-700 border-amber-200">Approval Required</Badge>
-                    ) : (
-                      <Badge className="text-xs bg-green-50 text-green-700 border-green-200">Auto-approve</Badge>
-                    )}
-                    {stats?.lastModified && (
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {formatDate(stats.lastModified)}
-                      </Badge>
-                    )}
-                  </div>
+                  {/* Last Modified */}
+                  {stats?.lastModified && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      Last modified: {formatDate(stats.lastModified)}
+                    </div>
+                  )}
 
                   <Button
                     variant="ghost"
                     className="w-full justify-center text-red-600 hover:text-red-700 hover:bg-red-50 h-9"
                     onClick={() => navigate('module-detail', { moduleId: m.id })}
                   >
-                    Open Builder <ArrowRight className="w-4 h-4 ml-1" />
+                    Open Attribute Builder <ArrowRight className="w-4 h-4 ml-1" />
                   </Button>
                 </CardContent>
               </Card>
@@ -490,31 +535,55 @@ export default function ModulesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editModule ? 'Edit Module' : 'Create Module'}</DialogTitle>
+            <DialogTitle>{editModule ? 'Edit Entity Type' : 'Create Entity Type'}</DialogTitle>
             <DialogDescription>
-              {editModule ? 'Update module configuration' : 'Define a new master data module'}
+              {editModule ? 'Update entity type configuration' : 'Define a new Stibo MDM entity type (module)'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto custom-scrollbar pr-1">
             <div className="space-y-2">
-              <Label>Module Code</Label>
-              <Input
-                placeholder="e.g. ARTICLE_MASTER"
-                value={form.moduleCode}
-                onChange={(e) => setForm({ ...form, moduleCode: e.target.value.toUpperCase() })}
-                disabled={!!editModule}
-                className="font-mono"
-              />
+              <Label>Entity Type</Label>
+              <Select value={form.entityType} onValueChange={(v) => setForm({ ...form, entityType: v })}>
+                <SelectTrigger><SelectValue placeholder="Select entity type" /></SelectTrigger>
+                <SelectContent>
+                  {ENTITY_TYPES.map((et) => {
+                    const Icon = et.icon;
+                    return (
+                      <SelectItem key={et.value} value={et.value}>
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-4 h-4" />
+                          <span>{et.label}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Stibo entity classification: PRODUCT, CUSTOMER, SUPPLIER, LOCATION, ASSET, or DIGITAL_ASSET
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label>Module Name</Label>
-              <Input
-                placeholder="e.g. Article Master"
-                value={form.moduleName}
-                onChange={(e) => setForm({ ...form, moduleName: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Module Code</Label>
+                <Input
+                  placeholder="e.g. ARTICLE_MASTER"
+                  value={form.moduleCode}
+                  onChange={(e) => setForm({ ...form, moduleCode: e.target.value.toUpperCase() })}
+                  disabled={!!editModule}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Module Name</Label>
+                <Input
+                  placeholder="e.g. Article Master"
+                  value={form.moduleName}
+                  onChange={(e) => setForm({ ...form, moduleName: e.target.value })}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Module Icon</Label>
@@ -535,7 +604,7 @@ export default function ModulesPage() {
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
-                placeholder="Brief description of this module"
+                placeholder="Brief description of this entity type"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={3}
@@ -555,7 +624,7 @@ export default function ModulesPage() {
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div>
                   <Label className="text-sm">Active</Label>
-                  <p className="text-[10px] text-muted-foreground">Enable this module</p>
+                  <p className="text-[10px] text-muted-foreground">Enable this entity type</p>
                 </div>
                 <Switch
                   checked={form.isActive}
@@ -583,30 +652,51 @@ export default function ModulesPage() {
 
       {/* Clone Dialog */}
       <Dialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Duplicate Module</DialogTitle>
+            <DialogTitle>Duplicate Entity Type</DialogTitle>
             <DialogDescription>
-              Clone &quot;{cloneSource?.moduleName}&quot; with all fields, validations, and business rules
+              Clone &quot;{cloneSource?.moduleName}&quot; with all attributes, attribute groups, validations, and business rules
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>New Module Code</Label>
-              <Input
-                placeholder="e.g. ARTICLE_MASTER_COPY"
-                value={cloneForm.moduleCode}
-                onChange={(e) => setCloneForm({ ...cloneForm, moduleCode: e.target.value.toUpperCase() })}
-                className="font-mono"
-              />
+              <Label>Entity Type</Label>
+              <Select value={cloneForm.entityType} onValueChange={(v) => setCloneForm({ ...cloneForm, entityType: v })}>
+                <SelectTrigger><SelectValue placeholder="Select entity type" /></SelectTrigger>
+                <SelectContent>
+                  {ENTITY_TYPES.map((et) => {
+                    const Icon = et.icon;
+                    return (
+                      <SelectItem key={et.value} value={et.value}>
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-4 h-4" />
+                          <span>{et.label}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2">
-              <Label>New Module Name</Label>
-              <Input
-                placeholder="e.g. Article Master (Copy)"
-                value={cloneForm.moduleName}
-                onChange={(e) => setCloneForm({ ...cloneForm, moduleName: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>New Module Code</Label>
+                <Input
+                  placeholder="e.g. ARTICLE_MASTER_COPY"
+                  value={cloneForm.moduleCode}
+                  onChange={(e) => setCloneForm({ ...cloneForm, moduleCode: e.target.value.toUpperCase() })}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>New Module Name</Label>
+                <Input
+                  placeholder="e.g. Article Master (Copy)"
+                  value={cloneForm.moduleName}
+                  onChange={(e) => setCloneForm({ ...cloneForm, moduleName: e.target.value })}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Module Icon</Label>
@@ -627,7 +717,7 @@ export default function ModulesPage() {
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
-                placeholder="Description for the cloned module"
+                placeholder="Description for the cloned entity type"
                 value={cloneForm.description}
                 onChange={(e) => setCloneForm({ ...cloneForm, description: e.target.value })}
                 rows={3}
@@ -647,25 +737,44 @@ export default function ModulesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCloneDialogOpen(false)} disabled={cloneSaving}>Cancel</Button>
             <Button onClick={handleClone} disabled={cloneSaving || !cloneForm.moduleCode || !cloneForm.moduleName} className="bg-red-600 hover:bg-red-700 text-white">
-              {cloneSaving ? 'Cloning...' : 'Clone Module'}
+              {cloneSaving ? 'Cloning...' : 'Clone Entity Type'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Quick Edit Dialog — name, description, require approval */}
+      {/* Quick Edit Dialog */}
       <Dialog open={quickEditOpen} onOpenChange={setQuickEditOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="w-4 h-4" />
-              Quick Edit Module
+              Quick Edit Entity Type
             </DialogTitle>
             <DialogDescription>
-              Update &quot;{quickEditModule?.moduleName}&quot; — name, description, and approval setting
+              Update &quot;{quickEditModule?.moduleName}&quot; — name, type, description, and approval setting
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Entity Type</Label>
+              <Select value={quickEditForm.entityType} onValueChange={(v) => setQuickEditForm({ ...quickEditForm, entityType: v })}>
+                <SelectTrigger><SelectValue placeholder="Select entity type" /></SelectTrigger>
+                <SelectContent>
+                  {ENTITY_TYPES.map((et) => {
+                    const Icon = et.icon;
+                    return (
+                      <SelectItem key={et.value} value={et.value}>
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-4 h-4" />
+                          <span>{et.label}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>Module Name</Label>
               <Input
@@ -677,7 +786,7 @@ export default function ModulesPage() {
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
-                placeholder="Brief description of this module"
+                placeholder="Brief description of this entity type"
                 value={quickEditForm.description}
                 onChange={(e) => setQuickEditForm({ ...quickEditForm, description: e.target.value })}
                 rows={3}

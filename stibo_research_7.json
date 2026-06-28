@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/brochure/brochure-step-en.pdf",
+    "name": "[PDF] brochure-step-en.pdf - Stibo Systems",
+    "snippet": "Data Modeling: STEP uses advanced yet highly configurable data models that can mold themselves depending on your data management goals, ...\nAccelerate operations on complex data models, including workflow transitions, object approvals and UI displays\n• Accelerate operations on complex data models, including workflow transitions, object approvals and UI displays. • Quickly complete heavy ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/posts/akshatgoyal10_stiboworkflows-mdm-stibosystems-activity-7358413969943937024-fzt7",
+    "name": "How Stibo Configurable Workflows Automate Data Operations",
+    "snippet": "In Stibo Systems MDM, workflows are visual rule-based processes that automate steps across the data lifecycle. ... Implement pending approval ...\nWith Stibo Systems' configurable workflows, you can streamline data operations and enforce governance — visually and efficiently.",
+    "host_name": "www.linkedin.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/9.3/pdf/SolutionEnablementPLM.pdf",
+    "name": "[PDF] Product Lifecycle Management (PLM) Solution Enablement",
+    "snippet": "During the collaboration process, product data can experience multiples changes by different user roles. Each user group focuses on a specific set of data ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=4vLFCMyXwRs",
+    "name": "Workflows, Business Rules, and Web UI in Stibo STEP - YouTube",
+    "snippet": "Ask the Experts: Workflows, Business Rules, and Web UI in Stibo STEP. 9K views · 5 years ago ...more. Amplifi Data Management & Strategy.",
+    "host_name": "www.youtube.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://unitofmeasure.com/tag/stibo-step-workflows",
+    "name": "Stibo STEP workflows | PIM and MDM Consultants for Stibo Systems",
+    "snippet": "A set of workflows are configured in STEP based on a thorough analysis of every stage that a product goes through from a master data point of view. Each person ...\nEnsuring a consistent flow of data through the organisation Make sure that tasks, decisions, and approvals are made by the right people every time",
+    "host_name": "unitofmeasure.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/press-releases/news/stibo-systems-releases-latest-master-data-management-offering-press-releases-us",
+    "name": "Stibo Systems releases STEP version 8.3",
+    "snippet": "This release further enables the solution's Customer 360 capabilities by providing a unified Customer MDM experience with intuitive, icon-based ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.rastro.ai/integrations/stibo-systems",
+    "name": "Stibo STEP workflow and import readiness - Rastro AI",
+    "snippet": "STEP onboarding is a workflow-state problem as much as it is an import problem. Supplier data has to satisfy mandatory attributes, mandatory references, ...",
+    "host_name": "www.rastro.ai",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://nexergroup.com/us/services/stibo-step-mdm-offers",
+    "name": "Stibo Systems MDM Offers US - Nexer United States",
+    "snippet": "The workflow feature in the Stibo Systems STEP system, based on processes and business rules, helps you manage and govern your master data in a model designed ...\nData governance. The workflow feature in the Stibo Systems STEP system, based on processes and business rules, helps you manage and govern your master data ...",
+    "host_name": "nexergroup.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.gartner.com/reviews/product/stibos-systems-step",
+    "name": "Stibo Systems STEP Reviews & Ratings 2026 | Gartner Peer Insights",
+    "snippet": "Overall Stibo Systems STEP is viewed as a robust and highly configurable platform for enterprise data governance, offering strong multidomain data management ...",
+    "host_name": "www.gartner.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/8.0/pdf/STEPWorkflowDesignerUserGuide.pdf",
+    "name": "[PDF] STEP Workflow Designer User Guide - Stibo Systems Documentation",
+    "snippet": "Workflow Business Rules in Operation. Each time a business action or condition is configured on a state or on a transition, the workflow has indicators to.\nData validation can be easily accomplished in a workflow by applying conditions on transitions. Business conditions will always evaluate to either true or ...\nWhen using conditions for basic data validation, the transitions are generally applied on user-accessed states, so that the user sees an error when ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

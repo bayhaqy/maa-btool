@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,9 +37,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
   Sparkles, Send, Plus, MessageSquare, PanelLeftClose, PanelLeft, Bot, User as UserIcon,
   Search, Star, Pin, MoreHorizontal, Trash2, Pencil, Copy, Check, RefreshCw, Square,
   FilePlus, GitBranch, Upload, Key, Bookmark, BookmarkCheck, AlertCircle, Zap, X,
+  ThumbsUp, ThumbsDown, Download, Tag, ShieldCheck, Database, ArrowLeftRight, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -45,11 +51,16 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 
+// ─── Types ──────────────────────────────────────────────────────
+
 interface Conversation {
   id: string;
   title: string | null;
   bookmarked: boolean;
+  bookmarkedAt: string | null;
   pinned: boolean;
+  category: string | null;
+  tags: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { messages: number };
@@ -62,18 +73,36 @@ interface ChatMessage {
   content: string;
   createdAt: string;
   tokensUsed?: number;
+  feedback?: string | null;
+  isEdited?: boolean;
+  editedContent?: string | null;
 }
 
 type FilterTab = 'all' | 'bookmarked' | 'pinned';
 
-const WELCOME_MESSAGE = "Hi! I'm your **MAA BTOOL AI Assistant**. I can help you with master data management, workflows, best practices, and more. How can I help you today?";
+const CATEGORIES = [
+  { value: 'DATA_QUALITY', label: 'Data Quality', icon: ShieldCheck, color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { value: 'ENRICHMENT', label: 'Enrichment', icon: Sparkles, color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' },
+  { value: 'MAPPING', label: 'Mapping', icon: ArrowLeftRight, color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
+  { value: 'GENERAL', label: 'General', icon: MessageSquare, color: 'bg-slate-100 text-slate-800 dark:bg-slate-900/40 dark:text-slate-300' },
+];
+
+const WELCOME_MESSAGE = "Hi! I'm your **MAA BTOOL AI Assistant** — aligned with Stibo Systems best practices. I can help you with:\n\n- 🛡️ **Data Quality Analysis** — Identify and resolve data issues\n- ✨ **Data Enrichment** — Suggest improvements and auto-fill fields\n- 🔗 **Data Mapping** — Assist with source-to-target field mappings\n- 📋 **General MDM** — Workflows, best practices, and more\n\nHow can I help you today?";
 
 const SUGGESTED_PROMPTS = [
-  { icon: FilePlus, title: 'Create a Record', prompt: 'How do I create a new record in the Article Master module?' },
-  { icon: GitBranch, title: 'Approval Workflow', prompt: 'Explain the approval workflow and record status lifecycle.' },
-  { icon: Upload, title: 'Bulk Import', prompt: 'What are the best practices for bulk importing data?' },
-  { icon: Key, title: 'Manage API Keys', prompt: 'How do I create and manage API keys for integration?' },
+  { icon: ShieldCheck, title: 'Data Quality Analysis', prompt: 'Analyze the data quality of our product master data and suggest improvements.', category: 'DATA_QUALITY' },
+  { icon: Sparkles, title: 'Enrichment Suggestions', prompt: 'What fields can be enriched using AI for our supplier master data?', category: 'ENRICHMENT' },
+  { icon: ArrowLeftRight, title: 'Mapping Assistance', prompt: 'Help me create a field mapping from SAP to our MDM product schema.', category: 'MAPPING' },
+  { icon: FilePlus, title: 'Create a Record', prompt: 'How do I create a new record in the Article Master module?', category: 'GENERAL' },
 ];
+
+const PROVIDER_BADGES: Record<string, { label: string; color: string }> = {
+  zai: { label: 'ZAI', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  openai: { label: 'OpenAI', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  gemini: { label: 'Gemini', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  'azure-openai': { label: 'Azure OpenAI', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  custom: { label: 'Custom LLM', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
+};
 
 export default function AiAssistantPage() {
   const { token, user } = useAppStore();
@@ -92,11 +121,16 @@ export default function AiAssistantPage() {
   const [renameConvId, setRenameConvId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteConvId, setDeleteConvId] = useState<string | null>(null);
+  const [deleteMsgId, setDeleteMsgId] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<string>('ZAI');
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [categorizeConvId, setCategorizeConvId] = useState<string | null>(null);
+  const [categorizeValue, setCategorizeValue] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -158,12 +192,15 @@ export default function AiAssistantPage() {
       });
       const data = await res.json();
       if (res.ok && data.conversation) {
-        const msgs: ChatMessage[] = (data.conversation.messages || []).map((m: { id: string; role: string; content: string; createdAt: string; tokensUsed?: number }) => ({
+        const msgs: ChatMessage[] = (data.conversation.messages || []).map((m: { id: string; role: string; content: string; createdAt: string; tokensUsed?: number; feedback?: string; isEdited?: boolean; editedContent?: string }) => ({
           id: m.id,
           role: m.role as 'user' | 'assistant' | 'system',
-          content: m.content,
+          content: m.editedContent || m.content,
           createdAt: m.createdAt,
           tokensUsed: m.tokensUsed,
+          feedback: m.feedback,
+          isEdited: m.isEdited,
+          editedContent: m.editedContent,
         }));
         setMessages(msgs);
       } else {
@@ -186,7 +223,7 @@ export default function AiAssistantPage() {
     textareaRef.current?.focus();
   };
 
-  // ---- Filtered conversations (search + tab) ----
+  // ---- Filtered conversations (search + tab + category) ----
   const filteredConversations = useMemo(() => {
     let list = conversations;
     if (filterTab === 'bookmarked') list = list.filter(c => c.bookmarked);
@@ -259,7 +296,6 @@ export default function AiAssistantPage() {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // Parse SSE events (separated by \n\n)
         const events = buffer.split('\n\n');
         buffer = events.pop() || '';
 
@@ -305,7 +341,6 @@ export default function AiAssistantPage() {
       loadConversations();
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
-        // User stopped — keep partial content, mark as complete
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -332,13 +367,10 @@ export default function AiAssistantPage() {
   // ---- Regenerate last assistant response ----
   const handleRegenerate = useCallback(() => {
     if (isStreaming) return;
-    // Find last user message
     const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === 'user');
     if (lastUserIdx === -1) return;
     const lastUserMsg = messages[messages.length - 1 - lastUserIdx];
-    // Remove everything after (and including) the last assistant response
     setMessages((prev) => prev.slice(0, messages.length - 1 - lastUserIdx));
-    // Re-send the user message
     setTimeout(() => handleSendMessage(lastUserMsg.content), 50);
   }, [messages, isStreaming, handleSendMessage]);
 
@@ -380,7 +412,6 @@ export default function AiAssistantPage() {
         setConversations((prev) =>
           prev.map((c) => (c.id === convId ? { ...c, pinned: !current } : c))
         );
-        // Re-sort
         setConversations((prev) =>
           [...prev].sort((a, b) => {
             if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -426,7 +457,7 @@ export default function AiAssistantPage() {
     }
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDeleteConv = async () => {
     if (!token || !deleteConvId) return;
     try {
       const res = await fetch(`/api/ai/chat?conversationId=${deleteConvId}`, {
@@ -448,6 +479,140 @@ export default function AiAssistantPage() {
     } finally {
       setDeleteConvId(null);
     }
+  };
+
+  // ---- Categorize conversation ----
+  const handleOpenCategorize = (convId: string, currentCategory: string | null) => {
+    setCategorizeConvId(convId);
+    setCategorizeValue(currentCategory || 'GENERAL');
+  };
+
+  const handleConfirmCategorize = async () => {
+    if (!token || !categorizeConvId || !categorizeValue) return;
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ conversationId: categorizeConvId, action: 'categorize', category: categorizeValue }),
+      });
+      if (res.ok) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === categorizeConvId ? { ...c, category: categorizeValue } : c))
+        );
+        toast.success('Category updated');
+      } else {
+        toast.error('Failed to categorize');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setCategorizeConvId(null);
+      setCategorizeValue('');
+    }
+  };
+
+  // ---- Message-level actions ----
+  const handleEditMessage = (msgId: string, currentContent: string) => {
+    setEditingMsgId(msgId);
+    setEditingContent(currentContent);
+  };
+
+  const handleConfirmEditMessage = async () => {
+    if (!token || !editingMsgId || !editingContent.trim()) return;
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'editMessage', messageId: editingMsgId, content: editingContent.trim() }),
+      });
+      if (res.ok) {
+        setMessages((prev) =>
+          prev.map((m) => m.id === editingMsgId ? { ...m, content: editingContent.trim(), isEdited: true } : m)
+        );
+        toast.success('Message edited');
+      } else {
+        toast.error('Failed to edit message');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setEditingMsgId(null);
+      setEditingContent('');
+    }
+  };
+
+  const handleConfirmDeleteMessage = async () => {
+    if (!token || !deleteMsgId) return;
+    try {
+      const res = await fetch(`/api/ai/chat?messageId=${deleteMsgId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setMessages((prev) => prev.filter((m) => m.id !== deleteMsgId));
+        toast.success('Message deleted');
+      } else {
+        toast.error('Failed to delete message');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setDeleteMsgId(null);
+    }
+  };
+
+  const handleFeedback = async (msgId: string, feedback: 'positive' | 'negative') => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'feedback', messageId: msgId, feedback }),
+      });
+      if (res.ok) {
+        setMessages((prev) =>
+          prev.map((m) => m.id === msgId ? { ...m, feedback } : m)
+        );
+        toast.success(feedback === 'positive' ? 'Thanks for the feedback!' : 'Feedback recorded');
+      }
+    } catch {
+      toast.error('Failed to submit feedback');
+    }
+  };
+
+  // ---- Export conversation ----
+  const handleExportConversation = (format: 'markdown' | 'text') => {
+    if (messages.length === 0) {
+      toast.error('No messages to export');
+      return;
+    }
+
+    const conv = conversations.find(c => c.id === activeConversationId);
+    const title = conv?.title || 'Conversation';
+
+    let content = '';
+    if (format === 'markdown') {
+      content = `# ${title}\n\nExported from MAA BTOOL AI Assistant on ${new Date().toLocaleString()}\n\n---\n\n`;
+      messages.forEach(msg => {
+        const role = msg.role === 'user' ? '👤 User' : '🤖 AI Assistant';
+        content += `### ${role}\n${msg.isEdited ? '*(edited)*\n' : ''}\n${msg.content}\n\n---\n\n`;
+      });
+    } else {
+      content = `${title}\nExported: ${new Date().toLocaleString()}\n${'='.repeat(40)}\n\n`;
+      messages.forEach(msg => {
+        const role = msg.role === 'user' ? 'User' : 'AI Assistant';
+        content += `[${role}]${msg.isEdited ? ' (edited)' : ''}\n${msg.content}\n\n`;
+      });
+    }
+
+    const blob = new Blob([content], { type: format === 'markdown' ? 'text/markdown' : 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}.${format === 'markdown' ? 'md' : 'txt'}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported as ${format}`);
   };
 
   // ---- Copy helpers ----
@@ -499,6 +664,9 @@ export default function AiAssistantPage() {
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  const getCategoryInfo = (cat: string | null) => CATEGORIES.find(c => c.value === cat);
+  const providerBadge = PROVIDER_BADGES[aiProvider] || PROVIDER_BADGES.custom;
 
   // ---- Access gate ----
   if (!canAccess) {
@@ -586,105 +754,111 @@ export default function AiAssistantPage() {
               </div>
             ) : (
               <AnimatePresence initial={false}>
-                {filteredConversations.map((conv) => (
-                  <motion.div
-                    key={conv.id}
-                    layout
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    className={cn(
-                      'group relative rounded-lg border transition-colors flex items-stretch',
-                      activeConversationId === conv.id
-                        ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
-                        : 'bg-transparent border-transparent hover:bg-accent/50'
-                    )}
-                  >
-                    {/* Conversation button (title + meta) — takes available space, title truncates */}
-                    <button
-                      onClick={() => loadConversation(conv.id)}
-                      className="flex-1 min-w-0 overflow-hidden text-left px-3 py-2.5 text-sm"
+                {filteredConversations.map((conv) => {
+                  const catInfo = getCategoryInfo(conv.category);
+                  const CatIcon = catInfo?.icon;
+                  return (
+                    <motion.div
+                      key={conv.id}
+                      layout
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      className={cn(
+                        'group relative rounded-lg border transition-colors flex items-stretch',
+                        activeConversationId === conv.id
+                          ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                          : 'bg-transparent border-transparent hover:bg-accent/50'
+                      )}
                     >
-                      <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-                        {conv.pinned ? (
-                          <Pin className="w-3.5 h-3.5 shrink-0 text-red-600 fill-red-600" />
-                        ) : (
-                          <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className={cn(
-                          'truncate flex-1 min-w-0',
-                          activeConversationId === conv.id
-                            ? 'text-red-700 dark:text-red-300 font-medium'
-                            : 'text-foreground'
-                        )}>
-                          {conv.title || 'New Conversation'}
-                        </span>
-                      </div>
-                      <p className="text-[10px] mt-1 ml-5.5 text-muted-foreground truncate">
-                        {formatRelativeTime(conv.updatedAt)} · {conv._count?.messages || 0} msgs
-                      </p>
-                    </button>
-
-                    {/* Quick actions — inline (not absolute), always fully visible, clearly clickable */}
-                    <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleToggleBookmark(conv.id, conv.bookmarked); }}
-                        className={cn(
-                          'p-1.5 rounded-md transition-colors',
-                          conv.bookmarked
-                            ? 'bg-amber-100 dark:bg-amber-900/40'
-                            : 'hover:bg-background/80'
-                        )}
-                        title={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-                        aria-label={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                        onClick={() => loadConversation(conv.id)}
+                        className="flex-1 min-w-0 overflow-hidden text-left px-3 py-2.5 text-sm"
                       >
-                        {conv.bookmarked ? (
-                          <BookmarkCheck className="w-4 h-4 text-amber-500" />
-                        ) : (
-                          <Bookmark className="w-4 h-4 text-muted-foreground" />
-                        )}
+                        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+                          {conv.pinned ? (
+                            <Pin className="w-3.5 h-3.5 shrink-0 text-red-600 fill-red-600" />
+                          ) : (
+                            <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className={cn(
+                            'truncate flex-1 min-w-0',
+                            activeConversationId === conv.id
+                              ? 'text-red-700 dark:text-red-300 font-medium'
+                              : 'text-foreground'
+                          )}>
+                            {conv.title || 'New Conversation'}
+                          </span>
+                          {catInfo && (
+                            <Badge className={cn('text-[9px] shrink-0', catInfo.color)}>
+                              {catInfo.label}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[10px] mt-1 ml-5.5 text-muted-foreground truncate">
+                          {formatRelativeTime(conv.updatedAt)} · {conv._count?.messages || 0} msgs
+                        </p>
                       </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            className="p-1.5 rounded-md hover:bg-background/80 transition-colors border border-transparent hover:border-border"
-                            title="More options"
-                            aria-label="More options"
-                          >
-                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44 z-50">
-                          <DropdownMenuItem onClick={() => handleOpenRename(conv.id, conv.title || '')}>
-                            <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleToggleBookmark(conv.id, conv.bookmarked)}>
-                            {conv.bookmarked ? (
-                              <>
-                                <BookmarkCheck className="w-3.5 h-3.5 mr-2" /> Remove bookmark
-                              </>
-                            ) : (
-                              <>
-                                <Bookmark className="w-3.5 h-3.5 mr-2" /> Bookmark
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleTogglePin(conv.id, conv.pinned)}>
-                            <Pin className="w-3.5 h-3.5 mr-2" />
-                            {conv.pinned ? 'Unpin' : 'Pin to top'}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600 focus:text-red-700"
-                            onClick={() => setDeleteConvId(conv.id)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </motion.div>
-                ))}
+
+                      <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleToggleBookmark(conv.id, conv.bookmarked); }}
+                          className={cn(
+                            'p-1.5 rounded-md transition-colors',
+                            conv.bookmarked
+                              ? 'bg-amber-100 dark:bg-amber-900/40'
+                              : 'hover:bg-background/80'
+                          )}
+                          title={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                          aria-label={conv.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                        >
+                          {conv.bookmarked ? (
+                            <BookmarkCheck className="w-4 h-4 text-amber-500" />
+                          ) : (
+                            <Bookmark className="w-4 h-4 text-muted-foreground" />
+                          )}
+                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="p-1.5 rounded-md hover:bg-background/80 transition-colors border border-transparent hover:border-border"
+                              title="More options"
+                              aria-label="More options"
+                            >
+                              <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 z-50">
+                            <DropdownMenuItem onClick={() => handleOpenRename(conv.id, conv.title || '')}>
+                              <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleOpenCategorize(conv.id, conv.category)}>
+                              <Tag className="w-3.5 h-3.5 mr-2" /> Set Category
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleToggleBookmark(conv.id, conv.bookmarked)}>
+                              {conv.bookmarked ? (
+                                <><BookmarkCheck className="w-3.5 h-3.5 mr-2" /> Remove bookmark</>
+                              ) : (
+                                <><Bookmark className="w-3.5 h-3.5 mr-2" /> Bookmark</>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleTogglePin(conv.id, conv.pinned)}>
+                              <Pin className="w-3.5 h-3.5 mr-2" />
+                              {conv.pinned ? 'Unpin' : 'Pin to top'}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-700"
+                              onClick={() => setDeleteConvId(conv.id)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </AnimatePresence>
             )}
           </div>
@@ -719,13 +893,35 @@ export default function AiAssistantPage() {
                 )}
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                  <Sparkles className="w-2.5 h-2.5" /> {aiProvider}
-                </span>
+                {/* Provider Badge */}
+                <Badge className={cn('text-[10px] gap-1', providerBadge.color)}>
+                  <Sparkles className="w-2.5 h-2.5" /> {providerBadge.label}
+                </Badge>
                 <span className="text-[10px] text-muted-foreground">Markdown & streaming supported</span>
               </div>
             </div>
           </div>
+
+          {/* Export button */}
+          {messages.length > 0 && (
+            <div className="ml-auto flex items-center gap-1.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+                    <Download className="w-3.5 h-3.5" /> Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleExportConversation('markdown')}>
+                    <FileText className="w-3.5 h-3.5 mr-2" /> Export as Markdown
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExportConversation('text')}>
+                    <FileText className="w-3.5 h-3.5 mr-2" /> Export as Text
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
 
         {/* Messages Area */}
@@ -750,10 +946,11 @@ export default function AiAssistantPage() {
                   </div>
                 </div>
 
-                {/* Suggested prompts */}
+                {/* Suggested prompts with category badges */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {SUGGESTED_PROMPTS.map((s) => {
                     const Icon = s.icon;
+                    const catInfo = getCategoryInfo(s.category);
                     return (
                       <button
                         key={s.title}
@@ -766,7 +963,12 @@ export default function AiAssistantPage() {
                             <Icon className="w-4 h-4 text-red-600 dark:text-red-400" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground">{s.title}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-foreground">{s.title}</p>
+                              {catInfo && (
+                                <Badge className={cn('text-[9px]', catInfo.color)}>{catInfo.label}</Badge>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.prompt}</p>
                           </div>
                         </div>
@@ -789,6 +991,8 @@ export default function AiAssistantPage() {
             {messages.map((msg, idx) => {
               const isLastAssistant = msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming;
               const isStreamingThis = msg.role === 'assistant' && msg.id === streamingMessageId && isStreaming;
+              const isEditing = editingMsgId === msg.id;
+
               return (
                 <motion.div
                   key={msg.id}
@@ -809,92 +1013,173 @@ export default function AiAssistantPage() {
                     )}
                   </div>
                   <div className={cn('flex-1 min-w-0 max-w-[80%]', msg.role === 'user' && 'flex flex-col items-end')}>
-                    <div className={cn(
-                      'rounded-2xl px-4 py-3 shadow-sm',
-                      msg.role === 'assistant'
-                        ? 'bg-red-50 dark:bg-red-900/20 rounded-tl-sm border border-red-100 dark:border-red-800/40'
-                        : 'bg-slate-700 text-white rounded-tr-sm'
-                    )}>
-                      {msg.role === 'assistant' ? (
-                        <div className="md-render text-sm">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeHighlight]}
-                            components={{
-                              pre: ({ children, ...props }) => {
-                                const codeEl = (children as React.ReactElement<{ children?: React.ReactNode }>)?.props?.children;
-                                const codeText = typeof codeEl === 'string'
-                                  ? codeEl
-                                  : (codeEl as React.ReactElement<{ children?: React.ReactNode }>)?.props?.children;
-                                const codeId = `code-${msg.id}-${idx}`;
-                                return (
-                                  <div className="relative group/code my-3">
-                                    <button
-                                      onClick={() => handleCopyCode(String(codeText || ''), codeId)}
-                                      className="absolute top-2 right-2 p-1.5 rounded-md bg-background/80 border opacity-0 group-hover/code:opacity-100 transition-opacity"
-                                      title="Copy code"
-                                    >
-                                      {copiedCode === codeId ? (
-                                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                      ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                      )}
-                                    </button>
-                                    <pre {...props}>{children}</pre>
-                                  </div>
-                                );
-                              },
-                            }}
-                          >
-                            {msg.content || (isStreamingThis ? '' : '')}
-                          </ReactMarkdown>
-                          {isStreamingThis && (
-                            <span className="inline-flex gap-0.5 ml-1">
-                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
-                              <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
-                            </span>
-                          )}
+                    {isEditing ? (
+                      <div className="w-full rounded-2xl bg-card border-2 border-red-300 dark:border-red-700 p-3 shadow-sm">
+                        <Textarea
+                          value={editingContent}
+                          onChange={(e) => setEditingContent(e.target.value)}
+                          className="min-h-[60px] resize-none text-sm border-0 focus-visible:ring-0 p-0"
+                          autoFocus
+                        />
+                        <div className="flex items-center gap-2 mt-2 justify-end">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingMsgId(null); setEditingContent(''); }}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white" onClick={handleConfirmEditMessage}>
+                            Save Edit
+                          </Button>
                         </div>
-                      ) : (
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                      )}
-                    </div>
-                    <div className={cn('flex items-center gap-2 mt-1 mx-1', msg.role === 'user' && 'flex-row-reverse')}>
-                      <p className="text-[10px] text-muted-foreground">{formatTime(msg.createdAt)}</p>
-                      {msg.tokensUsed ? (
-                        <span className="text-[10px] text-muted-foreground/70">{msg.tokensUsed} tokens</span>
-                      ) : null}
-                      {/* Message actions */}
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                        <button
-                          onClick={() => handleCopyMessage(msg)}
-                          className="p-1 rounded hover:bg-accent"
-                          title="Copy message"
-                        >
-                          {copiedMessageId === msg.id ? (
-                            <Check className="w-3 h-3 text-emerald-500" />
-                          ) : (
-                            <Copy className="w-3 h-3 text-muted-foreground" />
-                          )}
-                        </button>
-                        {isLastAssistant && (
-                          <button
-                            onClick={handleRegenerate}
-                            className="p-1 rounded hover:bg-accent"
-                            title="Regenerate response"
-                          >
-                            <RefreshCw className="w-3 h-3 text-muted-foreground" />
-                          </button>
+                      </div>
+                    ) : (
+                      <div className={cn(
+                        'rounded-2xl px-4 py-3 shadow-sm',
+                        msg.role === 'assistant'
+                          ? 'bg-red-50 dark:bg-red-900/20 rounded-tl-sm border border-red-100 dark:border-red-800/40'
+                          : 'bg-slate-700 text-white rounded-tr-sm'
+                      )}>
+                        {msg.role === 'assistant' ? (
+                          <div className="md-render text-sm">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeHighlight]}
+                              components={{
+                                pre: ({ children, ...props }) => {
+                                  const codeEl = (children as React.ReactElement<{ children?: React.ReactNode }>)?.props?.children;
+                                  const codeText = typeof codeEl === 'string'
+                                    ? codeEl
+                                    : (codeEl as React.ReactElement<{ children?: React.ReactNode }>)?.props?.children;
+                                  const codeId = `code-${msg.id}-${idx}`;
+                                  return (
+                                    <div className="relative group/code my-3">
+                                      <button
+                                        onClick={() => handleCopyCode(String(codeText || ''), codeId)}
+                                        className="absolute top-2 right-2 p-1.5 rounded-md bg-background/80 border opacity-0 group-hover/code:opacity-100 transition-opacity"
+                                        title="Copy code"
+                                      >
+                                        {copiedCode === codeId ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                      <pre {...props}>{children}</pre>
+                                    </div>
+                                  );
+                                },
+                              }}
+                            >
+                              {msg.content || (isStreamingThis ? '' : '')}
+                            </ReactMarkdown>
+                            {isStreamingThis && (
+                              <span className="inline-flex gap-0.5 ml-1">
+                                <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
+                                <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        )}
+                        {msg.isEdited && (
+                          <p className="text-[9px] text-muted-foreground mt-1 italic">(edited)</p>
                         )}
                       </div>
-                    </div>
+                    )}
+
+                    {/* Message metadata and actions */}
+                    {!isEditing && (
+                      <div className={cn('flex items-center gap-2 mt-1 mx-1 flex-wrap', msg.role === 'user' && 'flex-row-reverse')}>
+                        <p className="text-[10px] text-muted-foreground">{formatTime(msg.createdAt)}</p>
+                        {msg.tokensUsed ? (
+                          <span className="text-[10px] text-muted-foreground/70">{msg.tokensUsed} tokens</span>
+                        ) : null}
+                        {msg.isEdited && !msg.role.includes('assistant') && (
+                          <span className="text-[10px] text-muted-foreground/70">(edited)</span>
+                        )}
+
+                        {/* Message actions */}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                          <button
+                            onClick={() => handleCopyMessage(msg)}
+                            className="p-1 rounded hover:bg-accent"
+                            title="Copy message"
+                          >
+                            {copiedMessageId === msg.id ? (
+                              <Check className="w-3 h-3 text-emerald-500" />
+                            ) : (
+                              <Copy className="w-3 h-3 text-muted-foreground" />
+                            )}
+                          </button>
+
+                          {/* Edit button for user messages */}
+                          {msg.role === 'user' && !isStreaming && (
+                            <button
+                              onClick={() => handleEditMessage(msg.id, msg.content)}
+                              className="p-1 rounded hover:bg-accent"
+                              title="Edit message"
+                            >
+                              <Pencil className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          )}
+
+                          {/* Delete message button */}
+                          {!isStreaming && (
+                            <button
+                              onClick={() => setDeleteMsgId(msg.id)}
+                              className="p-1 rounded hover:bg-accent"
+                              title="Delete message"
+                            >
+                              <Trash2 className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          )}
+
+                          {/* Feedback buttons for assistant messages */}
+                          {msg.role === 'assistant' && !isStreamingThis && msg.content && (
+                            <>
+                              <Separator orientation="vertical" className="h-3 mx-0.5" />
+                              <button
+                                onClick={() => handleFeedback(msg.id, 'positive')}
+                                className={cn(
+                                  'p-1 rounded hover:bg-accent transition-colors',
+                                  msg.feedback === 'positive' && 'text-emerald-600'
+                                )}
+                                title="Good response"
+                              >
+                                <ThumbsUp className={cn('w-3 h-3', msg.feedback === 'positive' ? 'text-emerald-600 fill-emerald-600' : 'text-muted-foreground')} />
+                              </button>
+                              <button
+                                onClick={() => handleFeedback(msg.id, 'negative')}
+                                className={cn(
+                                  'p-1 rounded hover:bg-accent transition-colors',
+                                  msg.feedback === 'negative' && 'text-red-600'
+                                )}
+                                title="Poor response"
+                              >
+                                <ThumbsDown className={cn('w-3 h-3', msg.feedback === 'negative' ? 'text-red-600 fill-red-600' : 'text-muted-foreground')} />
+                              </button>
+                            </>
+                          )}
+
+                          {/* Regenerate button for last assistant message */}
+                          {isLastAssistant && (
+                            <button
+                              onClick={handleRegenerate}
+                              className="p-1 rounded hover:bg-accent"
+                              title="Regenerate response"
+                            >
+                              <RefreshCw className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               );
             })}
 
-            {/* Initial loading (before stream starts) — typing indicator */}
+            {/* Initial loading (before stream starts) */}
             {isLoading && messages.length === 0 && (
               <div className="flex gap-3">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shrink-0 shadow-sm">
@@ -918,15 +1203,14 @@ export default function AiAssistantPage() {
 
         {/* Input Bar + Quick Prompts */}
         <div className="border-t shrink-0 bg-card/50">
-          {/* Quick prompt suggestions (when input is empty and not streaming) */}
           {!inputMessage.trim() && !isStreaming && messages.length > 0 && (
             <div className="px-3 pt-2 pb-1 max-w-3xl mx-auto">
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  { label: 'Summarize records', prompt: 'Summarize the current state of our master data records.' },
-                  { label: 'Best practices', prompt: 'What are MDM best practices for data governance?' },
-                  { label: 'Help with workflow', prompt: 'How does the approval workflow work?' },
-                  { label: 'Data quality', prompt: 'How can I improve data quality in my modules?' },
+                  { label: 'Data Quality', prompt: 'Analyze the data quality of our product records and identify issues.', category: 'DATA_QUALITY' },
+                  { label: 'Enrichment', prompt: 'Suggest data enrichment opportunities for our master data.', category: 'ENRICHMENT' },
+                  { label: 'Mapping Help', prompt: 'Help me create a field mapping for data integration.', category: 'MAPPING' },
+                  { label: 'Best practices', prompt: 'What are MDM best practices for data governance?', category: 'GENERAL' },
                 ].map((s) => (
                   <button
                     key={s.label}
@@ -1007,7 +1291,37 @@ export default function AiAssistantPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ============ Delete Confirmation ============ */}
+      {/* ============ Categorize Dialog ============ */}
+      <Dialog open={categorizeConvId !== null} onOpenChange={(open) => !open && setCategorizeConvId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-red-600" /> Set Category
+            </DialogTitle>
+          </DialogHeader>
+          <Select value={categorizeValue} onValueChange={setCategorizeValue}>
+            <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+            <SelectContent>
+              {CATEGORIES.map(cat => (
+                <SelectItem key={cat.value} value={cat.value}>
+                  <div className="flex items-center gap-2">
+                    <cat.icon className="w-3.5 h-3.5" />
+                    {cat.label}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCategorizeConvId(null)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleConfirmCategorize}>
+              Set Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ Delete Conversation Confirmation ============ */}
       <AlertDialog open={deleteConvId !== null} onOpenChange={(open) => !open && setDeleteConvId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1022,7 +1336,30 @@ export default function AiAssistantPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={handleConfirmDelete}
+              onClick={handleConfirmDeleteConv}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ============ Delete Message Confirmation ============ */}
+      <AlertDialog open={deleteMsgId !== null} onOpenChange={(open) => !open && setDeleteMsgId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-red-600" /> Delete Message?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this message from the conversation. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleConfirmDeleteMessage}
             >
               Delete
             </AlertDialogAction>

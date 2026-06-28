@@ -8,8 +8,15 @@ import { rateLimit } from '@/lib/rate-limit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Stibo-aligned valid enums
+const VALID_RULE_TYPES = ['CONDITION', 'ACTION', 'FUNCTION'];
+const VALID_CONDITION_TYPES = ['CROSS_FIELD', 'LOV_CROSS', 'SCRIPTED', 'REQUIRED_IF', 'COMPLETENESS', 'UNIQUENESS', 'RANGE', 'PATTERN'];
+const VALID_ACTION_TYPES = ['BLOCK', 'SET_VALUE', 'SEND_EMAIL', 'WARN', 'SET_STATUS', 'TRANSITION', 'TRIGGER_WEBHOOK', 'CREATE_TASK'];
+const VALID_SEVERITIES = ['ERROR', 'WARNING', 'INFO'];
+const VALID_TRIGGERS = ['SAVE', 'APPROVE', 'IMPORT', 'TRANSITION', 'SCHEDULED'];
+const VALID_SCOPES = ['RECORD', 'BULK', 'ALL'];
+
 // GET /api/business-rules — list all business rules with enhanced filtering
-// Any authenticated user with data:read can view.
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -20,20 +27,26 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const moduleId = searchParams.get('moduleId');
+    const ruleType = searchParams.get('ruleType');
     const conditionType = searchParams.get('conditionType');
     const actionType = searchParams.get('actionType');
+    const severity = searchParams.get('severity');
     const trigger = searchParams.get('trigger');
+    const scope = searchParams.get('scope');
     const isActive = searchParams.get('isActive');
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
 
-    // Build where clause — moduleId is no longer required; if absent, return all rules
+    // Build where clause
     const where: Record<string, unknown> = {};
     if (moduleId) where.moduleId = moduleId;
+    if (ruleType) where.ruleType = ruleType;
     if (conditionType) where.conditionType = conditionType;
     if (actionType) where.actionType = actionType;
+    if (severity) where.severity = severity;
     if (trigger) where.trigger = trigger;
+    if (scope) where.scope = scope;
     if (isActive !== null && isActive !== undefined && isActive !== '') {
       where.isActive = isActive === 'true';
     }
@@ -75,17 +88,23 @@ export async function GET(request: NextRequest) {
 
     // Type distribution
     const allRules = await db.businessRule.findMany({
-      select: { conditionType: true, actionType: true, trigger: true },
+      select: { ruleType: true, conditionType: true, actionType: true, severity: true, trigger: true, scope: true },
     });
 
+    const ruleTypeDistribution: Record<string, number> = {};
     const conditionTypeDistribution: Record<string, number> = {};
     const actionTypeDistribution: Record<string, number> = {};
+    const severityDistribution: Record<string, number> = {};
     const triggerDistribution: Record<string, number> = {};
+    const scopeDistribution: Record<string, number> = {};
 
     allRules.forEach((r) => {
+      ruleTypeDistribution[r.ruleType] = (ruleTypeDistribution[r.ruleType] || 0) + 1;
       conditionTypeDistribution[r.conditionType] = (conditionTypeDistribution[r.conditionType] || 0) + 1;
       actionTypeDistribution[r.actionType] = (actionTypeDistribution[r.actionType] || 0) + 1;
+      severityDistribution[r.severity] = (severityDistribution[r.severity] || 0) + 1;
       triggerDistribution[r.trigger] = (triggerDistribution[r.trigger] || 0) + 1;
+      scopeDistribution[r.scope] = (scopeDistribution[r.scope] || 0) + 1;
     });
 
     return NextResponse.json({
@@ -98,9 +117,12 @@ export async function GET(request: NextRequest) {
         totalRules,
         activeRules,
         inactiveRules,
+        ruleTypeDistribution,
         conditionTypeDistribution,
         actionTypeDistribution,
+        severityDistribution,
         triggerDistribution,
+        scopeDistribution,
       },
     });
   } catch (error) {
@@ -110,7 +132,6 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/business-rules — create a business rule
-// Requires data:write permission (Manager or Super Admin)
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -118,7 +139,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Allow Super Admin or Manager+ with data:write
     const canWrite = isSuperAdmin(tokenPayload.roles) ||
       tokenPayload.roles.some(r => ['Manager'].includes(r));
     if (!canWrite) {
@@ -128,7 +148,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Rate limiting
     const rl = rateLimit(`business-rules-post:${tokenPayload.userId}`, { limit: 20, windowMs: 60_000 });
     if (!rl.allowed) {
       return NextResponse.json(
@@ -140,41 +159,58 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       moduleId, name, description,
-      conditionType, conditionJson,
+      ruleType, conditionType, conditionJson,
       actionType, actionJson, errorMessage,
-      trigger, sortOrder, isActive,
+      severity, trigger, scope,
+      sortOrder, isActive,
     } = body;
 
-    if (!moduleId || !name || !conditionType || !conditionJson || !actionType || !trigger) {
+    // Validation
+    if (!moduleId || !name || !conditionJson || !trigger) {
       return NextResponse.json(
-        { error: 'moduleId, name, conditionType, conditionJson, actionType, and trigger are required' },
+        { error: 'moduleId, name, conditionJson, and trigger are required' },
         { status: 400 },
       );
     }
 
-    // Validate conditionType
-    const validConditionTypes = ['CROSS_FIELD', 'REQUIRED_IF', 'LOV_CROSS', 'SCRIPTED'];
-    if (!validConditionTypes.includes(conditionType)) {
+    if (ruleType && !VALID_RULE_TYPES.includes(ruleType)) {
       return NextResponse.json(
-        { error: `Invalid conditionType. Must be one of: ${validConditionTypes.join(', ')}` },
+        { error: `Invalid ruleType. Must be one of: ${VALID_RULE_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
 
-    // Validate actionType
-    const validActionTypes = ['BLOCK', 'WARN', 'SET_VALUE', 'SEND_EMAIL'];
-    if (!validActionTypes.includes(actionType)) {
+    if (conditionType && !VALID_CONDITION_TYPES.includes(conditionType)) {
       return NextResponse.json(
-        { error: `Invalid actionType. Must be one of: ${validActionTypes.join(', ')}` },
+        { error: `Invalid conditionType. Must be one of: ${VALID_CONDITION_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
 
-    // Validate trigger
-    const validTriggers = ['SAVE', 'APPROVE', 'IMPORT', 'TRANSITION'];
-    if (!validTriggers.includes(trigger)) {
+    if (actionType && !VALID_ACTION_TYPES.includes(actionType)) {
       return NextResponse.json(
-        { error: `Invalid trigger. Must be one of: ${validTriggers.join(', ')}` },
+        { error: `Invalid actionType. Must be one of: ${VALID_ACTION_TYPES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    if (severity && !VALID_SEVERITIES.includes(severity)) {
+      return NextResponse.json(
+        { error: `Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    if (!VALID_TRIGGERS.includes(trigger)) {
+      return NextResponse.json(
+        { error: `Invalid trigger. Must be one of: ${VALID_TRIGGERS.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    if (scope && !VALID_SCOPES.includes(scope)) {
+      return NextResponse.json(
+        { error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` },
         { status: 400 }
       );
     }
@@ -200,17 +236,34 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Determine defaults based on ruleType
+    const resolvedRuleType = ruleType || 'CONDITION';
+    let resolvedConditionType = conditionType || 'CROSS_FIELD';
+    let resolvedActionType = actionType || 'BLOCK';
+    const resolvedSeverity = severity || 'ERROR';
+    const resolvedScope = scope || 'RECORD';
+
+    // For CONDITION rules, actionType should be derived from severity behavior
+    // For ACTION rules, conditionType might be SCRIPTED or CROSS_FIELD
+    if (resolvedRuleType === 'FUNCTION') {
+      resolvedConditionType = 'SCRIPTED';
+      resolvedActionType = 'SET_VALUE';
+    }
+
     const rule = await db.businessRule.create({
       data: {
         moduleId: sanitizeInput(moduleId),
         name: sanitizeInput(name),
         description: description ? sanitizeInput(description) : null,
-        conditionType: String(conditionType),
+        ruleType: resolvedRuleType,
+        conditionType: resolvedConditionType,
         conditionJson: String(conditionJson),
-        actionType: String(actionType),
+        actionType: resolvedActionType,
         actionJson: actionJson ? String(actionJson) : null,
         errorMessage: errorMessage ? sanitizeInput(errorMessage) : null,
+        severity: resolvedSeverity,
         trigger: String(trigger),
+        scope: resolvedScope,
         sortOrder: typeof sortOrder === 'number' ? sortOrder : 0,
         isActive: typeof isActive === 'boolean' ? isActive : true,
       },
@@ -224,7 +277,7 @@ export async function POST(request: NextRequest) {
       entityId: rule.id,
       moduleName: metaModule.moduleCode,
       description: `Created business rule: ${name}`,
-      newValues: { conditionType, actionType, trigger, isActive: rule.isActive },
+      newValues: { ruleType: resolvedRuleType, conditionType: resolvedConditionType, actionType: resolvedActionType, severity: resolvedSeverity, trigger, scope: resolvedScope, isActive: rule.isActive },
       companyId: tokenPayload.companyId,
       ipAddress: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || undefined,
       userAgent: request.headers.get('user-agent') || undefined,
@@ -269,40 +322,48 @@ export async function PUT(request: NextRequest) {
     }
 
     // Validate fields if provided
-    if (body.conditionType) {
-      const validConditionTypes = ['CROSS_FIELD', 'REQUIRED_IF', 'LOV_CROSS', 'SCRIPTED'];
-      if (!validConditionTypes.includes(body.conditionType)) {
-        return NextResponse.json(
-          { error: `Invalid conditionType. Must be one of: ${validConditionTypes.join(', ')}` },
-          { status: 400 }
-        );
-      }
+    if (body.ruleType && !VALID_RULE_TYPES.includes(body.ruleType)) {
+      return NextResponse.json(
+        { error: `Invalid ruleType. Must be one of: ${VALID_RULE_TYPES.join(', ')}` },
+        { status: 400 }
+      );
     }
-
-    if (body.actionType) {
-      const validActionTypes = ['BLOCK', 'WARN', 'SET_VALUE', 'SEND_EMAIL'];
-      if (!validActionTypes.includes(body.actionType)) {
-        return NextResponse.json(
-          { error: `Invalid actionType. Must be one of: ${validActionTypes.join(', ')}` },
-          { status: 400 }
-        );
-      }
+    if (body.conditionType && !VALID_CONDITION_TYPES.includes(body.conditionType)) {
+      return NextResponse.json(
+        { error: `Invalid conditionType. Must be one of: ${VALID_CONDITION_TYPES.join(', ')}` },
+        { status: 400 }
+      );
     }
-
-    if (body.trigger) {
-      const validTriggers = ['SAVE', 'APPROVE', 'IMPORT', 'TRANSITION'];
-      if (!validTriggers.includes(body.trigger)) {
-        return NextResponse.json(
-          { error: `Invalid trigger. Must be one of: ${validTriggers.join(', ')}` },
-          { status: 400 }
-        );
-      }
+    if (body.actionType && !VALID_ACTION_TYPES.includes(body.actionType)) {
+      return NextResponse.json(
+        { error: `Invalid actionType. Must be one of: ${VALID_ACTION_TYPES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+    if (body.severity && !VALID_SEVERITIES.includes(body.severity)) {
+      return NextResponse.json(
+        { error: `Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+    if (body.trigger && !VALID_TRIGGERS.includes(body.trigger)) {
+      return NextResponse.json(
+        { error: `Invalid trigger. Must be one of: ${VALID_TRIGGERS.join(', ')}` },
+        { status: 400 }
+      );
+    }
+    if (body.scope && !VALID_SCOPES.includes(body.scope)) {
+      return NextResponse.json(
+        { error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` },
+        { status: 400 }
+      );
     }
 
     // Build update data only from provided fields (whitelist)
     const update: Record<string, unknown> = {};
     if (body.name !== undefined) update.name = sanitizeInput(body.name);
     if (body.description !== undefined) update.description = body.description ? sanitizeInput(body.description) : null;
+    if (body.ruleType !== undefined) update.ruleType = String(body.ruleType);
     if (body.conditionType !== undefined) update.conditionType = String(body.conditionType);
     if (body.conditionJson !== undefined) {
       try { JSON.parse(body.conditionJson); } catch {
@@ -320,7 +381,9 @@ export async function PUT(request: NextRequest) {
       update.actionJson = body.actionJson ? String(body.actionJson) : null;
     }
     if (body.errorMessage !== undefined) update.errorMessage = body.errorMessage ? sanitizeInput(body.errorMessage) : null;
+    if (body.severity !== undefined) update.severity = String(body.severity);
     if (body.trigger !== undefined) update.trigger = String(body.trigger);
+    if (body.scope !== undefined) update.scope = String(body.scope);
     if (body.isActive !== undefined) update.isActive = !!body.isActive;
     if (body.sortOrder !== undefined) update.sortOrder = Number(body.sortOrder) || 0;
 
@@ -339,9 +402,12 @@ export async function PUT(request: NextRequest) {
       description: `Updated business rule: ${existing.name}`,
       oldValues: {
         name: existing.name,
+        ruleType: existing.ruleType,
         conditionType: existing.conditionType,
         actionType: existing.actionType,
+        severity: existing.severity,
         trigger: existing.trigger,
+        scope: existing.scope,
         isActive: existing.isActive,
       },
       newValues: update,
@@ -391,6 +457,7 @@ export async function DELETE(request: NextRequest) {
       description: `Deleted business rule: ${existing.name}`,
       oldValues: {
         name: existing.name,
+        ruleType: existing.ruleType,
         conditionType: existing.conditionType,
         actionType: existing.actionType,
         trigger: existing.trigger,

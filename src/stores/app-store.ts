@@ -11,6 +11,7 @@ export type PageView =
   | 'data-stewardship'
   | 'data-catalog'
   | 'data-quality'
+  | 'digital-assets'
   // Schema
   | 'modules'
   | 'module-detail'
@@ -31,6 +32,7 @@ export type PageView =
   | 'ai-settings'
   // Integrations
   | 'api-management'
+  | 'data-exchange'
   // Administration
   | 'admin-users'
   | 'admin-roles'

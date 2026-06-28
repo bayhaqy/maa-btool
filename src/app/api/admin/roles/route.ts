@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission } from '@/lib/rbac';
+import { ROLE_TYPE_INFO } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -43,6 +43,11 @@ export async function GET(request: NextRequest) {
       id: r.id,
       roleName: r.roleName,
       description: r.description,
+      roleType: r.roleType,
+      scope: r.scope,
+      isSystem: r.isSystem,
+      color: r.color,
+      icon: r.icon,
       permissionCount: r._count.rolePermissions,
       userCount: r._count.userRoles,
       permissions: r.rolePermissions.map((p) => ({
@@ -50,9 +55,13 @@ export async function GET(request: NextRequest) {
         moduleId: p.moduleId,
         module: p.module,
         canRead: p.canRead,
-        canWrite: p.canWrite,
+        canCreate: p.canCreate,
+        canEdit: p.canEdit,
         canDelete: p.canDelete,
         canApprove: p.canApprove,
+        canExport: p.canExport,
+        canImport: p.canImport,
+        canBulkUpdate: p.canBulkUpdate,
         columnRestrictions: p.columnRestrictions,
         rowFilter: p.rowFilter,
       })),
@@ -88,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { roleName, description, permissions } = body;
+    const { roleName, description, roleType, scope, permissions } = body;
 
     if (!roleName) {
       return NextResponse.json({ error: 'roleName is required' }, { status: 400 });
@@ -100,25 +109,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Role name already exists' }, { status: 409 });
     }
 
+    // Resolve color/icon from ROLE_TYPE_INFO
+    const typeInfo = ROLE_TYPE_INFO[roleType || 'VIEWER'];
+    const resolvedColor = typeInfo?.color || '#6b7280';
+    const resolvedIcon = typeInfo?.icon || 'Shield';
+
+    // For VIEWER type, force all write permissions off
+    const isViewer = (roleType || 'VIEWER') === 'VIEWER';
+
     const role = await db.sysRole.create({
       data: {
         roleName,
         description,
+        roleType: roleType || 'VIEWER',
+        scope: scope || 'MODULE',
+        isSystem: false,
+        color: resolvedColor,
+        icon: resolvedIcon,
         rolePermissions: {
           create: (permissions || []).map((p: {
             moduleId: string;
             canRead?: boolean;
-            canWrite?: boolean;
+            canCreate?: boolean;
+            canEdit?: boolean;
             canDelete?: boolean;
             canApprove?: boolean;
+            canExport?: boolean;
+            canImport?: boolean;
+            canBulkUpdate?: boolean;
             columnRestrictions?: string;
             rowFilter?: string;
           }) => ({
             moduleId: p.moduleId,
             canRead: p.canRead ?? false,
-            canWrite: p.canWrite ?? false,
-            canDelete: p.canDelete ?? false,
-            canApprove: p.canApprove ?? false,
+            canCreate: isViewer ? false : (p.canCreate ?? false),
+            canEdit: isViewer ? false : (p.canEdit ?? false),
+            canDelete: isViewer ? false : (p.canDelete ?? false),
+            canApprove: isViewer ? false : (p.canApprove ?? false),
+            canExport: isViewer ? false : (p.canExport ?? false),
+            canImport: isViewer ? false : (p.canImport ?? false),
+            canBulkUpdate: isViewer ? false : (p.canBulkUpdate ?? false),
             columnRestrictions: p.columnRestrictions,
             rowFilter: p.rowFilter,
           })),
@@ -138,8 +168,8 @@ export async function POST(request: NextRequest) {
       action: AuditAction.ROLE_ASSIGN,
       entityType: 'SysRole',
       entityId: role.id,
-      description: `Role "${roleName}" created`,
-      newValues: { roleName, description, permissionCount: (permissions || []).length },
+      description: `Role "${roleName}" created with type ${roleType || 'VIEWER'}`,
+      newValues: { roleName, description, roleType, permissionCount: (permissions || []).length },
       req: request,
     });
 
@@ -173,7 +203,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, roleName, description, permissions } = body;
+    const { id, roleName, description, roleType, scope, permissions } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Role id is required' }, { status: 400 });
@@ -192,17 +222,28 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Resolve color/icon from ROLE_TYPE_INFO
+    const resolvedRoleType = roleType || existing.roleType || 'VIEWER';
+    const typeInfo = ROLE_TYPE_INFO[resolvedRoleType];
+    const resolvedColor = typeInfo?.color || existing.color || '#6b7280';
+    const resolvedIcon = typeInfo?.icon || existing.icon || 'Shield';
+
     // Update role basic info
     const role = await db.sysRole.update({
       where: { id },
       data: {
         ...(roleName !== undefined && { roleName }),
         ...(description !== undefined && { description }),
+        ...(roleType !== undefined && { roleType, color: resolvedColor, icon: resolvedIcon }),
+        ...(scope !== undefined && { scope }),
       },
     });
 
     // Update permissions if provided
     if (permissions !== undefined) {
+      // For VIEWER type, force all write permissions off
+      const isViewer = role.roleType === 'VIEWER';
+
       // Delete existing permissions
       await db.rolePermission.deleteMany({ where: { roleId: id } });
 
@@ -212,18 +253,26 @@ export async function PUT(request: NextRequest) {
           data: permissions.map((p: {
             moduleId: string;
             canRead?: boolean;
-            canWrite?: boolean;
+            canCreate?: boolean;
+            canEdit?: boolean;
             canDelete?: boolean;
             canApprove?: boolean;
+            canExport?: boolean;
+            canImport?: boolean;
+            canBulkUpdate?: boolean;
             columnRestrictions?: string;
             rowFilter?: string;
           }) => ({
             roleId: id,
             moduleId: p.moduleId,
             canRead: p.canRead ?? false,
-            canWrite: p.canWrite ?? false,
-            canDelete: p.canDelete ?? false,
-            canApprove: p.canApprove ?? false,
+            canCreate: isViewer ? false : (p.canCreate ?? false),
+            canEdit: isViewer ? false : (p.canEdit ?? false),
+            canDelete: isViewer ? false : (p.canDelete ?? false),
+            canApprove: isViewer ? false : (p.canApprove ?? false),
+            canExport: isViewer ? false : (p.canExport ?? false),
+            canImport: isViewer ? false : (p.canImport ?? false),
+            canBulkUpdate: isViewer ? false : (p.canBulkUpdate ?? false),
             columnRestrictions: p.columnRestrictions,
             rowFilter: p.rowFilter,
           })),
@@ -249,8 +298,8 @@ export async function PUT(request: NextRequest) {
       entityType: 'SysRole',
       entityId: id,
       description: `Role "${existing.roleName}" updated`,
-      oldValues: { roleName: existing.roleName, description: existing.description },
-      newValues: { roleName, description, permissionCount: permissions?.length },
+      oldValues: { roleName: existing.roleName, description: existing.description, roleType: existing.roleType },
+      newValues: { roleName, description, roleType, permissionCount: permissions?.length },
       severity: 'warning',
       req: request,
     });
@@ -301,6 +350,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Role not found' }, { status: 404 });
     }
 
+    // Prevent deletion of system roles
+    if (existing.isSystem) {
+      return NextResponse.json({ error: 'Cannot delete system role' }, { status: 403 });
+    }
+
     await db.sysRole.delete({ where: { id } });
 
     // ── Audit: role delete ────────────────────────────────────────────
@@ -310,7 +364,7 @@ export async function DELETE(request: NextRequest) {
       entityId: id,
       description: `Role "${existing.roleName}" deleted`,
       severity: 'critical',
-      oldValues: { roleName: existing.roleName },
+      oldValues: { roleName: existing.roleName, roleType: existing.roleType },
       req: request,
     });
 

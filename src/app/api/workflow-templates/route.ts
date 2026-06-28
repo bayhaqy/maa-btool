@@ -7,16 +7,31 @@ import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 // Types
 // ---------------------------------------------------------------------------
 
-interface StepConfig {
-  name: string;
-  assigneeRole: string;
-  deadlineHours: number;
-  isParallel: boolean;
+interface StateInput {
+  stateCode: string;
+  stateName: string;
+  stateType: string;
+  color: string;
+  isInitial: boolean;
+  isFinal: boolean;
+  sortOrder: number;
+}
+
+interface TransitionInput {
+  fromStateCode: string;
+  toStateCode: string;
+  transitionName: string;
+  condition?: string;
+  requiredRole?: string;
+  isAuto?: boolean;
+  notifyRoles?: string[];
+  sortOrder?: number;
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/workflow-templates — List templates
+// GET /api/workflow-templates — List templates with states & transitions
 // ---------------------------------------------------------------------------
+
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -30,6 +45,25 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const moduleScope = searchParams.get('moduleScope');
+    const id = searchParams.get('id');
+
+    // Single template with full details
+    if (id) {
+      const template = await db.workflowTemplate.findUnique({
+        where: { id },
+        include: {
+          states: { orderBy: { sortOrder: 'asc' } },
+          transitions: {
+            orderBy: { sortOrder: 'asc' },
+            include: { fromState: true, toState: true },
+          },
+        },
+      });
+      if (!template) {
+        return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+      }
+      return NextResponse.json({ template });
+    }
 
     const where: Record<string, unknown> = { isActive: true };
     if (moduleScope) {
@@ -39,6 +73,13 @@ export async function GET(request: NextRequest) {
     const templates = await db.workflowTemplate.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: {
+        states: { orderBy: { sortOrder: 'asc' } },
+        transitions: {
+          orderBy: { sortOrder: 'asc' },
+          include: { fromState: true, toState: true },
+        },
+      },
     });
 
     return NextResponse.json({ templates });
@@ -49,8 +90,9 @@ export async function GET(request: NextRequest) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/workflow-templates — Create template (superadmin only)
+// POST /api/workflow-templates — Create template with states & transitions
 // ---------------------------------------------------------------------------
+
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -63,35 +105,103 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, description, moduleScope, stepConfig } = body as {
+    const {
+      name,
+      description,
+      moduleScope,
+      states: statesInput,
+      transitions: transitionsInput,
+      autoApproveRules,
+      slaConfig,
+    } = body as {
       name: string;
       description?: string;
       moduleScope?: string;
-      stepConfig: StepConfig[];
+      states: StateInput[];
+      transitions: TransitionInput[];
+      autoApproveRules?: string;
+      slaConfig?: string;
     };
 
-    if (!name || !stepConfig || !Array.isArray(stepConfig) || stepConfig.length === 0) {
-      return NextResponse.json({ error: 'name and stepConfig (non-empty array) are required' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    // Validate step config entries
-    for (const step of stepConfig) {
-      if (!step.name || !step.assigneeRole) {
-        return NextResponse.json(
-          { error: `Each step must have a name and assigneeRole. Invalid step: ${JSON.stringify(step)}` },
-          { status: 400 }
-        );
+    if (!statesInput || !Array.isArray(statesInput) || statesInput.length === 0) {
+      return NextResponse.json({ error: 'At least one state is required' }, { status: 400 });
+    }
+
+    // Validate at least one initial state
+    if (!statesInput.some(s => s.isInitial)) {
+      return NextResponse.json({ error: 'At least one state must be marked as initial' }, { status: 400 });
+    }
+
+    // Create template with states and transitions in a transaction
+    const template = await db.$transaction(async (tx) => {
+      const tpl = await tx.workflowTemplate.create({
+        data: {
+          name,
+          description: description || null,
+          moduleScope: moduleScope || null,
+          stepCount: statesInput.length,
+          stepConfig: JSON.stringify(statesInput),
+          autoApproveRules: autoApproveRules || null,
+          slaConfig: slaConfig || null,
+        },
+      });
+
+      // Create states
+      const stateRecords = [];
+      for (const s of statesInput) {
+        const state = await tx.workflowState.create({
+          data: {
+            templateId: tpl.id,
+            stateCode: s.stateCode,
+            stateName: s.stateName,
+            stateType: s.stateType || 'DRAFT',
+            color: s.color || '#6b7280',
+            isInitial: s.isInitial || false,
+            isFinal: s.isFinal || false,
+            sortOrder: s.sortOrder ?? 0,
+          },
+        });
+        stateRecords.push(state);
       }
-    }
 
-    const template = await db.workflowTemplate.create({
-      data: {
-        name,
-        description: description || null,
-        moduleScope: moduleScope || null,
-        stepCount: stepConfig.length,
-        stepConfig: JSON.stringify(stepConfig),
-      },
+      // Create transitions
+      if (transitionsInput && Array.isArray(transitionsInput)) {
+        for (const t of transitionsInput) {
+          const fromState = stateRecords.find(s => s.stateCode === t.fromStateCode);
+          const toState = stateRecords.find(s => s.stateCode === t.toStateCode);
+          if (!fromState || !toState) continue;
+
+          await tx.workflowTransition.create({
+            data: {
+              templateId: tpl.id,
+              fromStateId: fromState.id,
+              toStateId: toState.id,
+              transitionName: t.transitionName || `${t.fromStateCode} → ${t.toStateCode}`,
+              condition: t.condition || null,
+              requiredRole: t.requiredRole || null,
+              isAuto: t.isAuto || false,
+              notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+              sortOrder: t.sortOrder ?? 0,
+            },
+          });
+        }
+      }
+
+      // Return with relations
+      return tx.workflowTemplate.findUnique({
+        where: { id: tpl.id },
+        include: {
+          states: { orderBy: { sortOrder: 'asc' } },
+          transitions: {
+            orderBy: { sortOrder: 'asc' },
+            include: { fromState: true, toState: true },
+          },
+        },
+      });
     });
 
     return NextResponse.json({ template }, { status: 201 });
@@ -104,6 +214,7 @@ export async function POST(request: NextRequest) {
 // ---------------------------------------------------------------------------
 // PUT /api/workflow-templates — Update template
 // ---------------------------------------------------------------------------
+
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -116,12 +227,25 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, name, description, moduleScope, stepConfig, isActive } = body as {
+    const {
+      id,
+      name,
+      description,
+      moduleScope,
+      states: statesInput,
+      transitions: transitionsInput,
+      autoApproveRules,
+      slaConfig,
+      isActive,
+    } = body as {
       id: string;
       name?: string;
       description?: string;
       moduleScope?: string;
-      stepConfig?: StepConfig[];
+      states?: StateInput[];
+      transitions?: TransitionInput[];
+      autoApproveRules?: string;
+      slaConfig?: string;
       isActive?: boolean;
     };
 
@@ -134,30 +258,102 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
-    const updateData: Record<string, unknown> = {};
-    if (name !== undefined) updateData.name = name;
-    if (description !== undefined) updateData.description = description;
-    if (moduleScope !== undefined) updateData.moduleScope = moduleScope;
-    if (isActive !== undefined) updateData.isActive = isActive;
-    if (stepConfig !== undefined) {
-      if (!Array.isArray(stepConfig) || stepConfig.length === 0) {
-        return NextResponse.json({ error: 'stepConfig must be a non-empty array' }, { status: 400 });
-      }
-      for (const step of stepConfig) {
-        if (!step.name || !step.assigneeRole) {
-          return NextResponse.json(
-            { error: `Each step must have a name and assigneeRole. Invalid step: ${JSON.stringify(step)}` },
-            { status: 400 }
-          );
-        }
-      }
-      updateData.stepConfig = JSON.stringify(stepConfig);
-      updateData.stepCount = stepConfig.length;
+    // Simple field updates (no states/transitions change)
+    if (!statesInput && !transitionsInput) {
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (moduleScope !== undefined) updateData.moduleScope = moduleScope;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (autoApproveRules !== undefined) updateData.autoApproveRules = autoApproveRules;
+      if (slaConfig !== undefined) updateData.slaConfig = slaConfig;
+
+      const template = await db.workflowTemplate.update({
+        where: { id },
+        data: updateData,
+        include: {
+          states: { orderBy: { sortOrder: 'asc' } },
+          transitions: {
+            orderBy: { sortOrder: 'asc' },
+            include: { fromState: true, toState: true },
+          },
+        },
+      });
+      return NextResponse.json({ template });
     }
 
-    const template = await db.workflowTemplate.update({
-      where: { id },
-      data: updateData,
+    // Full rebuild with states and transitions
+    const template = await db.$transaction(async (tx) => {
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (moduleScope !== undefined) updateData.moduleScope = moduleScope;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (autoApproveRules !== undefined) updateData.autoApproveRules = autoApproveRules;
+      if (slaConfig !== undefined) updateData.slaConfig = slaConfig;
+
+      // Delete old transitions and states, recreate
+      await tx.workflowTransition.deleteMany({ where: { templateId: id } });
+      await tx.workflowState.deleteMany({ where: { templateId: id } });
+
+      const finalStates = statesInput || [];
+      if (finalStates.length > 0) {
+        updateData.stepCount = finalStates.length;
+        updateData.stepConfig = JSON.stringify(finalStates);
+      }
+
+      await tx.workflowTemplate.update({ where: { id }, data: updateData });
+
+      // Recreate states
+      const stateRecords = [];
+      for (const s of finalStates) {
+        const state = await tx.workflowState.create({
+          data: {
+            templateId: id,
+            stateCode: s.stateCode,
+            stateName: s.stateName,
+            stateType: s.stateType || 'DRAFT',
+            color: s.color || '#6b7280',
+            isInitial: s.isInitial || false,
+            isFinal: s.isFinal || false,
+            sortOrder: s.sortOrder ?? 0,
+          },
+        });
+        stateRecords.push(state);
+      }
+
+      // Recreate transitions
+      const finalTransitions = transitionsInput || [];
+      for (const t of finalTransitions) {
+        const fromState = stateRecords.find(s => s.stateCode === t.fromStateCode);
+        const toState = stateRecords.find(s => s.stateCode === t.toStateCode);
+        if (!fromState || !toState) continue;
+
+        await tx.workflowTransition.create({
+          data: {
+            templateId: id,
+            fromStateId: fromState.id,
+            toStateId: toState.id,
+            transitionName: t.transitionName || `${t.fromStateCode} → ${t.toStateCode}`,
+            condition: t.condition || null,
+            requiredRole: t.requiredRole || null,
+            isAuto: t.isAuto || false,
+            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+            sortOrder: t.sortOrder ?? 0,
+          },
+        });
+      }
+
+      return tx.workflowTemplate.findUnique({
+        where: { id },
+        include: {
+          states: { orderBy: { sortOrder: 'asc' } },
+          transitions: {
+            orderBy: { sortOrder: 'asc' },
+            include: { fromState: true, toState: true },
+          },
+        },
+      });
     });
 
     return NextResponse.json({ template });
@@ -170,6 +366,7 @@ export async function PUT(request: NextRequest) {
 // ---------------------------------------------------------------------------
 // DELETE /api/workflow-templates — Delete template (soft delete)
 // ---------------------------------------------------------------------------
+
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);

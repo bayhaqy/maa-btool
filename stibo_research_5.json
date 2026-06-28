@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://learn.microsoft.com/en-us/intune/fundamentals/role-based-access-control/overview",
+    "name": "Role-based access control (RBAC) with Microsoft Intune",
+    "snippet": "Multi Admin Approval now supports role-based access control. When this setting is on, a second administrator must approve changes to roles. ...",
+    "host_name": "learn.microsoft.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.reltio.com/en/applications/rdm/rdm-at-a-glance/rdm-set-up/role-based-access-control-rbac-for-rdm/role-based-access-control-rbac---mdm-tenant-configuration",
+    "name": "Role-based access control (RBAC) - MDM tenant configuration | Reltio",
+    "snippet": "Set up your MDM tenant to view RDM lookups and canonical values per role-based access control (RBAC) permissions.\nLearn how to set up your MDM tenant to view RDM lookup values according to RDM RBAC permissions.\nSet up your MDM tenant to view RDM lookups and canonical values per role-based access control (RBAC) permissions. edit tenant configuration.",
+    "host_name": "docs.reltio.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://developer.spreedly.com/docs/rbac",
+    "name": "Role-Based Access Control (RBAC) - Spreedly",
+    "snippet": "RBAC allows merchants and merchant aggregators to align certain user roles to functions they need to perform in the Spreedly application.",
+    "host_name": "developer.spreedly.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.cerbos.dev/blog/how-to-implement-scalable-multitenant-authorization",
+    "name": "How to Implement Scalable Multitenant Authorization - Cerbos",
+    "snippet": "In this post, we'll explore those challenges and how dynamic, tenant-aware authorization models can overcome the limitations of static RBAC.",
+    "host_name": "www.cerbos.dev",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://stytch.com/blog/what-is-rbac",
+    "name": "What is role-based access control (RBAC)? - Stytch",
+    "snippet": "RBAC is a flexible way to enforce access control and security according to designated roles. With RBAC, you can categorize users as administrators or ...",
+    "host_name": "stytch.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://support.superops.com/it/en/articles/12646648-how-to-configure-mdm-permissions-with-role-based-access-control-rbac",
+    "name": "How to configure MDM Permissions with Role-Based Access",
+    "snippet": "How to Configure MDM Permissions · Navigate to Settings > Technician Roles. You can also create a customised role by clicking on \"Create\" · On the ...\nNavigate to Settings > Technician Roles. You can also create a customised role by clicking on \"Create\" · On the 'Edit technician role' screen, ...",
+    "host_name": "support.superops.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/platform",
+    "name": "STEP | Trusted Intelligence Platform - Stibo Systems",
+    "snippet": "STEP enforces role-based access control and captures an auditable history of changes. validation, approval and enrichment steps, a multi-tenant, cloud-native ...\nSTEP enforces role-based access control and captures an auditable history of changes. No record reaches the master store without passing defined validation ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://pathlock.com/blog/role-based-access-control-rbac",
+    "name": "Role-Based Access Control (RBAC): A Comprehensive Guide",
+    "snippet": "Permissions to Roles: Similar to users, a role can contain multiple permissions, and a single permission can be assigned to multiple roles.\nRBAC provides a centralized management framework for managing access across multiple systems and applications. Administrators define roles ...",
+    "host_name": "pathlock.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.jupiterone.io/features/admin/access-controls",
+    "name": "Role-Based Access Control (RBAC) - JupiterOne Documentation",
+    "snippet": "JupiterOne provides a comprehensive role-based access control (RBAC) system that allows administrators to manage user access across the platform.",
+    "host_name": "docs.jupiterone.io",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://help.ivanti.com/mi/help/en_us/cld/admin/ivanti/123/all/en-us/Roles_Management.htm",
+    "name": "Roles Management - Ivanti",
+    "snippet": "Roles are packaged groups of permissions that allows granting a set of permissions to an administrative user, while limiting their access to control specific ...",
+    "host_name": "help.ivanti.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

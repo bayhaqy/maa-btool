@@ -359,7 +359,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH /api/ai/chat — Update conversation (bookmark/unbookmark/pin/unpin/rename)
+// PATCH /api/ai/chat — Update conversation (bookmark/unbookmark/pin/unpin/rename/categorize)
+// Also supports: editMessage, feedback on individual messages
 export async function PATCH(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -382,8 +383,51 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { conversationId, action, title } = body;
+    const { conversationId, action, title, category, messageId, content, feedback } = body;
 
+    // ── Message-level actions (editMessage, feedback) ───────────────
+    if (action === 'editMessage') {
+      if (!messageId || !content || typeof content !== 'string') {
+        return NextResponse.json({ error: 'messageId and content are required for editMessage' }, { status: 400 });
+      }
+      const message = await db.aiMessage.findUnique({ where: { id: messageId } });
+      if (!message) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      }
+      // Verify ownership via conversation
+      const conv = await db.aiConversation.findUnique({ where: { id: message.conversationId } });
+      const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+      if (!isSuperAdmin && conv?.userId !== tokenPayload.userId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+      const updated = await db.aiMessage.update({
+        where: { id: messageId },
+        data: { editedContent: content.trim(), isEdited: true },
+      });
+      return NextResponse.json({ message: updated });
+    }
+
+    if (action === 'feedback') {
+      if (!messageId || !feedback || !['positive', 'negative'].includes(feedback)) {
+        return NextResponse.json({ error: 'messageId and feedback (positive|negative) are required' }, { status: 400 });
+      }
+      const message = await db.aiMessage.findUnique({ where: { id: messageId } });
+      if (!message) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      }
+      const conv = await db.aiConversation.findUnique({ where: { id: message.conversationId } });
+      const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+      if (!isSuperAdmin && conv?.userId !== tokenPayload.userId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+      const updated = await db.aiMessage.update({
+        where: { id: messageId },
+        data: { feedback },
+      });
+      return NextResponse.json({ message: updated });
+    }
+
+    // ── Conversation-level actions ──────────────────────────────────
     if (!conversationId || !action) {
       return NextResponse.json({ error: 'conversationId and action are required' }, { status: 400 });
     }
@@ -418,6 +462,12 @@ export async function PATCH(request: NextRequest) {
         }
         data = { title: title.trim().slice(0, 200) };
         break;
+      case 'categorize':
+        if (!category || !['DATA_QUALITY', 'ENRICHMENT', 'MAPPING', 'GENERAL'].includes(category)) {
+          return NextResponse.json({ error: 'category must be DATA_QUALITY, ENRICHMENT, MAPPING, or GENERAL' }, { status: 400 });
+        }
+        data = { category };
+        break;
       default:
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
@@ -431,6 +481,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 // DELETE /api/ai/chat?conversationId=xxx — Delete conversation + all messages (cascade)
+// DELETE /api/ai/chat?messageId=xxx — Delete individual message
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -454,8 +505,26 @@ export async function DELETE(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
+    const messageId = searchParams.get('messageId');
+
+    // ── Delete individual message ──────────────────────────────────
+    if (messageId) {
+      const message = await db.aiMessage.findUnique({ where: { id: messageId } });
+      if (!message) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      }
+      const conv = await db.aiConversation.findUnique({ where: { id: message.conversationId } });
+      const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+      if (!isSuperAdmin && conv?.userId !== tokenPayload.userId) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+      await db.aiMessage.delete({ where: { id: messageId } });
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Delete entire conversation ─────────────────────────────────
     if (!conversationId) {
-      return NextResponse.json({ error: 'conversationId is required' }, { status: 400 });
+      return NextResponse.json({ error: 'conversationId or messageId is required' }, { status: 400 });
     }
 
     const conversation = await db.aiConversation.findUnique({ where: { id: conversationId } });
