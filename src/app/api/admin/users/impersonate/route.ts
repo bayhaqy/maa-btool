@@ -5,6 +5,8 @@ import {
   generateAccessToken,
   type TokenPayload,
 } from '@/lib/auth';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 /**
  * POST /api/admin/users/impersonate
@@ -36,6 +38,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: 'Cannot impersonate while already impersonating. Restore your session first.' },
       { status: 422 },
+    );
+  }
+
+  // ── Rate limit: admin endpoints ────────────────────────────────────
+  const rl = rateLimitByCategory('admin', adminPayload.userId);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
     );
   }
 
@@ -90,24 +101,19 @@ export async function POST(request: NextRequest) {
   const token = generateAccessToken(payload);
 
   // ── Audit log entry ───────────────────────────────────────────────────
-  try {
-    await db.auditLog.create({
-      data: {
-        userId: adminPayload.userId,
-        action: 'IMPERSONATE',
-        entityType: 'SysUser',
-        entityId: target.id,
-        description: `Super Admin "${adminPayload.username}" impersonated user "${target.username}" (${roleNames.join(', ') || 'no roles'})`,
-        newValues: JSON.stringify({
-          targetUserId: target.id,
-          targetUsername: target.username,
-          targetRoles: roleNames,
-        }),
-      },
-    });
-  } catch {
-    // Audit log failure must not block impersonation.
-  }
+  await logAudit({
+    action: AuditAction.USER_IMPERSONATE,
+    entityType: 'SysUser',
+    entityId: target.id,
+    description: `Super Admin "${adminPayload.username}" impersonated user "${target.username}" (${roleNames.join(', ') || 'no roles'})`,
+    newValues: {
+      targetUserId: target.id,
+      targetUsername: target.username,
+      targetRoles: roleNames,
+    },
+    severity: 'critical',
+    req: request,
+  });
 
   return NextResponse.json({
     token,

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, hashPassword } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/admin/users - List all users with roles and company info
 export async function GET(request: NextRequest) {
@@ -14,6 +16,15 @@ export async function GET(request: NextRequest) {
     // Only Super Admin can manage users
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage users.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const users = await db.sysUser.findMany({
@@ -57,6 +68,15 @@ export async function POST(request: NextRequest) {
     // Only Super Admin can create users
     if (!tokenPayload.roles.includes('Super Admin')) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create users.' }, { status: 403 });
+    }
+
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -106,6 +126,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // ── Audit: user create ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.USER_CREATE,
+      entityType: 'SysUser',
+      entityId: user.id,
+      description: `User "${username}" (${email}) created`,
+      newValues: { username, email, companyId, roleIds: roleIds || [] },
+      req: request,
+    });
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -136,6 +166,15 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update users.' }, { status: 403 });
     }
 
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { id, email, displayName, isActive, roleIds } = body;
 
@@ -143,7 +182,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'User id is required' }, { status: 400 });
     }
 
-    const existing = await db.sysUser.findUnique({ where: { id } });
+    const existing = await db.sysUser.findUnique({
+      where: { id },
+      include: { userRoles: { include: { role: true } } },
+    });
     if (!existing) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -155,6 +197,13 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
       }
     }
+
+    const oldValues = {
+      email: existing.email,
+      displayName: existing.displayName,
+      isActive: existing.isActive,
+      roleIds: existing.userRoles.map(ur => ur.roleId),
+    };
 
     // Update user
     const user = await db.sysUser.update({
@@ -188,6 +237,17 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // ── Audit: user update ────────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.USER_UPDATE,
+      entityType: 'SysUser',
+      entityId: id,
+      description: `User "${existing.username}" updated`,
+      oldValues,
+      newValues: { email, displayName, isActive, roleIds },
+      req: request,
+    });
+
     return NextResponse.json({
       user: {
         id: updatedUser!.id,
@@ -218,6 +278,15 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete users.' }, { status: 403 });
     }
 
+    // ── Rate limit: admin endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     let body: Record<string, string> = {};
     try {
       body = await request.json();
@@ -243,6 +312,18 @@ export async function DELETE(request: NextRequest) {
     const user = await db.sysUser.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    // ── Audit: user deactivate ────────────────────────────────────────
+    await logAudit({
+      action: AuditAction.USER_UPDATE,
+      entityType: 'SysUser',
+      entityId: id,
+      description: `User "${existing.username}" deactivated`,
+      oldValues: { isActive: true },
+      newValues: { isActive: false },
+      severity: 'warning',
+      req: request,
     });
 
     return NextResponse.json({ user: { id: user.id, username: user.username, isActive: user.isActive } });

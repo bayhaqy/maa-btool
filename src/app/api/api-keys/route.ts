@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { createHash, randomBytes } from 'crypto';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/api-keys - List API keys with usage stats
 export async function GET(request: NextRequest) {
@@ -15,6 +17,15 @@ export async function GET(request: NextRequest) {
     const hasApiRole = tokenPayload.roles.some(r => ['Super Admin', 'API Manager'].includes(r));
     if (!hasApiRole && !isSuperAdmin) {
       return NextResponse.json({ error: 'Access denied. API Manager role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const where: Record<string, unknown> = {};
@@ -68,6 +79,15 @@ export async function POST(request: NextRequest) {
     const hasApiRole = tokenPayload.roles.some(r => ['Super Admin', 'API Manager'].includes(r));
     if (!hasApiRole) {
       return NextResponse.json({ error: 'Access denied. API Manager role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json();
@@ -129,6 +149,15 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied. API Manager role required.' }, { status: 403 });
     }
 
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { id, keyName, permissions, rateLimit, isActive, expiresAt } = body;
 
@@ -177,6 +206,15 @@ export async function DELETE(request: NextRequest) {
     const hasApiRole = tokenPayload.roles.some(r => ['Super Admin', 'API Manager'].includes(r));
     if (!hasApiRole) {
       return NextResponse.json({ error: 'Access denied. API Manager role required.' }, { status: 403 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);

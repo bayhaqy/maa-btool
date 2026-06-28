@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 /**
  * POST /api/admin/users/hard-delete
  *
  * Super Admin only. Permanently deletes a user and cascades cleanup of
- * related rows:
- *   - UserRole .............. deleted (Cascade)
- *   - AuditLog .............. userId nullified (SetNull)
- *   - ApprovalTicket:
- *       requestedById ....... reassigned to admin (RESTRICT)
- *       reviewedById ........ nullified (already nullable)
- *   - AsyncBatchJob ......... reassigned to admin (RESTRICT)
- *   - DataRecord.lockedBy ... nullified where locked (reassign via updateMany)
- *   - DataVersion ........... reassigned to admin (RESTRICT)
- *   - Documentation ......... authorId nullified (already nullable)
- *   - ApiKey ................ reassigned to admin (RESTRICT, nullable but keep)
- *   - AiConversation ........ reassigned to admin (RESTRICT)
- *   - AiMessage ............. userId nullified (already nullable)
+ * related rows.
  *
  * This is IRREVERSIBLE. The frontend shows a confirmation dialog requiring
  * the user to type the target username to confirm.
@@ -36,6 +26,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: 'Forbidden — Super Admin role required' },
       { status: 403 },
+    );
+  }
+
+  // ── Rate limit: admin endpoints ────────────────────────────────────
+  const rl = rateLimitByCategory('admin', adminPayload.userId);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
     );
   }
 
@@ -110,8 +109,7 @@ export async function POST(request: NextRequest) {
       }),
 
       // 8. ApiKey.userId — nullable FK, reassign to admin so the keys
-      //    remain owned (could also nullify, but admin ownership is safer
-      //    for audit purposes).
+      //    remain owned.
       db.apiKey.updateMany({
         where: { userId },
         data: { userId: adminPayload.userId },
@@ -140,16 +138,13 @@ export async function POST(request: NextRequest) {
     await db.sysUser.delete({ where: { id: userId } });
 
     // 13. Write an audit entry for the deletion itself.
-    await db.auditLog.create({
-      data: {
-        userId: adminPayload.userId,
-        action: 'USER_DELETE',
-        entityType: 'SysUser',
-        entityId: userId,
-        description: `Permanently deleted user "${target.username}" (${target.email})`,
-        // metadata is stored as JSON string in some deployments; we use
-        // the description for the human-readable trail.
-      },
+    await logAudit({
+      action: AuditAction.USER_DELETE,
+      entityType: 'SysUser',
+      entityId: userId,
+      description: `Permanently deleted user "${target.username}" (${target.email})`,
+      severity: 'critical',
+      req: request,
     });
   } catch (err) {
     console.error('Hard-delete user error:', err);

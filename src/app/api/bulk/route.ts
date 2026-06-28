@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_DRAFT } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin, checkAuthAndPermission } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // Validate a single row against META_FIELDS (reused from records)
 async function validatePayload(moduleId: string, payload: Record<string, unknown>) {
@@ -80,6 +82,15 @@ export async function GET(request: NextRequest) {
     const readCheck = checkAuthAndPermission(tokenPayload, 'bulk:read');
     if (readCheck.error) {
       return NextResponse.json({ error: readCheck.error }, { status: readCheck.status });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -169,6 +180,15 @@ export async function POST(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);

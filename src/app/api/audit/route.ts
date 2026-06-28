@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
 import { sanitizeInput, validateSafeString } from '@/lib/audit';
 
 export const runtime = 'nodejs';
@@ -14,6 +15,15 @@ export async function GET(request: NextRequest) {
     const authCheck = checkAuthAndPermission(tokenPayload, 'audit:read');
     if (authCheck.error) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    }
+
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload!.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);

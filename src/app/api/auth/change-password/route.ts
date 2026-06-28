@@ -5,7 +5,10 @@ import {
   hashPassword,
   verifyPassword,
 } from '@/lib/auth';
-import { logAudit } from '@/lib/audit';
+import { logAudit, AuditAction } from '@/lib/audit';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { validateInput, sanitizeString } from '@/lib/api-security';
+import { requiresReAuth } from '@/lib/session';
 
 /**
  * POST /api/auth/change-password
@@ -20,11 +23,6 @@ import { logAudit } from '@/lib/audit';
  *   - newPassword is at least 6 characters and differs from currentPassword
  *
  * On success, updates `SysUser.passwordHash` and writes an audit log entry.
- *
- * Note: we deliberately do NOT invalidate other sessions — the existing JWT
- * remains valid until its natural expiry. If session invalidation is needed,
- * add a `tokenVersion` column and bump it here, then check it in
- * `verifyToken`.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -32,6 +30,24 @@ export async function POST(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── Rate limit: write endpoints per user ───────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
+    // ── Re-auth check for sensitive operation ──────────────────────────
+    const reAuth = requiresReAuth(tokenPayload, 'password_change');
+    if (reAuth.required) {
+      return NextResponse.json(
+        { error: reAuth.reason || 'Re-authentication required for password change' },
+        { status: 401 }
+      );
     }
 
     // ── Parse + validate body ────────────────────────────────────────────
@@ -43,6 +59,11 @@ export async function POST(request: NextRequest) {
         { error: 'Invalid JSON body' },
         { status: 400 }
       );
+    }
+
+    const validation = validateInput(body, { currentPassword: 'string', newPassword: 'string' });
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.errors.join(', ') }, { status: 400 });
     }
 
     const { currentPassword, newPassword } = body;
@@ -71,14 +92,22 @@ export async function POST(request: NextRequest) {
       where: { id: tokenPayload.userId },
     });
     if (!user) {
-      // The token pointed at a user that no longer exists.
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
     // ── Verify current password ──────────────────────────────────────────
     const ok = await verifyPassword(currentPassword, user.passwordHash);
     if (!ok) {
-      // Use the same generic message as login to avoid leaking info.
+      // ── Audit: failed password change ──────────────────────────────────
+      await logAudit({
+        action: AuditAction.AUTH_PASSWORD_CHANGE,
+        entityType: 'SysUser',
+        entityId: user.id,
+        description: `Failed password change attempt for user "${user.username}"`,
+        severity: 'warning',
+        req: request,
+      });
+
       return NextResponse.json(
         { error: 'Current password is incorrect' },
         { status: 401 }
@@ -86,6 +115,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Hash + persist ───────────────────────────────────────────────────
+    const oldHashPreview = user.passwordHash.substring(0, 10) + '...';
     const newHash = await hashPassword(newPassword);
     await db.sysUser.update({
       where: { id: user.id },
@@ -94,12 +124,14 @@ export async function POST(request: NextRequest) {
 
     // ── Audit log ────────────────────────────────────────────────────────
     await logAudit({
-      userId: user.id,
-      action: 'PASSWORD_CHANGE',
+      action: AuditAction.AUTH_PASSWORD_CHANGE,
       entityType: 'SysUser',
       entityId: user.id,
       description: `User "${user.username}" changed their own password.`,
-      companyId: tokenPayload.companyId,
+      oldValues: { passwordHash: oldHashPreview },
+      newValues: { passwordHash: newHash.substring(0, 10) + '...' },
+      severity: 'warning',
+      req: request,
     });
 
     return NextResponse.json({ message: 'Password changed successfully' });

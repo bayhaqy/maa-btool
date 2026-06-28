@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STATUS_ACTIVE, STATUS_ARCHIVED, STATUS_REVISION_PENDING, STATUS_REJECTED } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
+import { rateLimitByCategory } from '@/lib/rate-limit';
+import { logAudit, AuditAction } from '@/lib/audit';
 
 // ============================================================
 // Validation rule type constants (STIBO-aligned per-field
@@ -345,6 +347,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
+    // ── Rate limit: read endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('read', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const id = searchParams.get('id');
@@ -443,6 +454,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions to create records' }, { status: 403 });
     }
 
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { moduleId, payload } = body;
 
@@ -513,6 +533,15 @@ export async function PUT(request: NextRequest) {
     const tokenPayload = getTokenFromHeaders(request.headers);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -923,6 +952,15 @@ export async function DELETE(request: NextRequest) {
     }
     if (!hasPermission(tokenPayload.roles, 'data:delete')) {
       return NextResponse.json({ error: 'Insufficient permissions to delete records' }, { status: 403 });
+    }
+
+    // ── Rate limit: write endpoints ────────────────────────────────────
+    const rl = rateLimitByCategory('write', tokenPayload.userId);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
     }
 
     let body: Record<string, string> = {};
