@@ -1325,9 +1325,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Seed error:', error);
-    const message = process.env.NODE_ENV === 'production'
-      ? 'Internal server error'
-      : (error instanceof Error ? error.message : 'Unknown error');
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: 'Seed failed', details: message },
       { status: 500 }
