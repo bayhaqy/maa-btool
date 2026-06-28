@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668888',
           email: 'info@map.co.id',
           address: 'Menara Mitra Adiperkasa, Jl. Jend. Sudirman Kav. 25-26, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
       db.tenantCompany.create({
@@ -70,6 +72,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668801',
           email: 'info@mapactive.co.id',
           address: 'Menara Mitra Adiperkasa Lt. 17, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
       db.tenantCompany.create({
@@ -83,6 +87,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668802',
           email: 'info@mapboga.co.id',
           address: 'Menara Mitra Adiperkasa Lt. 18, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
       db.tenantCompany.create({
@@ -96,6 +102,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668803',
           email: 'info@mapdigital.co.id',
           address: 'Menara Mitra Adiperkasa Lt. 19, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
       db.tenantCompany.create({
@@ -109,6 +117,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668804',
           email: 'info@mapproperti.co.id',
           address: 'Menara Mitra Adiperkasa Lt. 20, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
       db.tenantCompany.create({
@@ -122,6 +132,8 @@ export async function POST(request: NextRequest) {
           phone: '+622129668805',
           email: 'info@maplogistics.co.id',
           address: 'Menara Mitra Adiperkasa Lt. 21, Jakarta 12920',
+          onboardingStatus: 'ACTIVE',
+          provisionedAt: new Date(),
         },
       }),
     ]);
@@ -129,40 +141,41 @@ export async function POST(request: NextRequest) {
     const [companyMAPI, companyMAPA, companyMBA, companyMAPD, companyMAPP, companyMAPL] = companies;
 
     // ============================================================
-    // 2. CREATE ROLES
+    // 2. CREATE ROLES (Stibo role types with companyId scope)
     // ============================================================
     const roles = await Promise.all([
-      db.sysRole.create({ data: { roleName: 'Super Admin', description: 'Full access to all modules and administrative functions', roleType: 'SYSTEM' } }),
-      db.sysRole.create({ data: { roleName: 'Manager', description: 'Can read, write, and approve records across modules', roleType: 'DATA' } }),
-      db.sysRole.create({ data: { roleName: 'Data Entry', description: 'Can read and write records in assigned modules', roleType: 'DATA' } }),
-      db.sysRole.create({ data: { roleName: 'Viewer', description: 'Read-only access to assigned modules', roleType: 'DATA' } }),
-      db.sysRole.create({ data: { roleName: 'Doc Writer', description: 'Can manage documentation and knowledge base', roleType: 'DOC' } }),
-      db.sysRole.create({ data: { roleName: 'API Manager', description: 'Can manage API keys and integration configurations', roleType: 'API' } }),
-      db.sysRole.create({ data: { roleName: 'SFTP Manager', description: 'Can manage SFTP configurations and sync schedules', roleType: 'SFTP' } }),
-      db.sysRole.create({ data: { roleName: 'AI User', description: 'Can use AI assistant for data management tasks', roleType: 'AI' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Super Admin', description: 'Full access to all modules and administrative functions', roleType: 'SYSTEM_ADMIN', isGlobal: true, isSystem: true, scope: 'GLOBAL' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Administrator', description: 'Can read, create, edit, and approve records across modules', roleType: 'ADMINISTRATOR', scope: 'GLOBAL' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Editor', description: 'Can read, create, and edit records in assigned modules', roleType: 'EDITOR', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Viewer', description: 'Read-only access to assigned modules', roleType: 'VIEWER', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Data Steward', description: 'Can manage data quality, corrections, and knowledge base', roleType: 'DATA_STEWARD', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'API Manager', description: 'Can manage API keys and integration configurations', roleType: 'API', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'SFTP Manager', description: 'Can manage SFTP configurations and sync schedules', roleType: 'SFTP', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Approver', description: 'Can review and approve data management tasks', roleType: 'APPROVER', scope: 'MODULE' } }),
+      db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Company Admin', description: 'Company-level administrator for tenant management', roleType: 'COMPANY_ADMIN', scope: 'GLOBAL' } }),
     ]);
 
-    const [roleSuperAdmin, roleManager, roleDataEntry, roleViewer, roleDocWriter, roleApiManager, roleSftpManager, roleAiUser] = roles;
+    const [roleSuperAdmin, roleAdministrator, roleEditor, roleViewer, roleDataSteward, roleApiManager, roleSftpManager, roleApprover, roleCompanyAdmin] = roles;
 
     // ============================================================
     // 3. CREATE USERS
     // ============================================================
     const passwords = await Promise.all([
       hashPassword('Admin@123'),
-      hashPassword('Manager@123'),
-      hashPassword('DataEntry@123'),
-      hashPassword('Manager@123'),
-      hashPassword('DataEntry@123'),
-      hashPassword('DocWriter@123'),
+      hashPassword('Administrator@123'),
+      hashPassword('Editor@123'),
+      hashPassword('Administrator@123'),
+      hashPassword('Editor@123'),
+      hashPassword('DataSteward@123'),
       hashPassword('ApiManager@123'),
       hashPassword('SftpManager@123'),
-      hashPassword('AiUser@123'),
+      hashPassword('Approver@123'),
       hashPassword('Viewer@123'),
     ]);
 
     const [
-      pwSuperAdmin, pwManagerMAPI, pwDataEntryMAPI, pwManagerMAPA,
-      pwDataEntryMBA, pwDocWriter, pwApiManager, pwSftpManager, pwAiUser, pwViewer,
+      pwSuperAdmin, pwAdminMAPI, pwEditorMAPI, pwAdminMAPA,
+      pwEditorMBA, pwDataSteward, pwApiManager, pwSftpManager, pwApprover, pwViewer,
     ] = passwords;
 
     const users = await Promise.all([
@@ -170,75 +183,75 @@ export async function POST(request: NextRequest) {
         data: {
           username: 'superadmin', email: 'superadmin@map.co.id', passwordHash: pwSuperAdmin,
           displayName: 'Super Admin', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleSuperAdmin.id } },
+          userRoles: { create: { roleId: roleSuperAdmin.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'manager_mapi', email: 'manager.mapi@map.co.id', passwordHash: pwManagerMAPI,
-          displayName: 'MAPI Manager', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleManager.id } },
+          username: 'admin_mapi', email: 'admin.mapi@map.co.id', passwordHash: pwAdminMAPI,
+          displayName: 'MAPI Administrator', companyId: companyMAPI.id,
+          userRoles: { create: { roleId: roleAdministrator.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'dataentry_mapi', email: 'dataentry.mapi@map.co.id', passwordHash: pwDataEntryMAPI,
-          displayName: 'MAPI Data Entry', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleDataEntry.id } },
+          username: 'editor_mapi', email: 'editor.mapi@map.co.id', passwordHash: pwEditorMAPI,
+          displayName: 'MAPI Editor', companyId: companyMAPI.id,
+          userRoles: { create: { roleId: roleEditor.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'manager_mapa', email: 'manager.mapa@mapactive.co.id', passwordHash: pwManagerMAPA,
-          displayName: 'MAPA Manager', companyId: companyMAPA.id,
-          userRoles: { create: { roleId: roleManager.id } },
+          username: 'admin_mapa', email: 'admin.mapa@mapactive.co.id', passwordHash: pwAdminMAPA,
+          displayName: 'MAPA Administrator', companyId: companyMAPA.id,
+          userRoles: { create: { roleId: roleAdministrator.id, companyId: companyMAPA.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'dataentry_mba', email: 'dataentry.mba@mapboga.co.id', passwordHash: pwDataEntryMBA,
-          displayName: 'MBA Data Entry', companyId: companyMBA.id,
-          userRoles: { create: { roleId: roleDataEntry.id } },
+          username: 'editor_mba', email: 'editor.mba@mapboga.co.id', passwordHash: pwEditorMBA,
+          displayName: 'MBA Editor', companyId: companyMBA.id,
+          userRoles: { create: { roleId: roleEditor.id, companyId: companyMBA.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'docwriter', email: 'docwriter@map.co.id', passwordHash: pwDocWriter,
-          displayName: 'Documentation Writer', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleDocWriter.id } },
+          username: 'datasteward', email: 'datasteward@map.co.id', passwordHash: pwDataSteward,
+          displayName: 'Data Steward', companyId: companyMAPI.id,
+          userRoles: { create: { roleId: roleDataSteward.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
           username: 'api_manager', email: 'api.manager@map.co.id', passwordHash: pwApiManager,
           displayName: 'API Manager', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleApiManager.id } },
+          userRoles: { create: { roleId: roleApiManager.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
           username: 'sftp_manager', email: 'sftp.manager@maplogistics.co.id', passwordHash: pwSftpManager,
           displayName: 'SFTP Manager', companyId: companyMAPL.id,
-          userRoles: { create: { roleId: roleSftpManager.id } },
+          userRoles: { create: { roleId: roleSftpManager.id, companyId: companyMAPL.id } },
         },
       }),
       db.sysUser.create({
         data: {
-          username: 'ai_user', email: 'ai.user@map.co.id', passwordHash: pwAiUser,
-          displayName: 'AI User', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleAiUser.id } },
+          username: 'approver', email: 'approver@map.co.id', passwordHash: pwApprover,
+          displayName: 'Approver', companyId: companyMAPI.id,
+          userRoles: { create: { roleId: roleApprover.id, companyId: companyMAPI.id } },
         },
       }),
       db.sysUser.create({
         data: {
           username: 'viewer', email: 'viewer@map.co.id', passwordHash: pwViewer,
           displayName: 'Viewer', companyId: companyMAPI.id,
-          userRoles: { create: { roleId: roleViewer.id } },
+          userRoles: { create: { roleId: roleViewer.id, companyId: companyMAPI.id } },
         },
       }),
     ]);
 
-    const [userSuperAdmin, userManagerMAPI, userDataEntryMAPI, userManagerMAPA, userDataEntryMBA, userDocWriter, userApiManager, userSftpManager, userAiUser, userViewer] = users;
+    const [userSuperAdmin, userAdminMAPI, userEditorMAPI, userAdminMAPA, userEditorMBA, userDataSteward, userApiManager, userSftpManager, userApprover, userViewer] = users;
 
     // ============================================================
     // 4. CREATE MODULES (7 existing)
@@ -662,70 +675,87 @@ export async function POST(request: NextRequest) {
     ]);
 
     // ============================================================
-    // 8. CREATE ROLE PERMISSIONS
+    // 8. CREATE ROLE PERMISSIONS (Stibo granular permissions with companyId)
     // ============================================================
 
-    // Super Admin - All permissions for all modules
+    // Super Admin - All permissions for all modules (global)
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleSuperAdmin.id, moduleId: m.id,
-        canRead: true, canWrite: true, canDelete: true, canApprove: true,
+        roleId: roleSuperAdmin.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: true, canEdit: true, canDelete: true, canApprove: true,
+        canExport: true, canImport: true, canBulkUpdate: true,
       })),
     });
 
-    // Manager - Can read, write, approve (no delete)
+    // Administrator - Can read, create, edit, approve (no delete)
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleManager.id, moduleId: m.id,
-        canRead: true, canWrite: true, canDelete: false, canApprove: true,
+        roleId: roleAdministrator.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: true, canEdit: true, canDelete: false, canApprove: true,
+        canExport: true, canImport: true, canBulkUpdate: false,
       })),
     });
 
-    // Data Entry - Can read, write (no delete, no approve)
+    // Editor - Can read, create, edit (no delete, no approve)
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleDataEntry.id, moduleId: m.id,
-        canRead: true, canWrite: true, canDelete: false, canApprove: false,
+        roleId: roleEditor.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: true, canEdit: true, canDelete: false, canApprove: false,
+        canExport: false, canImport: false, canBulkUpdate: false,
       })),
     });
 
-    // Viewer - Can only read
+    // Viewer - Can only read (Stibo VIEWER — strictly read-only)
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleViewer.id, moduleId: m.id,
-        canRead: true, canWrite: false, canDelete: false, canApprove: false,
+        roleId: roleViewer.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: false, canEdit: false, canDelete: false, canApprove: false,
+        canExport: false, canImport: false, canBulkUpdate: false,
       })),
     });
 
-    // Doc Writer - Read access to all modules for reference
+    // Data Steward - Read + edit for data quality/corrections
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleDocWriter.id, moduleId: m.id,
-        canRead: true, canWrite: false, canDelete: false, canApprove: false,
+        roleId: roleDataSteward.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: false, canEdit: true, canDelete: false, canApprove: false,
+        canExport: true, canImport: false, canBulkUpdate: true,
       })),
     });
 
     // API Manager - Read access to all modules
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleApiManager.id, moduleId: m.id,
-        canRead: true, canWrite: false, canDelete: false, canApprove: false,
+        roleId: roleApiManager.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: false, canEdit: false, canDelete: false, canApprove: false,
+        canExport: true, canImport: true, canBulkUpdate: false,
       })),
     });
 
     // SFTP Manager - Read access to all modules
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleSftpManager.id, moduleId: m.id,
-        canRead: true, canWrite: false, canDelete: false, canApprove: false,
+        roleId: roleSftpManager.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: false, canEdit: false, canDelete: false, canApprove: false,
+        canExport: true, canImport: true, canBulkUpdate: false,
       })),
     });
 
-    // AI User - Read access to all modules
+    // Approver - Read + approve across modules
     await db.rolePermission.createMany({
       data: modules.map((m) => ({
-        roleId: roleAiUser.id, moduleId: m.id,
-        canRead: true, canWrite: false, canDelete: false, canApprove: false,
+        roleId: roleApprover.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: false, canEdit: false, canDelete: false, canApprove: true,
+        canExport: false, canImport: false, canBulkUpdate: false,
+      })),
+    });
+
+    // Company Admin - Read, create, edit, approve for company scope (no delete)
+    await db.rolePermission.createMany({
+      data: modules.map((m) => ({
+        roleId: roleCompanyAdmin.id, moduleId: m.id, companyId: companyMAPI.id,
+        canRead: true, canCreate: true, canEdit: true, canDelete: false, canApprove: true,
+        canExport: true, canImport: true, canBulkUpdate: true,
       })),
     });
 
@@ -836,63 +866,63 @@ export async function POST(request: NextRequest) {
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-002', article_name: 'Aerostreet Sneakers Classic', category: 'SEPATU', sub_category: 'SEPATU_SNEAKERS', brand: 'Aerostreet', uom: 'PCS', purchase_price: 180000, selling_price: 325000, tags: 'BEST_SELLER', description: 'Sneakers lokal aerostreet model klasik, nyaman untuk harian', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userDataEntryMAPI.id,
+          createdById: userEditorMAPI.id, updatedById: userEditorMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-003', article_name: 'Adidas Adiform Command School', category: 'SEPATU', sub_category: 'SEPATU_SEKOLAH', brand: 'Adidas', uom: 'PCS', purchase_price: 450000, selling_price: 799000, tags: 'FEATURED', description: 'Sepatu sekolah Adidas hitam putih, material kulit sintetis premium', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+          createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-004', article_name: 'Eiger Ransel Adventure 30L', category: 'TAS', sub_category: 'TAS_RANSEL', brand: 'Eiger', uom: 'PCS', purchase_price: 350000, selling_price: 599000, tags: 'BEST_SELLER,PREMIUM', description: 'Tas ransel Eiger 30L waterproof untuk outdoor & travel', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+          createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-005', article_name: 'Consina Briefcase Kerja', category: 'TAS', sub_category: 'TAS_KERJA', brand: 'Consina', uom: 'PCS', purchase_price: 425000, selling_price: 750000, tags: 'PREMIUM', description: 'Tas kerja briefcase Consina kulit PU, muat laptop 15 inch', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userManagerMAPI.id,
+          createdById: userEditorMAPI.id, updatedById: userAdminMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-006', article_name: 'Uniqlo Dry EZ Pria Kaos', category: 'PAKAIAN', sub_category: 'PAKAIAN_PRIA', brand: 'Uniqlo', uom: 'PCS', purchase_price: 79000, selling_price: 149000, tags: 'NEW_ARRIVAL', description: 'Kaos Uniqlo Dry EZ pria, material kering cepat & anti kusut', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+          createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-007', article_name: 'Casio G-Shock GA-2100', category: 'AKSESORIS', sub_category: 'AKS_JAM_TANGAN', brand: 'Casio', uom: 'PCS', purchase_price: 1450000, selling_price: 2199000, tags: 'EXCLUSIVE,PREMIUM', description: 'Jam tangan Casio G-Shock GA-2100 "Casioak" resin carbon core', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+          createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'DRAFT',
           currentPayload: JSON.stringify({ article_code: 'ART-008', article_name: 'Komachi Sandal Jepang Slide', category: 'SEPATU', sub_category: 'SEPATU_SANDAL', brand: 'Komachi', uom: 'PCS', purchase_price: 35000, selling_price: 79000, tags: 'SALE', description: 'Sandal jepang slide Komachi empuk, anti slip', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userDataEntryMAPI.id,
+          createdById: userEditorMAPI.id, updatedById: userEditorMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'IN_REVIEW',
           currentPayload: JSON.stringify({ article_code: 'ART-009', article_name: 'Timbuk2 Messenger Tas Tangan', category: 'TAS', sub_category: 'TAS_TANGAN', brand: 'Timbuk2', uom: 'PCS', purchase_price: 650000, selling_price: 1199000, tags: 'LIMITED,FEATURED', description: 'Tas tangan messenger Timbuk2 edisi terbatas, waterproof liner', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userManagerMAPI.id,
+          createdById: userEditorMAPI.id, updatedById: userAdminMAPI.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleArticle.id, companyId: companyMAPI.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ article_code: 'ART-010', article_name: 'Dr. Martens 1460 Boot', category: 'SEPATU', sub_category: 'SEPATU_BOOT', brand: 'Dr. Martens', uom: 'PCS', purchase_price: 1850000, selling_price: 2899000, tags: 'PREMIUM,EXCLUSIVE', description: 'Dr. Martens 1460 boot 8-eye klasik, kulit premium Made In England', is_active: true }),
-          createdById: userDataEntryMAPI.id, updatedById: userSuperAdmin.id,
+          createdById: userEditorMAPI.id, updatedById: userSuperAdmin.id,
         },
       }),
     ]);
@@ -924,14 +954,14 @@ export async function POST(request: NextRequest) {
         data: {
           moduleId: moduleStore.id, companyId: companyMBA.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ store_code: 'STR-004', store_name: 'Starbucks Pacific Place', region: 'JABODETABEK', city: 'Jakarta', address: 'Pacific Place Mall Lt.G, Jl. SCBD', phone: '+62212555432', store_type: 'SPECIALTY', is_active: true }),
-          createdById: userDataEntryMBA.id, updatedById: userDataEntryMBA.id,
+          createdById: userEditorMBA.id, updatedById: userEditorMBA.id,
         },
       }),
       db.dataRecord.create({
         data: {
           moduleId: moduleStore.id, companyId: companyMAPA.id, status: 'ACTIVE',
           currentPayload: JSON.stringify({ store_code: 'STR-005', store_name: 'Sports Arena Senayan', region: 'JABODETABEK', city: 'Jakarta', address: 'Senayan City Mall Lt.3, Jl. Asia Afrika', phone: '+62215789012', store_type: 'SPECIALTY', is_active: true }),
-          createdById: userManagerMAPA.id, updatedById: userManagerMAPA.id,
+          createdById: userAdminMAPA.id, updatedById: userAdminMAPA.id,
         },
       }),
     ]);
@@ -964,7 +994,7 @@ export async function POST(request: NextRequest) {
           recordId: rec.id,
           payloadSnapshot: JSON.stringify(updatedPayload),
           versionNumber: 2,
-          changedById: userManagerMAPI.id,
+          changedById: userAdminMAPI.id,
           changeReason: 'Price adjustment — 5% increase applied',
           status: rec.status,
         },
@@ -1016,7 +1046,7 @@ export async function POST(request: NextRequest) {
     await db.approvalTicket.create({
       data: {
         recordId: articleRecords[4].id,
-        requestedById: userDataEntryMAPI.id,
+        requestedById: userEditorMAPI.id,
         status: 'PENDING',
         deltaPayload: articleRecords[4].currentPayload,
       },
@@ -1032,8 +1062,8 @@ export async function POST(request: NextRequest) {
       await db.approvalTicket.create({
         data: {
           recordId: articleRecords[recIdx].id,
-          requestedById: userDataEntryMAPI.id,
-          reviewedById: userManagerMAPI.id,
+          requestedById: userEditorMAPI.id,
+          reviewedById: userAdminMAPI.id,
           status: 'APPROVED',
           deltaPayload: articleRecords[recIdx].currentPayload,
           reviewNotes: 'Looks good. Approved.',
@@ -1058,7 +1088,7 @@ export async function POST(request: NextRequest) {
       await db.approvalTicket.create({
         data: {
           recordId: articleRecords[recIdx].id,
-          requestedById: userDataEntryMAPI.id,
+          requestedById: userEditorMAPI.id,
           reviewedById: userSuperAdmin.id,
           status: 'REJECTED',
           deltaPayload: articleRecords[recIdx].currentPayload,
@@ -1079,8 +1109,8 @@ export async function POST(request: NextRequest) {
       await db.approvalTicket.create({
         data: {
           recordId: articleRecords[recIdx].id,
-          requestedById: userDataEntryMAPI.id,
-          reviewedById: userManagerMAPI.id,
+          requestedById: userEditorMAPI.id,
+          reviewedById: userAdminMAPI.id,
           status: 'APPROVED',
           deltaPayload: articleRecords[recIdx].currentPayload,
           reviewNotes: 'Verified and approved.',
@@ -1098,10 +1128,10 @@ export async function POST(request: NextRequest) {
         data: {
           title: 'Getting Started with MAA BTOOL',
           slug: 'getting-started',
-          content: `# Getting Started with MAA BTOOL\n\nWelcome to MAA BTOOL Enterprise Master Data Management system. This guide will help you get started with the platform.\n\n## Prerequisites\n- Valid user account with assigned role\n- Access to the MAPI network\n\n## First Steps\n1. **Login** - Use your credentials to access the system\n2. **Explore Modules** - Navigate to the Modules page to see available data modules\n3. **Browse Records** - Select a module to view existing master data records\n4. **Create Records** - Use the Create button to add new master data entries\n\n## User Roles\n- **Super Admin**: Full access to all features\n- **Manager**: Read, write, and approve records\n- **Data Entry**: Create and edit records\n- **Viewer**: Read-only access\n- **Doc Writer**: Manage documentation\n- **API Manager**: Manage API keys\n- **SFTP Manager**: Manage SFTP configurations\n- **AI User**: Use AI assistant\n\n## Need Help?\nContact your system administrator or check the FAQ section.`,
+          content: `# Getting Started with MAA BTOOL\n\nWelcome to MAA BTOOL Enterprise Master Data Management system. This guide will help you get started with the platform.\n\n## Prerequisites\n- Valid user account with assigned role\n- Access to the MAPI network\n\n## First Steps\n1. **Login** - Use your credentials to access the system\n2. **Explore Modules** - Navigate to the Modules page to see available data modules\n3. **Browse Records** - Select a module to view existing master data records\n4. **Create Records** - Use the Create button to add new master data entries\n\n## User Roles\n- **Super Admin**: Full access to all features\n- **Administrator**: Read, create, edit, and approve records\n- **Editor**: Create and edit records\n- **Viewer**: Read-only access\n- **Data Steward**: Manage data quality and documentation\n- **API Manager**: Manage API keys\n- **SFTP Manager**: Manage SFTP configurations\n- **Approver**: Review and approve records\n\n## Need Help?\nContact your system administrator or check the FAQ section.`,
           category: 'GETTING_STARTED',
           tags: 'getting-started,onboarding,welcome',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 142,
           sortOrder: 1,
@@ -1111,10 +1141,10 @@ export async function POST(request: NextRequest) {
         data: {
           title: 'How to Create Master Data',
           slug: 'how-to-create-master-data',
-          content: `# How to Create Master Data\n\nThis guide walks you through creating new master data records in MAA BTOOL.\n\n## Step 1: Select a Module\nNavigate to **Data Records** and select the module you want to create data for (e.g., Article Master, Store Master).\n\n## Step 2: Click Create\nClick the **Create** button to open the record form.\n\n## Step 3: Fill in Required Fields\nFields marked with a red asterisk (*) are required. Fill in all mandatory information:\n- **Article Code**: Unique identifier (e.g., ART-001)\n- **Article Name**: Descriptive name\n- **Category**: Select from dropdown\n- **UOM**: Unit of Measure\n\n## Step 4: Submit\nClick **Save as Draft** or **Submit for Review** depending on your workflow.\n\n## Validation Rules\n- Article codes must follow the pattern: uppercase letters, numbers, and hyphens\n- Prices cannot be negative\n- Required fields must be filled before submission\n\n## Approval Workflow\nIf the module requires approval, your record will start in DRAFT status and need to be reviewed by a Manager or Super Admin.`,
+          content: `# How to Create Master Data\n\nThis guide walks you through creating new master data records in MAA BTOOL.\n\n## Step 1: Select a Module\nNavigate to **Data Records** and select the module you want to create data for (e.g., Article Master, Store Master).\n\n## Step 2: Click Create\nClick the **Create** button to open the record form.\n\n## Step 3: Fill in Required Fields\nFields marked with a red asterisk (*) are required. Fill in all mandatory information:\n- **Article Code**: Unique identifier (e.g., ART-001)\n- **Article Name**: Descriptive name\n- **Category**: Select from dropdown\n- **UOM**: Unit of Measure\n\n## Step 4: Submit\nClick **Save as Draft** or **Submit for Review** depending on your workflow.\n\n## Validation Rules\n- Article codes must follow the pattern: uppercase letters, numbers, and hyphens\n- Prices cannot be negative\n- Required fields must be filled before submission\n\n## Approval Workflow\nIf the module requires approval, your record will start in DRAFT status and need to be reviewed by an Administrator or Super Admin.`,
           category: 'HOW_TO',
           tags: 'create,data,records,tutorial',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 89,
           sortOrder: 2,
@@ -1127,7 +1157,7 @@ export async function POST(request: NextRequest) {
           content: `# API Integration Guide\n\nMAA BTOOL provides a RESTful API for integrating with external systems.\n\n## Authentication\nAll API requests require a Bearer token in the Authorization header:\n\n\`\`\`\nAuthorization: Bearer <your-jwt-token>\n\`\`\`\n\n## API Key Management\n1. Navigate to **API Keys** section\n2. Create a new API key with appropriate permissions\n3. Use the key in your integration code\n\n## Available Endpoints\n\n### Modules\n- \`GET /api/modules\` - List all modules\n- \`GET /api/fields?moduleId=xxx\` - Get module fields\n\n### Records\n- \`GET /api/records?moduleId=xxx\` - List records\n- \`POST /api/records\` - Create record\n- \`PUT /api/records?action=update\` - Update record\n- \`PUT /api/records?action=transition\` - Change record status\n\n### Bulk Operations\n- \`POST /api/bulk?action=import\` - Import data\n- \`GET /api/bulk?action=export\` - Export data\n\n## Rate Limiting\n- Production keys: 1000 requests/minute\n- Testing keys: 100 requests/minute\n\n## Error Codes\n- \`401\` - Unauthorized (invalid or missing token)\n- \`403\` - Forbidden (insufficient permissions)\n- \`422\` - Validation error\n- \`500\` - Server error`,
           category: 'API_DOCS',
           tags: 'api,integration,rest,authentication',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 67,
           sortOrder: 3,
@@ -1140,7 +1170,7 @@ export async function POST(request: NextRequest) {
           content: `# SFTP Setup Tutorial\n\nLearn how to configure SFTP connections for automated data synchronization.\n\n## Prerequisites\n- SFTP server credentials (host, port, username, password/key)\n- Appropriate network access\n- SFTP Manager role assigned\n\n## Setting Up an SFTP Connection\n\n1. Navigate to **SFTP Configuration** section\n2. Click **Add New Configuration**\n3. Fill in the connection details:\n   - **Config Name**: A descriptive name (e.g., "MAPI ERP Sync")\n   - **Host**: SFTP server hostname\n   - **Port**: Usually 22\n   - **Username**: SFTP account username\n   - **Auth Type**: Password or SSH Key\n   - **Remote Path**: Directory path on the server\n   - **Sync Direction**: INBOUND, OUTBOUND, or BIDIRECTIONAL\n   - **File Pattern**: Glob pattern for file matching (e.g., *.csv)\n\n4. Select the **Module** to associate the sync with\n5. Set the **Schedule** (cron expression) for automatic sync\n6. Click **Save**\n\n## Testing the Connection\nAfter saving, use the **Test Connection** button to verify connectivity.\n\n## Monitoring Syncs\nCheck the sync logs for status, files synced, and any errors.`,
           category: 'HOW_TO',
           tags: 'sftp,setup,tutorial,integration',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 34,
           sortOrder: 4,
@@ -1153,7 +1183,7 @@ export async function POST(request: NextRequest) {
           content: `# Best Practices for Data Quality\n\nMaintaining high-quality master data is critical for business operations. Follow these best practices.\n\n## 1. Consistent Naming Conventions\n- Use standardized codes (e.g., ART-001, STR-001)\n- Follow uppercase conventions for codes\n- Use descriptive names for display values\n\n## 2. Required Fields\n- Always fill in required fields completely\n- Don't use placeholder values like "TBD" or "N/A"\n- If a field is genuinely not applicable, leave it blank\n\n## 3. Data Validation\n- Article codes must match the pattern: ^[A-Z0-9-]+$\n- Prices and amounts cannot be negative\n- Email fields must contain valid email addresses\n- URLs must start with http:// or https://\n\n## 4. Approval Workflow\n- Always submit records for review before activating\n- Reviewers should verify all fields, not just required ones\n- Use review notes to communicate issues\n\n## 5. Regular Data Audits\n- Review records periodically for accuracy\n- Archive outdated records instead of deleting them\n- Use the Audit Log to track changes\n\n## 6. Bulk Operations\n- Use the template download feature for bulk imports\n- Validate data before importing\n- Start with small batches for testing\n\n## 7. Image Management\n- Upload high-quality product images\n- Use consistent image dimensions\n- Set primary images for each record`,
           category: 'BEST_PRACTICES',
           tags: 'data-quality,best-practices,guidelines',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 56,
           sortOrder: 5,
@@ -1166,7 +1196,7 @@ export async function POST(request: NextRequest) {
           content: `# Frequently Asked Questions\n\n## General\n\n**Q: What is MAA BTOOL?**\nA: MAA BTOOL is the Enterprise Master Data Management system for the MAPI Group, managing product, store, supplier, pricing, and promotion data across all subsidiaries.\n\n**Q: How do I get an account?**\nA: Contact your system administrator. Accounts are created by Super Admins only.\n\n**Q: What companies are supported?**\nA: MAPI, MAPA, MBA, MAPD, MAPP, and MAPL - all MAPI Group subsidiaries.\n\n## Data Management\n\n**Q: Why is my record in DRAFT status?**\nA: Records start as DRAFT when the module requires approval. Submit it for review to move to IN_REVIEW status.\n\n**Q: How do I approve a record?**\nA: Navigate to the Workflow page, find the pending approval, and click Approve or Reject.\n\n**Q: Can I edit an ACTIVE record?**\nA: Yes, but editing an ACTIVE record creates a new DRAFT version. The original stays active until the draft is approved.\n\n**Q: What happens when I archive a record?**\nA: Archived records are soft-deleted and no longer appear in default views. They can be recovered by a Super Admin.\n\n## Technical\n\n**Q: What file formats are supported for bulk import?**\nA: TSV (tab-separated), CSV, and Excel (.xlsx, .xls) formats are supported.\n\n**Q: Is there an API available?**\nA: Yes, see the API Integration Guide for details on REST API endpoints.\n\n**Q: How do I upload product images?**\nA: Open a record detail, and use the image upload feature on IMAGE type fields.`,
           category: 'FAQ',
           tags: 'faq,questions,help',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 203,
           sortOrder: 6,
@@ -1176,10 +1206,10 @@ export async function POST(request: NextRequest) {
         data: {
           title: 'Approval Workflow Guide',
           slug: 'approval-workflow-guide',
-          content: `# Approval Workflow Guide\n\nUnderstanding the record lifecycle and approval process in MAA BTOOL.\n\n## Record Status Lifecycle\n\n\`\`\`\nDRAFT → IN_REVIEW → ACTIVE → REVISION_PENDING → IN_REVIEW\n  ↓         ↓          ↓              ↓\nARCHIVED  REJECTED   ARCHIVED       ACTIVE\n            ↓\n          DRAFT\n\`\`\`\n\n## Status Descriptions\n- **DRAFT**: Initial state, editable by Data Entry users\n- **IN_REVIEW**: Submitted for approval, awaiting Manager review\n- **ACTIVE**: Approved and live in the system\n- **REVISION_PENDING**: Active record needs updates\n- **REJECTED**: Reviewer declined the changes\n- **ARCHIVED**: Soft-deleted, no longer active\n\n## Approval Process\n1. Data Entry user creates a record (DRAFT)\n2. Data Entry user submits for review (DRAFT → IN_REVIEW)\n3. An approval ticket is automatically created\n4. Manager reviews and either:\n   - **Approves** (IN_REVIEW → ACTIVE): Record becomes live\n   - **Rejects** (IN_REVIEW → REJECTED): Record goes back to DRAFT\n5. Rejected records can be revised and resubmitted\n\n## Reviewing Records\n- Navigate to **Workflow** page\n- Review the delta (changes) in the approval ticket\n- Add review notes for your decision\n- Click Approve or Reject\n\n## Super Admin Privileges\nSuper Admins can:\n- Approve their own records\n- Bypass approval for modules that normally require it\n- Change any record status directly`,
+          content: `# Approval Workflow Guide\n\nUnderstanding the record lifecycle and approval process in MAA BTOOL.\n\n## Record Status Lifecycle\n\n\`\`\`\nDRAFT → IN_REVIEW → ACTIVE → REVISION_PENDING → IN_REVIEW\n  ↓         ↓          ↓              ↓\nARCHIVED  REJECTED   ARCHIVED       ACTIVE\n            ↓\n          DRAFT\n\`\`\`\n\n## Status Descriptions\n- **DRAFT**: Initial state, editable by Editor users\n- **IN_REVIEW**: Submitted for approval, awaiting Administrator review\n- **ACTIVE**: Approved and live in the system\n- **REVISION_PENDING**: Active record needs updates\n- **REJECTED**: Reviewer declined the changes\n- **ARCHIVED**: Soft-deleted, no longer active\n\n## Approval Process\n1. Editor user creates a record (DRAFT)\n2. Editor user submits for review (DRAFT → IN_REVIEW)\n3. An approval ticket is automatically created\n4. Administrator reviews and either:\n   - **Approves** (IN_REVIEW → ACTIVE): Record becomes live\n   - **Rejects** (IN_REVIEW → REJECTED): Record goes back to DRAFT\n5. Rejected records can be revised and resubmitted\n\n## Reviewing Records\n- Navigate to **Workflow** page\n- Review the delta (changes) in the approval ticket\n- Add review notes for your decision\n- Click Approve or Reject\n\n## Super Admin Privileges\nSuper Admins can:\n- Approve their own records\n- Bypass approval for modules that normally require it\n- Change any record status directly`,
           category: 'HOW_TO',
           tags: 'approval,workflow,process',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 45,
           sortOrder: 7,
@@ -1192,7 +1222,7 @@ export async function POST(request: NextRequest) {
           content: `# Bulk Import/Export Guide\n\nLearn how to efficiently import and export master data in bulk.\n\n## Exporting Data\n1. Navigate to **Bulk Import** page\n2. Select the module to export\n3. Click **Export** to download as TSV\n4. The file contains all current field headers and data\n\n## Importing Data\n\n### Method 1: Paste Data\n1. Select the target module\n2. Paste TSV-formatted data into the text area\n3. First row must be headers matching field codes\n4. Click **Import** to process\n\n### Method 2: Upload File\n1. Switch to the **Upload File** tab\n2. Drag & drop or select a file (.xlsx, .xls, .csv)\n3. Preview the detected headers and row count\n4. Click **Import** to process\n\n## Download Template\nUse the **Download Template** button to get a pre-formatted template with all field headers for the selected module.\n\n## Import Rules\n- **Required fields** must be populated\n- **Validation rules** apply (regex, min/max length, min/max value)\n- Duplicate codes will be rejected\n- Each row creates a new DRAFT record\n\n## Tips\n- Start with a small test file (5-10 rows)\n- Check the Audit Log for import results\n- Use consistent date formats (YYYY-MM-DD)\n- Numbers should not have thousand separators`,
           category: 'HOW_TO',
           tags: 'bulk,import,export,data',
-          authorId: userDocWriter.id,
+          authorId: userDataSteward.id,
           isPublished: true,
           viewCount: 38,
           sortOrder: 8,
