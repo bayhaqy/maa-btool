@@ -1039,3 +1039,62 @@ Task: Fix seed route for updated multi-tenant Prisma schema
 - No `canWrite` references remain (replaced with `canCreate`/`canEdit`)
 - No old variable names remain (`roleManager`, `roleDataEntry`, `roleDocWriter`, `roleAiUser`, etc.)
 - Super Admin password and username preserved
+
+---
+Task ID: MULTI-TENANT-OVERHAUL
+Agent: Main Agent
+Task: Stibo-style multi-tenant overhaul - Company/Users/Roles rework + Custom AI provider
+
+## Changes Summary
+
+### 1. Prisma Schema Changes
+- **SysRole**: Added `companyId` (tenant-scoped roles), `isGlobal` (for system-wide roles)
+- **TenantAiConfig**: New model for per-company AI provider configuration
+- **TenantCompany**: Added `onboardingStatus`, `provisionedAt`, `defaultRoleTemplateId`
+- **UserRole**: Added `companyId` for tenant-scoped role assignments
+- Unique constraint changed: `@@unique([roleName])` → `@@unique([companyId, roleName])`
+
+### 2. RBAC System Overhaul (src/lib/rbac.ts)
+- 4 new tenant permissions: `tenant:read`, `tenant:manage`, `tenant:users`, `tenant:roles`
+- New "Company Admin" role type (COMPANY_ADMIN) with sky blue color
+- Company-aware `hasPermission()` with `PermissionContext` for tenant boundaries
+- 5 new functions: `getTenantRoles()`, `isCompanyAdmin()`, `canManageTenant()`, etc.
+- `STIBO_TERMS` constant: maps Role→User Group, Permission→Privilege Rule, Company→Account
+
+### 3. Custom AI Provider (GLM-5.1/DashScope)
+- 5 providers: Z.AI, Google Gemini, OpenAI, Azure OpenAI, Custom
+- Custom pre-configured with DashScope: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`, model `glm-5.1`
+- Per-company AI config via `TenantAiConfig` model
+- Only Super Admin and Company Admin can view/edit AI config
+- Custom headers support for non-standard API endpoints
+
+### 4. Admin UI Pages
+- **AdminCompaniesPage → "Account Management"**: Tenant tier badges, onboarding status, provision/suspend/activate actions, full field editing
+- **AdminUsersPage → "User & Group Management"**: Company filter dropdown, tenant-scoped user listing, "Account Admin" badge
+- **AdminRolesPage → "User Groups & Privilege Rules"**: Company filter, "Global" badge, "Duplicate to Account" action, assigned users list
+
+### 5. API Routes
+- All admin routes now enforce tenant isolation
+- Company Admin can only manage their own company's users/roles
+- New provision endpoint: auto-creates default roles when provisioning a company
+- New duplicate role endpoint: copies a role to another company
+
+### 6. Seed Data
+- 9 roles with Stibo terminology (Administrator, Editor, Viewer, Data Steward, Approver, Company Admin, etc.)
+- All roles are tenant-scoped (companyId set to MAPI)
+- Super Admin has isGlobal=true
+- All companies have onboardingStatus=ACTIVE
+
+## Production Status
+- ✅ Login: Working (superadmin / Admin@123)
+- ✅ Health: All 7 services operational
+- ✅ Companies: 6 accounts with tier/status badges
+- ✅ Roles: 9 user groups with tenant/global badges
+- ✅ Sample Data: Seeded successfully
+- ✅ AI Config: Custom provider available
+
+## Key Decisions
+1. Used String type (not Json) for JSON fields to maintain SQLite/PostgreSQL compatibility
+2. Force-reset on every build to ensure clean state (data re-seeded automatically)
+3. Git pre-commit hook ensures schema.prisma always has PostgreSQL provider
+4. Company Admin role provides tenant self-management without global Super Admin access
