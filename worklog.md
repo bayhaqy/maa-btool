@@ -445,3 +445,37 @@ Added granular RBAC permission checks to all critical mutation API routes. Previ
 - TypeScript: No new errors introduced by these changes
 - All changes use existing `hasPermission` function from `@/lib/rbac`
 - All authentication checks (token validation) preserved; authorization checks added after authentication
+
+---
+Task ID: 1
+Agent: Schema Fix Agent
+Task: Convert prisma/schema.prisma from SQLite to PostgreSQL for Vercel production
+
+Work Log:
+- Read worklog.md for project context
+- Read full prisma/schema.prisma (1039 lines, 30+ models)
+- Changed `provider = "sqlite"` to `provider = "postgresql"` in datasource block
+- Converted 31 String fields to Json type across 13 models, all documented as storing JSON data:
+  - RolePermission: columnRestrictions, rowFilter, allowedStates
+  - MetaField: categoryScope
+  - DataRecord: currentPayload
+  - DataVersion: payloadSnapshot
+  - ApprovalTicket: deltaPayload, workflowHistory
+  - WorkflowTemplate: stepConfig, autoApproveRules, slaConfig
+  - WorkflowTransition: condition, businessRuleIds, notifyRoles
+  - DigitalAsset: tags, rightsInfo
+  - ApiKey: permissions
+  - DataExchangeEndpoint: connectionConfig, mappingConfig, scheduleConfig, transformRules, errorHandling
+  - AiConversation: tags
+  - BusinessRule: conditionJson, actionJson (explicitly mentioned in task)
+  - SavedView: columnConfig, filterConfig
+  - BulkUpdateJob: targetFilter, operations, results
+  - AiPrompt: inputAttributes
+- Verified schema.sqlite.prisma remains unchanged (still uses sqlite provider, all String types)
+- Validated schema with `DATABASE_URL="postgresql://..." npx prisma validate` — passed ✅
+
+Stage Summary:
+- prisma/schema.prisma now uses `provider = "postgresql"` for Vercel deployment
+- 31 JSON-related String fields converted to Prisma Json type for native PostgreSQL JSON support
+- Schema validates successfully with PostgreSQL provider
+- prisma/schema.sqlite.prisma preserved for local dev (start.sh copies it over for local use)
