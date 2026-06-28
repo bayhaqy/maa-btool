@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -143,7 +144,8 @@ const PROVIDER_INFO: Record<AIProvider, {
 
 export default function AiSettingsPage() {
   const { token, user } = useAppStore();
-  const isSuperAdmin = user?.roles?.includes('Super Admin') ?? false;
+  const perms = usePermissions();
+  const isSuperAdmin = perms.canEditAI;
 
   // ─── State ────────────────────────────────────────────────────────
   const [config, setConfig] = useState<AIConfigState>({
@@ -373,7 +375,7 @@ export default function AiSettingsPage() {
   };
 
   // ─── Non-superadmin guard ─────────────────────────────────────────
-  if (!loading && !isSuperAdmin) {
+  if (!loading && !perms.canEditAI) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <Alert className="border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">

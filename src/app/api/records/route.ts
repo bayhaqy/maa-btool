@@ -450,8 +450,8 @@ export async function POST(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
-      return NextResponse.json({ error: 'Insufficient permissions to create records' }, { status: 403 });
+    if (!hasPermission(tokenPayload.roles, 'data:create')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: data:create' }, { status: 403 });
     }
 
     // ── Rate limit: write endpoints ────────────────────────────────────
@@ -573,9 +573,9 @@ export async function PUT(request: NextRequest) {
           return NextResponse.json({ error: 'Insufficient permissions to approve/reject' }, { status: 403 });
         }
       } else {
-        // Other transitions require data:write
-        if (!hasPermission(tokenPayload.roles, 'data:write')) {
-          return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+        // Other transitions require data:edit
+        if (!hasPermission(tokenPayload.roles, 'data:edit')) {
+          return NextResponse.json({ error: 'Insufficient permissions. Required: data:edit' }, { status: 403 });
         }
       }
 
@@ -632,8 +632,8 @@ export async function PUT(request: NextRequest) {
 
     // Handle record update
     if (action === 'update') {
-      if (!hasPermission(tokenPayload.roles, 'data:write')) {
-        return NextResponse.json({ error: 'Insufficient permissions to update records' }, { status: 403 });
+      if (!hasPermission(tokenPayload.roles, 'data:edit')) {
+        return NextResponse.json({ error: 'Insufficient permissions. Required: data:edit' }, { status: 403 });
       }
 
       const { id, payload } = body;
@@ -764,8 +764,8 @@ export async function PUT(request: NextRequest) {
     // should be used for those). Returns { updated: [...], errors: [...] }.
     // ============================================================
     if (action === 'bulk-update') {
-      if (!hasPermission(tokenPayload.roles, 'data:write')) {
-        return NextResponse.json({ error: 'Insufficient permissions to update records' }, { status: 403 });
+      if (!hasPermission(tokenPayload.roles, 'data:bulk')) {
+        return NextResponse.json({ error: 'Insufficient permissions. Required: data:bulk' }, { status: 403 });
       }
 
       const { changes } = body;

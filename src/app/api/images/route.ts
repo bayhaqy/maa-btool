@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:upload')) {
       return NextResponse.json({ error: 'Insufficient permissions to upload images' }, { status: 403 });
     }
 
@@ -229,7 +229,7 @@ export async function DELETE(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:delete')) {
       return NextResponse.json({ error: 'Insufficient permissions to delete images' }, { status: 403 });
     }
 
@@ -315,7 +315,7 @@ export async function PUT(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:manage')) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -488,7 +488,7 @@ export async function PATCH(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:manage')) {
       return NextResponse.json(
         { error: 'Insufficient permissions to update images' },
         { status: 403 }

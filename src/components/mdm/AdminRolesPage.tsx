@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { ROLE_TYPE_INFO } from '@/lib/rbac';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,7 +30,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   Shield, Plus, MoreVertical, Pencil, Trash2, Eye, Users, Lock,
-  CheckCircle, Crown, Settings, AlertTriangle, Info,
+  CheckCircle, Crown, Settings, AlertTriangle, Info, ShieldAlert,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -112,6 +113,7 @@ function getRoleTypeBadgeStyle(roleType: string): { bg: string; text: string; bo
 // ── Main Component ─────────────────────────────────────────────────
 export default function AdminRolesPage() {
   const { token } = useAppStore();
+  const perms = usePermissions();
   const [roles, setRoles] = useState<RoleData[]>([]);
   const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -354,6 +356,16 @@ export default function AdminRolesPage() {
   }, [roles]);
 
   // ── Loading State ────────────────────────────────────────────────
+  if (!perms.canAdmin) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[60vh]">
+        <ShieldAlert className="w-12 h-12 text-destructive mb-4" />
+        <h2 className="text-xl font-bold">Access Denied</h2>
+        <p className="text-muted-foreground mt-2">You do not have permission to access this page.</p>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="p-4 lg:p-6 space-y-6">

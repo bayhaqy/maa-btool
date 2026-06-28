@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 import { getAIMaskedConfig, getAIProviderConfig, clearAICache, type AIProvider } from '@/lib/ai';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
@@ -37,10 +38,10 @@ interface TestConnectionResult {
 
 // ─── Helper ──────────────────────────────────────────────────────────
 
-function requireSuperAdmin(headers: Headers): { authorized: boolean; userId?: string; username?: string } {
+function requireAWriteAccess(headers: Headers): { authorized: boolean; userId?: string; username?: string } {
   const tokenPayload = getTokenFromHeaders(headers);
   if (!tokenPayload) return { authorized: false };
-  if (!tokenPayload.roles.includes('Super Admin')) return { authorized: false };
+  if (!hasPermission(tokenPayload.roles, 'ai:write')) return { authorized: false };
   return { authorized: true, userId: tokenPayload.userId, username: tokenPayload.username };
 }
 
@@ -85,9 +86,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { authorized, userId, username } = requireSuperAdmin(request.headers);
+    const { authorized, userId, username } = requireAWriteAccess(request.headers);
     if (!authorized) {
-      return NextResponse.json({ error: 'Access denied. Super Admin role required.' }, { status: 403 });
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -163,9 +164,9 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { authorized, userId } = requireSuperAdmin(request.headers);
+    const { authorized, userId } = requireAWriteAccess(request.headers);
     if (!authorized) {
-      return NextResponse.json({ error: 'Access denied. Super Admin role required.' }, { status: 403 });
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
     }
 
     // ── Rate limit: AI endpoints ───────────────────────────────────────

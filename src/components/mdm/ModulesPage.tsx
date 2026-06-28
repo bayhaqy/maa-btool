@@ -27,6 +27,7 @@ import {
   Settings2, Layers, MapPin, MonitorSmartphone,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/usePermissions';
 
 // ============================================================
 // Stibo Entity Types
@@ -64,7 +65,8 @@ interface ModuleStat {
 
 export default function ModulesPage() {
   const { token, navigate, user } = useAppStore();
-  const canManage = user?.roles?.includes('Super Admin') ?? false;
+  const perms = usePermissions();
+  const canManage = perms.canEditSchema;
   const [modules, setModules] = useState<any[]>([]);
   const [moduleStats, setModuleStats] = useState<ModuleStat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -337,6 +339,12 @@ export default function ModulesPage() {
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Layers className="w-6 h-6 text-red-600" />
             Entity Types
+            {perms.isReadOnly && (
+              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-300 gap-1">
+                <ToggleLeft className="w-3 h-3" />
+                Read Only
+              </Badge>
+            )}
           </h2>
           <p className="text-muted-foreground text-sm mt-1">
             Stibo MDM — Manage entity types (modules) and their attribute schemas
@@ -405,9 +413,11 @@ export default function ModulesPage() {
             <Layers className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium">No entity types yet</h3>
             <p className="text-muted-foreground text-sm mt-1">Create your first entity type to start building your MDM schema.</p>
-            <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" onClick={openCreate}>
-              <Plus className="w-4 h-4 mr-2" /> Create Entity Type
-            </Button>
+            {canManage && (
+              <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" onClick={openCreate}>
+                <Plus className="w-4 h-4 mr-2" /> Create Entity Type
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

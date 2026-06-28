@@ -5,6 +5,7 @@ import {
   generateAccessToken,
   type TokenPayload,
 } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -21,14 +22,14 @@ import { logAudit, AuditAction } from '@/lib/audit';
  * Returns: { token, user } — same shape as /api/auth/login.
  */
 export async function POST(request: NextRequest) {
-  // ── Auth: require Super Admin ──────────────────────────────────────────
+  // ── Auth: require admin:write permission ──────────────────────────────────────────
   const adminPayload = getTokenFromHeaders(request.headers);
   if (!adminPayload) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!adminPayload.roles.includes('Super Admin')) {
+  if (!hasPermission(adminPayload.roles, 'admin:write')) {
     return NextResponse.json(
-      { error: 'Forbidden — Super Admin role required' },
+      { error: 'Insufficient permissions. Required: admin:write' },
       { status: 403 },
     );
   }

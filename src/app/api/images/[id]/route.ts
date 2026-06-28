@@ -51,7 +51,7 @@ export async function DELETE(
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:delete')) {
       return NextResponse.json({ error: 'Insufficient permissions to delete images' }, { status: 403 });
     }
 
@@ -115,7 +115,7 @@ export async function PATCH(
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:manage')) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -274,7 +274,7 @@ export async function PUT(
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
+    if (!hasPermission(tokenPayload.roles, 'dam:upload')) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

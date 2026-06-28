@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 
@@ -228,6 +229,7 @@ function isImageAsset(asset: DigitalAsset): boolean {
 export default function DigitalAssetPage() {
   const { token } = useAppStore();
   const { theme } = useTheme();
+  const perms = usePermissions();
 
   // Data state
   const [assets, setAssets] = useState<DigitalAsset[]>([]);
@@ -856,6 +858,7 @@ export default function DigitalAssetPage() {
                 <DropdownMenuItem
                   className="text-red-600 focus:text-red-600"
                   onClick={() => setDeleteConfirm({ ids: [asset.id], single: true })}
+                  disabled={!perms.canDeleteAssets}
                 >
                   <Trash2 className="w-4 h-4 mr-2" /> Delete
                 </DropdownMenuItem>
@@ -1006,6 +1009,7 @@ export default function DigitalAssetPage() {
             <DropdownMenuItem
               className="text-red-600 focus:text-red-600"
               onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ ids: [asset.id], single: true }); }}
+              disabled={!perms.canDeleteAssets}
             >
               <Trash2 className="w-4 h-4 mr-2" /> Delete
             </DropdownMenuItem>
@@ -1320,7 +1324,7 @@ export default function DigitalAssetPage() {
             }}>
               <Download className="w-4 h-4 mr-1" /> Download
             </Button>
-            <Button variant="destructive" onClick={() => setDeleteConfirm({ ids: [detailAsset.id], single: true })}>
+            <Button variant="destructive" onClick={() => setDeleteConfirm({ ids: [detailAsset.id], single: true })} disabled={!perms.canDeleteAssets}>
               <Trash2 className="w-4 h-4 mr-1" /> Delete
             </Button>
           </DialogFooter>
@@ -1349,6 +1353,7 @@ export default function DigitalAssetPage() {
               variant="outline"
               size="sm"
               onClick={() => setShowUploadZone(!showUploadZone)}
+              disabled={!perms.canUploadAssets}
             >
               <Upload className="w-4 h-4 mr-1.5" />
               Upload
@@ -1435,6 +1440,7 @@ export default function DigitalAssetPage() {
                 variant="destructive"
                 size="sm"
                 onClick={() => setDeleteConfirm({ ids: Array.from(selectedIds) })}
+                disabled={!perms.canDeleteAssets}
               >
                 <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
               </Button>
@@ -1498,6 +1504,7 @@ export default function DigitalAssetPage() {
                   variant="outline"
                   className="mt-4"
                   onClick={() => setShowUploadZone(true)}
+                  disabled={!perms.canUploadAssets}
                 >
                   <Upload className="w-4 h-4 mr-1.5" /> Upload Asset
                 </Button>

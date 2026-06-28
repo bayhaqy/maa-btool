@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
+import { checkAuthAndPermission, hasPermission } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -252,8 +252,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Only Super Admin can create modules' }, { status: 403 });
+    if (!tokenPayload || !hasPermission(tokenPayload.roles, 'schema:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: schema:write' }, { status: 403 });
     }
 
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
@@ -495,8 +495,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Only Super Admin can update modules' }, { status: 403 });
+    if (!tokenPayload || !hasPermission(tokenPayload.roles, 'schema:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: schema:write' }, { status: 403 });
     }
 
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
@@ -603,8 +603,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Only Super Admin can delete modules' }, { status: 403 });
+    if (!tokenPayload || !hasPermission(tokenPayload.roles, 'schema:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: schema:write' }, { status: 403 });
     }
 
     const rl = rateLimitByCategory('admin', tokenPayload.userId);

@@ -69,12 +69,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const allowed =
-      tokenPayload.roles.includes('Super Admin') ||
-      tokenPayload.roles.includes('Manager');
-    if (!allowed) {
+    if (!hasPermission(tokenPayload.roles, 'data:read')) {
       return NextResponse.json(
-        { error: 'Access denied. Super Admin or Manager role required.' },
+        { error: 'Insufficient permissions. Required: data:read' },
         { status: 403 }
       );
     }
@@ -145,19 +142,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const allowed =
-      tokenPayload.roles.includes('Super Admin') ||
-      tokenPayload.roles.includes('Manager');
-    if (!allowed) {
+    if (!hasPermission(tokenPayload.roles, 'data:bulk')) {
       return NextResponse.json(
-        { error: 'Access denied. Super Admin or Manager role required.' },
-        { status: 403 }
-      );
-    }
-
-    if (!hasPermission(tokenPayload.roles, 'data:write')) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions (data:write)' },
+        { error: 'Insufficient permissions. Required: data:bulk' },
         { status: 403 }
       );
     }

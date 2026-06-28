@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -136,6 +137,7 @@ const TRANSFORM_OPTIONS = ['NONE', 'RENAME', 'UPPERCASE', 'LOWERCASE', 'TRIM', '
 
 export default function DataExchangePage() {
   const { token, user } = useAppStore();
+  const perms = usePermissions();
   const [endpoints, setEndpoints] = useState<EndpointData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointData | null>(null);
@@ -168,7 +170,7 @@ export default function DataExchangePage() {
     isActive: true,
   });
 
-  const canManage = user?.roles?.some(r => ['Super Admin', 'Manager'].includes(r)) ?? false;
+  const canManage = perms.canEditIntegration;
 
   // ─── Load endpoints ──────────────────────────────────────────
   const loadEndpoints = useCallback(async () => {

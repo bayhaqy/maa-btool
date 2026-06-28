@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { isSuperAdmin } from '@/lib/rbac';
+import { hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 
 // POST /api/admin/migrate-cascading
@@ -17,9 +17,9 @@ import { logAudit } from '@/lib/audit';
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
+    if (!tokenPayload || !hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json(
-        { error: 'Only Super Admin can run this migration' },
+        { error: 'Insufficient permissions. Required: admin:write' },
         { status: 403 }
       );
     }
