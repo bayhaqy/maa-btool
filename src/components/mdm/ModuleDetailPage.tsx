@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -190,6 +191,7 @@ const UNIT_OF_MEASURE_OPTIONS = [
 
 export default function ModuleDetailPage() {
   const { token, selectedModuleId, navigate, user } = useAppStore();
+  const perms = usePermissions();
   const [metaModule, setMetaModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
@@ -751,7 +753,7 @@ export default function ModuleDetailPage() {
     setRuleDialogOpen(true);
   };
 
-  const isSuperAdminUser = !!user?.roles?.includes('Super Admin');
+  const isSuperAdminUser = perms.canEditSchema;
   const moduleFields: any[] = metaModule?.fields || [];
   const noValueNeeded = NO_VALUE_RULE_TYPES.has(validationForm.ruleType);
 
@@ -798,10 +800,10 @@ export default function ModuleDetailPage() {
       </TableCell>
       <TableCell className="w-10">
         <div className="flex flex-col gap-0.5">
-          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" disabled={idx === 0 || !isSuperAdminUser} onClick={() => handleMoveField(f.id, 'up')}>
+          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" disabled={idx === 0 || !perms.canEditSchema} onClick={() => handleMoveField(f.id, 'up')}>
             <ArrowUp className="w-3 h-3" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" disabled={idx === allFields.length - 1 || !isSuperAdminUser} onClick={() => handleMoveField(f.id, 'down')}>
+          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" disabled={idx === allFields.length - 1 || !perms.canEditSchema} onClick={() => handleMoveField(f.id, 'down')}>
             <ArrowDown className="w-3 h-3" />
           </Button>
         </div>
@@ -1323,7 +1325,7 @@ export default function ModuleDetailPage() {
                             </Badge>
                           </TableCell>
                           <TableCell><Badge variant="secondary" className="text-xs">{rule.trigger}</Badge></TableCell>
-                          <TableCell className="text-center"><Switch checked={!!rule.isActive} disabled={!isSuperAdminUser} onCheckedChange={() => handleToggleRuleActive(rule)} /></TableCell>
+                          <TableCell className="text-center"><Switch checked={!!rule.isActive} disabled={!perms.canEditSchema} onCheckedChange={() => handleToggleRuleActive(rule)} /></TableCell>
                           {isSuperAdminUser && (
                             <TableCell>
                               <DropdownMenu>

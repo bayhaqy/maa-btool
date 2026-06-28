@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,10 +58,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
-    const isManager = tokenPayload.roles.includes('Manager');
-    if (!isSuperAdmin && !isManager) {
-      return NextResponse.json({ error: 'Access denied. Admin or Manager role required.' }, { status: 403 });
+    if (!hasPermission(tokenPayload.roles, 'integration:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: integration:write' }, { status: 403 });
     }
 
     const { id } = await params;
@@ -69,6 +68,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Endpoint not found' }, { status: 404 });
     }
 
+    const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
     if (!isSuperAdmin && endpoint.companyId !== tokenPayload.companyId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
@@ -120,10 +120,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
-    const isManager = tokenPayload.roles.includes('Manager');
-    if (!isSuperAdmin && !isManager) {
-      return NextResponse.json({ error: 'Access denied. Admin or Manager role required.' }, { status: 403 });
+    if (!hasPermission(tokenPayload.roles, 'integration:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: integration:write' }, { status: 403 });
     }
 
     const { id } = await params;
@@ -132,6 +130,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Endpoint not found' }, { status: 404 });
     }
 
+    const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
     if (!isSuperAdmin && endpoint.companyId !== tokenPayload.companyId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }

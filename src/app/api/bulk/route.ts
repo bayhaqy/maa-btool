@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_DRAFT } from '@/lib/auth';
-import { hasPermission, isSuperAdmin as checkSuperAdmin, checkAuthAndPermission } from '@/lib/rbac';
+import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -78,10 +78,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check bulk:read permission
-    const readCheck = checkAuthAndPermission(tokenPayload, 'bulk:read');
-    if (readCheck.error) {
-      return NextResponse.json({ error: readCheck.error }, { status: readCheck.status });
+    // Check data:read permission
+    const readCheck = hasPermission(tokenPayload.roles, 'data:read');
+    if (!readCheck) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: data:read' }, { status: 403 });
     }
 
     // ── Rate limit: read endpoints ────────────────────────────────────
@@ -194,27 +194,24 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
 
-    // Import requires bulk:write, export requires bulk:read
+    // Import requires data:import permission
     if (action === 'import') {
-      const writeCheck = checkAuthAndPermission(tokenPayload, 'bulk:write');
-      if (writeCheck.error) {
-        return NextResponse.json({ error: writeCheck.error }, { status: writeCheck.status });
+      if (!hasPermission(tokenPayload.roles, 'data:import')) {
+        return NextResponse.json({ error: 'Insufficient permissions. Required: data:import' }, { status: 403 });
       }
     }
     if (action === 'export') {
-      const readCheck = checkAuthAndPermission(tokenPayload, 'bulk:read');
-      if (readCheck.error) {
-        return NextResponse.json({ error: readCheck.error }, { status: readCheck.status });
+      if (!hasPermission(tokenPayload.roles, 'data:read')) {
+        return NextResponse.json({ error: 'Insufficient permissions. Required: data:read' }, { status: 403 });
       }
     }
     const body = await request.json();
 
     // Import
     if (action === 'import') {
-      // Check bulk:write permission
-      const writeCheck = checkAuthAndPermission(tokenPayload, 'bulk:write');
-      if (writeCheck.error) {
-        return NextResponse.json({ error: writeCheck.error }, { status: writeCheck.status });
+      // Check data:import permission
+      if (!hasPermission(tokenPayload.roles, 'data:import')) {
+        return NextResponse.json({ error: 'Insufficient permissions. Required: data:import' }, { status: 403 });
       }
 
       const { moduleId, data } = body;

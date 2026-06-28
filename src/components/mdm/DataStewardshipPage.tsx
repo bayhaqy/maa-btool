@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -142,6 +143,7 @@ const severityColors: Record<string, string> = {
 
 export default function DataStewardshipPage() {
   const { token, user } = useAppStore();
+  const perms = usePermissions();
   const [activeTab, setActiveTab] = useState('tasks');
   const [selectedTask, setSelectedTask] = useState<StewardshipTask | null>(null);
   const [selectedGoldenRecord, setSelectedGoldenRecord] = useState<GoldenRecord | null>(null);
@@ -462,6 +464,7 @@ export default function DataStewardshipPage() {
                           size="sm"
                           className="w-full mt-3 gap-1.5 text-xs h-8"
                           onClick={() => toast.info(`Steward assignment for ${domain.domain} will be available in a future update`)}
+                          disabled={!perms.canEdit}
                         >
                           <UserPlus className="w-3.5 h-3.5" /> Assign Steward
                         </Button>
@@ -540,19 +543,19 @@ export default function DataStewardshipPage() {
               <Separator />
               <div className="flex items-center gap-2">
                 {selectedTask.type === 'merge' && (
-                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white">
+                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit}>
                     <GitMerge className="w-4 h-4" />
                     Start Merge
                   </Button>
                 )}
                 {selectedTask.type === 'review' && (
-                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white">
+                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canApprove}>
                     <Eye className="w-4 h-4" />
                     Start Review
                   </Button>
                 )}
-                <Button variant="outline">Reassign</Button>
-                <Button variant="ghost" className="ml-auto">Dismiss</Button>
+                <Button variant="outline" disabled={!perms.canEdit}>Reassign</Button>
+                <Button variant="ghost" className="ml-auto" disabled={!perms.canEdit}>Dismiss</Button>
               </div>
             </div>
           )}
@@ -581,13 +584,13 @@ export default function DataStewardshipPage() {
               </div>
               <Separator />
               <div className="flex items-center gap-2">
-                <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white">
+                <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit}>
                   <GitMerge className="w-4 h-4" />
                   Run Merge
                 </Button>
                 <Button variant="outline">View Source Records</Button>
                 {selectedGoldenRecord.status === 'conflict' && (
-                  <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300">
+                  <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300" disabled={!perms.canEdit}>
                     <AlertTriangle className="w-4 h-4" />
                     Resolve Conflict
                   </Button>

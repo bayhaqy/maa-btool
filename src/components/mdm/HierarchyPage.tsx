@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -201,6 +202,7 @@ function TreeNode({ node, depth, expanded, toggleExpand, searchQuery, onEdit, on
 
 export default function HierarchyPage() {
   const { token, navigate } = useAppStore();
+  const perms = usePermissions();
   const [hierarchies, setHierarchies] = useState<Hierarchy[]>([]);
   const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -469,7 +471,7 @@ export default function HierarchyPage() {
           <Button variant="outline" size="sm" className="gap-1" onClick={loadData}>
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </Button>
-          <Button className="bg-teal-600 hover:bg-teal-700 text-white h-11" onClick={openCreate}>
+          <Button className="bg-teal-600 hover:bg-teal-700 text-white h-11" onClick={openCreate} disabled={!perms.canCreate}>
             <Plus className="w-4 h-4 mr-2" /> New Hierarchy
           </Button>
         </div>
@@ -481,7 +483,7 @@ export default function HierarchyPage() {
             <Network className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium">No hierarchies</h3>
             <p className="text-muted-foreground text-sm mt-1">Create a hierarchy to organize your master data.</p>
-            <Button className="mt-4 bg-teal-600 hover:bg-teal-700 text-white" onClick={openCreate}>
+            <Button className="mt-4 bg-teal-600 hover:bg-teal-700 text-white" onClick={openCreate} disabled={!perms.canCreate}>
               <Plus className="w-4 h-4 mr-2" /> Create Hierarchy
             </Button>
           </CardContent>
@@ -521,7 +523,7 @@ export default function HierarchyPage() {
                           <ArrowRight className="w-4 h-4 mr-2" /> Open Full Tree
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openEdit(h)}>
+                        <DropdownMenuItem onClick={() => openEdit(h)} disabled={!perms.canEdit}>
                           <Pencil className="w-4 h-4 mr-2" /> Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setClassDialog({
@@ -533,7 +535,7 @@ export default function HierarchyPage() {
                         })}>
                           <Zap className="w-4 h-4 mr-2" /> Classification Rule
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(h.id)}>
+                        <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(h.id)} disabled={!perms.canDelete}>
                           <Trash2 className="w-4 h-4 mr-2" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>

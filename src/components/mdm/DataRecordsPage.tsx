@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { STATUS_LABELS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,7 +35,7 @@ import {
   LayoutGrid, List, Filter, SlidersHorizontal, Eye, EyeOff, ArrowUpDown,
   ArrowUp, ArrowDown, Copy, Trash2, Pencil, ThumbsUp,
   Save, X, ExternalLink, Check, Columns3, Clock, User,
-  RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot,
+  RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot, Lock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
@@ -95,11 +96,12 @@ function SortIcon({ columnKey, sortConfig }: { columnKey: string; sortConfig: { 
     : <ArrowDown className="w-3 h-3 text-red-600" />;
 }
 
-function RecordPreview({ record, fields, activeModuleId, navigate }: {
+function RecordPreview({ record, fields, activeModuleId, navigate, perms }: {
   record: any;
   fields: any[];
   activeModuleId: string;
   navigate: (page: any, params?: any) => void;
+  perms: ReturnType<typeof usePermissions>;
 }) {
   if (!record) return (
     <div className="flex items-center justify-center h-full text-muted-foreground text-sm p-8">
@@ -208,14 +210,17 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
 
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+          disabled={!perms.canEdit}
           onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: record.id })}>
           <Pencil className="w-3.5 h-3.5" /> Edit
         </Button>
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+          disabled={!perms.canCreate}
           onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: record.id })}>
           <Copy className="w-3.5 h-3.5" /> Duplicate
         </Button>
-        <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-amber-600">
+        <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-amber-600"
+          disabled={!perms.canApprove}>
           <ThumbsUp className="w-3.5 h-3.5" /> Submit
         </Button>
       </div>
@@ -229,6 +234,7 @@ function RecordPreview({ record, fields, activeModuleId, navigate }: {
 
 export default function DataRecordsPage() {
   const { token, navigate, selectedModuleId, user } = useAppStore();
+  const perms = usePermissions();
   const [modules, setModules] = useState<any[]>([]);
   const [activeModuleId, setActiveModuleId] = useState<string>(selectedModuleId || '');
   const [activeStatus, setActiveStatus] = useState('ALL');
@@ -581,6 +587,11 @@ export default function DataRecordsPage() {
           <p className="text-muted-foreground text-sm mt-1">Browse and manage master data entity instances</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {perms.isReadOnly && (
+            <Badge variant="outline" className="h-8 gap-1.5 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20">
+              <Lock className="w-3.5 h-3.5" /> Read Only
+            </Badge>
+          )}
           <Select value={activeModuleId} onValueChange={setActiveModuleId}>
             <SelectTrigger className="w-[200px] h-10">
               <SelectValue placeholder="Select module" />
@@ -625,9 +636,11 @@ export default function DataRecordsPage() {
           <Button variant="outline" className="h-10" onClick={() => { if (activeModuleId) navigate('grid-editor', { moduleId: activeModuleId }); }} disabled={!activeModuleId}>
             <LayoutGrid className="w-4 h-4 mr-2" /> Grid View
           </Button>
-          <Button className="bg-red-600 hover:bg-red-700 text-white h-10" onClick={() => { if (activeModuleId) navigate('record-detail', { moduleId: activeModuleId }); }} disabled={!activeModuleId}>
-            <Plus className="w-4 h-4 mr-2" /> New Instance
-          </Button>
+          {perms.canCreate && (
+            <Button className="bg-red-600 hover:bg-red-700 text-white h-10" onClick={() => { if (activeModuleId) navigate('record-detail', { moduleId: activeModuleId }); }} disabled={!activeModuleId}>
+              <Plus className="w-4 h-4 mr-2" /> New Instance
+            </Button>
+          )}
         </div>
       </div>
 
@@ -861,9 +874,9 @@ export default function DataRecordsPage() {
                 className="flex items-center gap-3 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg mx-4 mt-2">
                 <span className="text-sm font-medium text-red-700 dark:text-red-400">{selectedRows.size} selected</span>
                 <Separator orientation="vertical" className="h-5" />
-                <Button variant="outline" size="sm" className="h-7 text-xs gap-1"><ThumbsUp className="w-3 h-3" /> Submit for Approval</Button>
-                <Button variant="outline" size="sm" className="h-7 text-xs gap-1"><Pencil className="w-3 h-3" /> Bulk Edit</Button>
-                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-red-600"><Trash2 className="w-3 h-3" /> Delete</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!perms.canBulk || !perms.canApprove}><ThumbsUp className="w-3 h-3" /> Submit for Approval</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!perms.canBulk || !perms.canEdit}><Pencil className="w-3 h-3" /> Bulk Edit</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-red-600" disabled={!perms.canBulk || !perms.canDelete}><Trash2 className="w-3 h-3" /> Delete</Button>
                 <Button variant="ghost" size="sm" className="h-7 text-xs ml-auto" onClick={() => setSelectedRows(new Set())}><X className="w-3 h-3" /> Clear</Button>
               </motion.div>
             )}
@@ -877,7 +890,7 @@ export default function DataRecordsPage() {
                 {searchQuery && <span> matching &ldquo;{searchQuery}&rdquo;</span>}
                 {companyFilter !== 'ALL' && <span> (filtered by company)</span>}
               </p>
-              <p className="text-[10px] text-muted-foreground hidden sm:block">Double-click a cell to edit · Right-click for more actions</p>
+              <p className="text-[10px] text-muted-foreground hidden sm:block">{perms.canEdit ? 'Double-click a cell to edit · Right-click for more actions' : 'Right-click for more actions'}</p>
             </div>
           </div>
 
@@ -901,9 +914,11 @@ export default function DataRecordsPage() {
                     <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                     <h3 className="text-lg font-medium">No entity instances found</h3>
                     <p className="text-muted-foreground text-sm mt-1">Create your first instance to get started</p>
-                    <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => navigate('record-detail', { moduleId: activeModuleId })}>
-                      <Plus className="w-4 h-4 mr-1.5" /> New Instance
-                    </Button>
+                    {perms.canCreate && (
+                      <Button className="mt-4 bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => navigate('record-detail', { moduleId: activeModuleId })}>
+                        <Plus className="w-4 h-4 mr-1.5" /> New Instance
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -998,9 +1013,9 @@ export default function DataRecordsPage() {
                                           onBlur={handleInlineSave} />
                                       </div>
                                     ) : (
-                                      <span className="truncate block cursor-text hover:bg-accent/30 rounded px-1 -mx-1"
-                                        onDoubleClick={(e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); }}
-                                        title="Double-click to edit">
+                                      <span className={cn('truncate block rounded px-1 -mx-1', perms.canEdit ? 'cursor-text hover:bg-accent/30' : 'cursor-default')}
+                                        onDoubleClick={perms.canEdit ? (e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); } : undefined}
+                                        title={perms.canEdit ? 'Double-click to edit' : 'Read only'}>
                                         {String(getPayloadValue(r, f.fieldCode))}
                                       </span>
                                     )}
@@ -1011,18 +1026,24 @@ export default function DataRecordsPage() {
                               </TableRow>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-52">
-                              <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
-                                <Pencil className="w-4 h-4 mr-2" /> Edit <ContextMenuShortcut>⌘E</ContextMenuShortcut>
-                              </ContextMenuItem>
+                              {perms.canEdit && (
+                                <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
+                                  <Pencil className="w-4 h-4 mr-2" /> Edit <ContextMenuShortcut>⌘E</ContextMenuShortcut>
+                                </ContextMenuItem>
+                              )}
                               <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
                                 <Eye className="w-4 h-4 mr-2" /> View <ContextMenuShortcut>⌘V</ContextMenuShortcut>
                               </ContextMenuItem>
-                              <ContextMenuItem><Copy className="w-4 h-4 mr-2" /> Duplicate <ContextMenuShortcut>⌘D</ContextMenuShortcut></ContextMenuItem>
+                              {perms.canCreate && (
+                                <ContextMenuItem><Copy className="w-4 h-4 mr-2" /> Duplicate <ContextMenuShortcut>⌘D</ContextMenuShortcut></ContextMenuItem>
+                              )}
                               <ContextMenuSeparator />
-                              {(r.status === 'DRAFT' || r.status === 'REJECTED') && (
+                              {(r.status === 'DRAFT' || r.status === 'REJECTED') && perms.canApprove && (
                                 <ContextMenuItem><ThumbsUp className="w-4 h-4 mr-2" /> Submit for Approval <ContextMenuShortcut>⌘S</ContextMenuShortcut></ContextMenuItem>
                               )}
-                              <ContextMenuItem variant="destructive"><Trash2 className="w-4 h-4 mr-2" /> Delete <ContextMenuShortcut>⌘⌫</ContextMenuShortcut></ContextMenuItem>
+                              {perms.canDelete && (
+                                <ContextMenuItem variant="destructive"><Trash2 className="w-4 h-4 mr-2" /> Delete <ContextMenuShortcut>⌘⌫</ContextMenuShortcut></ContextMenuItem>
+                              )}
                             </ContextMenuContent>
                           </ContextMenu>
                         ))}
@@ -1033,7 +1054,7 @@ export default function DataRecordsPage() {
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={40} minSize={25}>
                   <ScrollArea className="h-full">
-                    <RecordPreview record={selectedRecord} fields={fields} activeModuleId={activeModuleId} navigate={navigate} />
+                    <RecordPreview record={selectedRecord} fields={fields} activeModuleId={activeModuleId} navigate={navigate} perms={perms} />
                   </ScrollArea>
                 </ResizablePanel>
               </ResizablePanelGroup>
@@ -1121,9 +1142,9 @@ export default function DataRecordsPage() {
                                       onBlur={handleInlineSave} />
                                   </div>
                                 ) : (
-                                  <span className="truncate block cursor-text hover:bg-accent/30 rounded px-1 -mx-1"
-                                    onDoubleClick={(e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); }}
-                                    title="Double-click to edit">
+                                  <span className={cn('truncate block rounded px-1 -mx-1', perms.canEdit ? 'cursor-text hover:bg-accent/30' : 'cursor-default')}
+                                    onDoubleClick={perms.canEdit ? (e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); } : undefined}
+                                    title={perms.canEdit ? 'Double-click to edit' : 'Read only'}>
                                     {String(getPayloadValue(r, f.fieldCode))}
                                   </span>
                                 )}
@@ -1134,18 +1155,24 @@ export default function DataRecordsPage() {
                           </TableRow>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-52">
-                          <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
-                            <Pencil className="w-4 h-4 mr-2" /> Edit <ContextMenuShortcut>⌘E</ContextMenuShortcut>
-                          </ContextMenuItem>
+                          {perms.canEdit && (
+                            <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
+                              <Pencil className="w-4 h-4 mr-2" /> Edit <ContextMenuShortcut>⌘E</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          )}
                           <ContextMenuItem onClick={() => navigate('record-detail', { moduleId: activeModuleId, recordId: r.id })}>
                             <Eye className="w-4 h-4 mr-2" /> View <ContextMenuShortcut>⌘V</ContextMenuShortcut>
                           </ContextMenuItem>
-                          <ContextMenuItem><Copy className="w-4 h-4 mr-2" /> Duplicate <ContextMenuShortcut>⌘D</ContextMenuShortcut></ContextMenuItem>
+                          {perms.canCreate && (
+                            <ContextMenuItem><Copy className="w-4 h-4 mr-2" /> Duplicate <ContextMenuShortcut>⌘D</ContextMenuShortcut></ContextMenuItem>
+                          )}
                           <ContextMenuSeparator />
-                          {(r.status === 'DRAFT' || r.status === 'REJECTED') && (
+                          {(r.status === 'DRAFT' || r.status === 'REJECTED') && perms.canApprove && (
                             <ContextMenuItem><ThumbsUp className="w-4 h-4 mr-2" /> Submit for Approval <ContextMenuShortcut>⌘S</ContextMenuShortcut></ContextMenuItem>
                           )}
-                          <ContextMenuItem variant="destructive"><Trash2 className="w-4 h-4 mr-2" /> Delete <ContextMenuShortcut>⌘⌫</ContextMenuShortcut></ContextMenuItem>
+                          {perms.canDelete && (
+                            <ContextMenuItem variant="destructive"><Trash2 className="w-4 h-4 mr-2" /> Delete <ContextMenuShortcut>⌘⌫</ContextMenuShortcut></ContextMenuItem>
+                          )}
                         </ContextMenuContent>
                       </ContextMenu>
                     ))}

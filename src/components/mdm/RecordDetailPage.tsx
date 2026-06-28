@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, STATUS_LABELS, STATE_TRANSITIONS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS, STIBO_TERMINOLOGY } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -485,6 +486,7 @@ function ImageUploadField({
 // ---------------------------------------------------------------------------
 export default function RecordDetailPage() {
   const { token, selectedRecordId, selectedModuleId, navigate } = useAppStore();
+  const perms = usePermissions();
   const [record, setRecord] = useState<any>(null);
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1373,14 +1375,17 @@ export default function RecordDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           {!isNewRecord && !isEditing && (record?.status === 'DRAFT' || record?.status === 'REVISION_PENDING') && (
-            <Button variant="outline" onClick={() => setIsEditing(true)} className="h-9">
+            <Button variant="outline" onClick={() => setIsEditing(true)} className="h-9" disabled={!perms.canEdit}>
               <Save className="w-4 h-4 mr-1" /> Edit
             </Button>
           )}
           {!isNewRecord && !isEditing && record?.status === 'ACTIVE' && (
-            <Button variant="outline" onClick={() => setIsEditing(true)} className="h-9">
+            <Button variant="outline" onClick={() => setIsEditing(true)} className="h-9" disabled={!perms.canEdit}>
               <Save className="w-4 h-4 mr-1" /> Request Amendment
             </Button>
+          )}
+          {perms.isReadOnly && !isEditing && (
+            <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Read Only</Badge>
           )}
           {isEditing && hasPendingImageOps && (
             <Badge variant="outline" className="text-[11px] border-amber-300 bg-amber-50 text-amber-700">
@@ -1391,7 +1396,7 @@ export default function RecordDetailPage() {
           {isEditing && (
             <>
               <Button variant="outline" onClick={() => { setIsEditing(false); discardPendingImages(); if (record) { try { setEditPayload(JSON.parse(record.currentPayload)); } catch {} } }} className="h-9">Cancel</Button>
-              <Button onClick={handleSave} disabled={saving} className="bg-red-600 hover:bg-red-700 text-white h-9">
+              <Button onClick={handleSave} disabled={saving || !perms.canEdit} className="bg-red-600 hover:bg-red-700 text-white h-9">
                 {saving ? 'Saving...' : isNewRecord ? 'Create' : 'Save'}
               </Button>
             </>

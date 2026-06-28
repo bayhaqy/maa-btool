@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ import * as XLSX from 'xlsx';
 
 export default function BulkImportPage() {
   const { token } = useAppStore();
+  const perms = usePermissions();
   const [modules, setModules] = useState<any[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState('');
   const [templateHeaders, setTemplateHeaders] = useState<any[]>([]);
@@ -469,7 +471,7 @@ export default function BulkImportPage() {
             <Button
               className="w-full bg-red-600 hover:bg-red-700 text-white h-11"
               onClick={handleImport}
-              disabled={importing || !selectedModuleId || (activeTab === 'paste' ? !pasteData.trim() : uploadedData.length === 0)}
+              disabled={importing || !selectedModuleId || !perms.canImport || (activeTab === 'paste' ? !pasteData.trim() : uploadedData.length === 0)}
             >
               {importing ? (
                 <>
@@ -546,7 +548,7 @@ export default function BulkImportPage() {
               variant="outline"
               className="w-full h-11"
               onClick={handleExport}
-              disabled={exporting || !selectedModuleId}
+              disabled={exporting || !selectedModuleId || !perms.canExport}
             >
               {exporting ? (
                 <>

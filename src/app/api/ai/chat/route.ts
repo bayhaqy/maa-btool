@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
@@ -177,9 +178,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
-    if (!hasAiRole) {
-      return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    const hasAiReadPerm = hasPermission(tokenPayload.roles, 'ai:read');
+    if (!hasAiReadPerm) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:read' }, { status: 403 });
     }
 
     // ── Rate limit: AI endpoints ────────────────────────────────────
@@ -249,9 +250,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
-    if (!hasAiRole) {
-      return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    const hasAiPerm = hasPermission(tokenPayload.roles, 'ai:read');
+    if (!hasAiPerm) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:read' }, { status: 403 });
     }
 
     // ── Rate limit: AI endpoints ────────────────────────────────────
@@ -368,9 +369,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
-    if (!hasAiRole) {
-      return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    const hasAiWritePerm = hasPermission(tokenPayload.roles, 'ai:write');
+    if (!hasAiWritePerm) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
     }
 
     // ── Rate limit: AI endpoints ────────────────────────────────────
@@ -489,9 +490,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
-    if (!hasAiRole) {
-      return NextResponse.json({ error: 'Access denied. AI User role required.' }, { status: 403 });
+    const hasAiDeletePerm = hasPermission(tokenPayload.roles, 'ai:write');
+    if (!hasAiDeletePerm) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
     }
 
     // ── Rate limit: AI endpoints ────────────────────────────────────

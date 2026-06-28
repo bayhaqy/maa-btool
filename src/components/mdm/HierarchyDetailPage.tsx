@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ interface TreeNode {
 
 export default function HierarchyDetailPage() {
   const { token, selectedHierarchyId, navigate } = useAppStore();
+  const perms = usePermissions();
   const [hierarchy, setHierarchy] = useState<any>(null);
   const [treeNodes, setTreeNodes] = useState<TreeNode[]>([]);
   const [flatNodes, setFlatNodes] = useState<TreeNode[]>([]);
@@ -346,7 +348,7 @@ export default function HierarchyDetailPage() {
             className="flex items-center gap-0.5"
             onClick={(e) => e.stopPropagation()}
           >
-            <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => openAddNode(node.id)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => openAddNode(node.id)} disabled={!perms.canCreate}>
               <Plus className="w-3 h-3" />
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 p-1.5 rounded-md hover:bg-background/80 transition-colors" onClick={() => handleMoveNode(node, 'up')}>
@@ -362,10 +364,10 @@ export default function HierarchyDetailPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openEditNode(node)}>
+                <DropdownMenuItem onClick={() => openEditNode(node)} disabled={!perms.canEdit}>
                   <Pencil className="w-4 h-4 mr-2" /> Edit
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteNode(node.id)}>
+                <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteNode(node.id)} disabled={!perms.canDelete}>
                   <Trash2 className="w-4 h-4 mr-2" /> Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -414,7 +416,7 @@ export default function HierarchyDetailPage() {
             {hierarchy.module?.moduleName} &middot; {hierarchy.nodes?.length || 0} nodes
           </p>
         </div>
-        <Button className="bg-red-600 hover:bg-red-700 text-white h-9" onClick={() => openAddNode(null)}>
+        <Button className="bg-red-600 hover:bg-red-700 text-white h-9" onClick={() => openAddNode(null)} disabled={!perms.canCreate}>
           <Plus className="w-4 h-4 mr-1" /> Add Root Node
         </Button>
       </div>
@@ -472,7 +474,7 @@ export default function HierarchyDetailPage() {
           {treeNodes.length === 0 ? (
             <div className="py-8 text-center">
               <p className="text-muted-foreground">No nodes yet. Add a root node to start building the tree.</p>
-              <Button className="mt-3 bg-red-600 hover:bg-red-700 text-white" onClick={() => openAddNode(null)}>
+              <Button className="mt-3 bg-red-600 hover:bg-red-700 text-white" onClick={() => openAddNode(null)} disabled={!perms.canCreate}>
                 <Plus className="w-4 h-4 mr-1" /> Add Root Node
               </Button>
             </div>
@@ -517,7 +519,7 @@ export default function HierarchyDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNodeDialogOpen(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSaveNode} disabled={saving || !nodeForm.nodeLabel} className="bg-red-600 hover:bg-red-700 text-white">
+            <Button onClick={handleSaveNode} disabled={saving || !nodeForm.nodeLabel || !perms.canEdit} className="bg-red-600 hover:bg-red-700 text-white">
               {saving ? 'Saving...' : editNode ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>

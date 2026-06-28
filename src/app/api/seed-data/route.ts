@@ -935,6 +935,202 @@ export async function POST(request: NextRequest) {
       summary['WORKFLOW_TEMPLATES'] = 3;
     }
 
+    // ============================================================
+    // BUSINESS RULES — Stibo-aligned realistic rules
+    // ============================================================
+    const existingRules = await db.businessRule.count();
+    if (existingRules === 0 && modules.length > 0) {
+      const articleModule = getModule('ARTICLE');
+      const budgetModule = getModule('BUDGET');
+      const assetModule = getModule('ASSET');
+      const pricingModule = getModule('PRICING');
+
+      const rules = [
+        // CONDITION rules (Stibo validation rules)
+        {
+          name: 'Article Code Format Validation',
+          description: 'Article codes must follow the format: 2-letter category prefix + 6-digit number (e.g., AP123456). This ensures consistency across all MAP Group companies.',
+          ruleType: 'CONDITION',
+          conditionType: 'PATTERN',
+          actionType: null,
+          expression: 'article_code =~ /^[A-Z]{2}\\d{6}$/',
+          severity: 'ERROR',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 1,
+        },
+        {
+          name: 'Article Name Required',
+          description: 'Article name is mandatory for all product records. Stibo best practice: every product must have a display name for catalog and search.',
+          ruleType: 'CONDITION',
+          conditionType: 'CROSS_FIELD',
+          actionType: null,
+          expression: 'IF status == "ACTIVE" THEN name IS REQUIRED',
+          severity: 'ERROR',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 2,
+        },
+        {
+          name: 'Brand-Category Consistency',
+          description: 'When brand is "Nike" or "Adidas", category must be "Footwear" or "Apparel" or "Accessories". Prevents misclassification of licensed brands.',
+          ruleType: 'CONDITION',
+          conditionType: 'LOV_CROSS',
+          actionType: null,
+          expression: 'IF brand IN ["Nike","Adidas"] THEN category IN ["Footwear","Apparel","Accessories"]',
+          severity: 'WARNING',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 3,
+        },
+        {
+          name: 'Article Code Uniqueness',
+          description: 'Article codes must be unique across the entire catalog. Stibo completeness check prevents duplicate SKUs from being imported.',
+          ruleType: 'CONDITION',
+          conditionType: 'UNIQUENESS',
+          actionType: null,
+          expression: 'article_code IS UNIQUE WITHIN module',
+          severity: 'ERROR',
+          trigger: 'IMPORT',
+          scope: 'BULK',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 4,
+        },
+        {
+          name: 'Price Range Validation',
+          description: 'Selling price must be between IDR 10,000 and IDR 100,000,000 for retail articles. Prevents data entry errors in pricing.',
+          ruleType: 'CONDITION',
+          conditionType: 'RANGE',
+          actionType: null,
+          expression: 'selling_price >= 10000 AND selling_price <= 100000000',
+          severity: 'ERROR',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: pricingModule?.id || null,
+          isActive: true,
+          sortOrder: 5,
+        },
+        {
+          name: 'Budget Amount Limit',
+          description: 'Budget amounts cannot exceed IDR 10,000,000,000 per fiscal year per department. Stibo governance rule for financial compliance.',
+          ruleType: 'CONDITION',
+          conditionType: 'RANGE',
+          actionType: null,
+          expression: 'amount <= 10000000000',
+          severity: 'WARNING',
+          trigger: 'APPROVE',
+          scope: 'RECORD',
+          moduleId: budgetModule?.id || null,
+          isActive: true,
+          sortOrder: 6,
+        },
+        // ACTION rules (Stibo action rules)
+        {
+          name: 'Auto-Set Draft Status',
+          description: 'When a new article is created, automatically set status to DRAFT. Stibo lifecycle rule ensures all new records enter the approval workflow.',
+          ruleType: 'ACTION',
+          conditionType: null,
+          actionType: 'SET_STATUS',
+          expression: 'ON CREATE SET status = "DRAFT"',
+          severity: 'INFO',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 7,
+        },
+        {
+          name: 'Block Incomplete Article Approval',
+          description: 'Prevent approval of articles missing required fields (name, code, brand, category). Stibo data quality gate ensures only complete records move to ACTIVE.',
+          ruleType: 'ACTION',
+          conditionType: null,
+          actionType: 'BLOCK',
+          expression: 'IF name IS EMPTY OR code IS EMPTY OR brand IS EMPTY OR category IS EMPTY THEN BLOCK APPROVAL',
+          severity: 'ERROR',
+          trigger: 'APPROVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 8,
+        },
+        {
+          name: 'Warn on Duplicate Brand',
+          description: 'Display a warning when a brand name matches an existing brand with different casing. Helps prevent duplicate brand entries.',
+          ruleType: 'ACTION',
+          conditionType: null,
+          actionType: 'WARN',
+          expression: 'IF brand ILIKE existing_brand AND brand != existing_brand THEN WARN "Possible duplicate brand detected"',
+          severity: 'WARNING',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: articleModule?.id || null,
+          isActive: true,
+          sortOrder: 9,
+        },
+        // FUNCTION rules (Stibo scripted rules)
+        {
+          name: 'Calculate Asset Depreciation',
+          description: 'Automatically calculate annual depreciation for fixed assets using straight-line method. Updates the depreciation_amount field on save.',
+          ruleType: 'FUNCTION',
+          conditionType: null,
+          actionType: 'SET_VALUE',
+          expression: 'depreciation_amount = (purchase_price - salvage_value) / useful_life_years',
+          severity: 'INFO',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: assetModule?.id || null,
+          isActive: true,
+          sortOrder: 10,
+        },
+        {
+          name: 'Data Completeness Score',
+          description: 'Calculate a completeness score (0-100) for each record based on filled vs total fields. Used for data quality dashboards. Stibo completeness metric.',
+          ruleType: 'FUNCTION',
+          conditionType: 'COMPLETENESS',
+          actionType: 'SET_VALUE',
+          expression: 'completeness_score = (filled_fields / total_fields) * 100',
+          severity: 'INFO',
+          trigger: 'SAVE',
+          scope: 'RECORD',
+          moduleId: null,
+          isActive: true,
+          sortOrder: 11,
+        },
+        {
+          name: 'Import Validation Gate',
+          description: 'During bulk import, validate all records against condition rules before committing. Stibo import validation ensures data quality at the boundary.',
+          ruleType: 'FUNCTION',
+          conditionType: 'SCRIPTED',
+          actionType: 'BLOCK',
+          expression: 'FOR EACH record IN import_batch: VALIDATE all CONDITION rules; IF any ERROR THEN BLOCK import',
+          severity: 'ERROR',
+          trigger: 'IMPORT',
+          scope: 'BULK',
+          moduleId: null,
+          isActive: true,
+          sortOrder: 12,
+        },
+      ];
+
+      let rulesCreated = 0;
+      for (const rule of rules) {
+        try {
+          await db.businessRule.create({ data: rule as any });
+          rulesCreated++;
+        } catch (e) {
+          console.error('[seed-data] Failed to create business rule:', rule.name, e);
+        }
+      }
+      summary['BUSINESS_RULES'] = rulesCreated;
+    }
+
     const totalCreated = Object.values(summary).reduce((sum, count) => sum + count, 0);
 
     return NextResponse.json({

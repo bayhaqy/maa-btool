@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
+import { hasPermission } from '@/lib/rbac';
 import { logAudit, sanitizeInput } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
 
@@ -20,9 +20,11 @@ const VALID_SCOPES = ['RECORD', 'BULK', 'ALL'];
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    const authCheck = checkAuthAndPermission(tokenPayload, 'data:read');
-    if (authCheck.error) {
-      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(tokenPayload.roles, 'data:read')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: data:read' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -139,11 +141,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const canWrite = isSuperAdmin(tokenPayload.roles) ||
-      tokenPayload.roles.some(r => ['Manager'].includes(r));
+    const canWrite = hasPermission(tokenPayload.roles, 'schema:write');
     if (!canWrite) {
       return NextResponse.json(
-        { error: 'Insufficient permissions. Manager or Super Admin required.' },
+        { error: 'Insufficient permissions. Required: schema:write' },
         { status: 403 }
       );
     }
@@ -298,11 +299,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const canWrite = isSuperAdmin(tokenPayload.roles) ||
-      tokenPayload.roles.some(r => ['Manager'].includes(r));
+    const canWrite = hasPermission(tokenPayload.roles, 'schema:write');
     if (!canWrite) {
       return NextResponse.json(
-        { error: 'Insufficient permissions. Manager or Super Admin required.' },
+        { error: 'Insufficient permissions. Required: schema:write' },
         { status: 403 }
       );
     }
@@ -427,8 +427,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Only Super Admin can delete business rules' }, { status: 403 });
+    if (!tokenPayload || !hasPermission(tokenPayload.roles, 'schema:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: schema:write' }, { status: 403 });
     }
 
     const body = await request.json();

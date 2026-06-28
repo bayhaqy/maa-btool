@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -641,8 +642,9 @@ function WorkflowHistoryTimeline({ history, users }: { history: WorkflowHistoryE
 
 export default function WorkflowPage() {
   const { token, user } = useAppStore();
-  const canApprove = user?.roles?.some(r => ['Super Admin', 'Manager'].includes(r)) ?? false;
-  const isSuperAdmin = user?.roles?.includes('Super Admin') ?? false;
+  const perms = usePermissions();
+  const canApprove = perms.canApprove;
+  const isSuperAdmin = perms.isSuperAdmin;
 
   // Main tab
   const [mainTab, setMainTab] = useState('templates');
@@ -1118,7 +1120,7 @@ export default function WorkflowPage() {
               <h3 className="text-lg font-semibold">Workflow Templates</h3>
               <p className="text-sm text-muted-foreground">Visual state-machine workflows aligned with Stibo MDM best practices</p>
             </div>
-            {isSuperAdmin && (
+            {perms.canEditSchema && (
               <Button className="gap-1" onClick={() => openTemplateEditor('create')}>
                 <Plus className="w-4 h-4" /> New Template
               </Button>
@@ -1153,7 +1155,7 @@ export default function WorkflowPage() {
                           <CardTitle className="text-base">{tpl.name}</CardTitle>
                           {tpl.description && <CardDescription className="text-xs mt-1 line-clamp-2">{tpl.description}</CardDescription>}
                         </div>
-                        {isSuperAdmin && (
+                        {perms.canEditSchema && (
                           <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openTemplateEditor('edit', tpl)}>
                               <Pencil className="w-3.5 h-3.5" />
@@ -1261,7 +1263,7 @@ export default function WorkflowPage() {
                   </h3>
                   {selectedTemplate.description && <p className="text-sm text-muted-foreground mt-0.5">{selectedTemplate.description}</p>}
                 </div>
-                {isSuperAdmin && (
+                {perms.canEditSchema && (
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" className="gap-1" onClick={() => openTemplateEditor('edit', selectedTemplate)}>
                       <Pencil className="w-3.5 h-3.5" /> Edit Template

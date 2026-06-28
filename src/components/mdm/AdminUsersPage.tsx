@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import { toast } from 'sonner';
 
 export default function AdminUsersPage() {
   const { token, user: currentUser, impersonate } = useAppStore();
+  const perms = usePermissions();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
@@ -205,6 +207,16 @@ export default function AdminUsersPage() {
     });
     setDialogOpen(true);
   };
+
+  if (!perms.canAdmin) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[60vh]">
+        <ShieldAlert className="w-12 h-12 text-destructive mb-4" />
+        <h2 className="text-xl font-bold">Access Denied</h2>
+        <p className="text-muted-foreground mt-2">You do not have permission to access this page.</p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

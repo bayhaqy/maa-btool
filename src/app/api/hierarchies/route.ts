@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission } from '@/lib/rbac';
+import { checkAuthAndPermission, hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 
 // GET /api/hierarchies?moduleId=xxx - List hierarchies
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    const authCheck = checkAuthAndPermission(tokenPayload, 'data:create');
     if (authCheck.error) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
@@ -242,7 +242,7 @@ export async function PUT(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    const authCheck = checkAuthAndPermission(tokenPayload, 'data:edit');
     if (authCheck.error) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
@@ -406,7 +406,7 @@ export async function DELETE(request: NextRequest) {
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const authCheck = checkAuthAndPermission(tokenPayload, 'hierarchy:write');
+    const authCheck = checkAuthAndPermission(tokenPayload, 'data:delete');
     if (authCheck.error) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -372,6 +373,7 @@ function SeverityBadge({ severity }: { severity: Severity }) {
 
 export default function BusinessRulesPage() {
   const { token } = useAppStore();
+  const perms = usePermissions();
 
   // State
   const [rules, setRules] = useState<BusinessRule[]>(sampleRules);
@@ -772,10 +774,13 @@ export default function BusinessRulesPage() {
               Stibo-aligned rule engine — Conditions, Actions & Functions for data governance
             </p>
           </div>
-          <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white shrink-0" onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4" />
-            Create Rule
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {perms.isReadOnly && <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Read Only</Badge>}
+            <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" onClick={() => setCreateOpen(true)} disabled={!perms.canCreate}>
+              <Plus className="w-4 h-4" />
+              Create Rule
+            </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -875,7 +880,7 @@ export default function BusinessRulesPage() {
                           No {ruleTypeConfig[tabType].label.toLowerCase()} rules found.
                           {searchQuery || filterSeverity !== 'all' || filterTrigger !== 'all' ? ' Try adjusting your filters.' : ''}
                         </p>
-                        <Button variant="outline" size="sm" className="mt-3 gap-2" onClick={() => setCreateOpen(true)}>
+                        <Button variant="outline" size="sm" className="mt-3 gap-2" onClick={() => setCreateOpen(true)} disabled={!perms.canCreate}>
                           <Plus className="w-4 h-4" /> Create {ruleTypeConfig[tabType].label}
                         </Button>
                       </CardContent>
@@ -969,7 +974,7 @@ export default function BusinessRulesPage() {
                                 </Tooltip>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => deleteRule(rule.id)}>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => deleteRule(rule.id)} disabled={!perms.canDelete}>
                                       <Trash2 className="w-4 h-4" />
                                     </Button>
                                   </TooltipTrigger>
@@ -1132,13 +1137,13 @@ export default function BusinessRulesPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 pt-2">
-                      <Button variant="outline" className="gap-2" onClick={() => { toggleRule(selectedRule.id); setSelectedRule({ ...selectedRule, isActive: !selectedRule.isActive }); }}>
+                      <Button variant="outline" className="gap-2" onClick={() => { toggleRule(selectedRule.id); setSelectedRule({ ...selectedRule, isActive: !selectedRule.isActive }); }} disabled={!perms.canEdit}>
                         {selectedRule.isActive ? <><Pause className="w-4 h-4" />Disable</> : <><Play className="w-4 h-4" />Enable</>}
                       </Button>
                       <Button variant="outline" className="gap-2" onClick={() => { handleTestRule(selectedRule.id); setSelectedRule(null); }}>
                         <FlaskConical className="w-4 h-4" />Test Rule
                       </Button>
-                      <Button variant="outline" className="gap-2 text-destructive hover:text-destructive ml-auto" onClick={() => { deleteRule(selectedRule.id); setSelectedRule(null); }}>
+                      <Button variant="outline" className="gap-2 text-destructive hover:text-destructive ml-auto" onClick={() => { deleteRule(selectedRule.id); setSelectedRule(null); }} disabled={!perms.canDelete}>
                         <Trash2 className="w-4 h-4" />Delete
                       </Button>
                     </div>
@@ -1379,7 +1384,7 @@ export default function BusinessRulesPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button className="bg-red-600 hover:bg-red-700 text-white gap-2" onClick={handleCreateRule} disabled={!newRule.name.trim()}>
+              <Button className="bg-red-600 hover:bg-red-700 text-white gap-2" onClick={handleCreateRule} disabled={!perms.canCreate || !newRule.name.trim()}>
                 <Plus className="w-4 h-4" /> Create Rule
               </Button>
             </DialogFooter>

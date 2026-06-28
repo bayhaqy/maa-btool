@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
@@ -509,6 +510,7 @@ function buildDefaultPayload(fields: MetaField[]): Record<string, unknown> {
 
 export default function GridEditorPage() {
   const { token, user, navigate, selectedModuleId } = useAppStore();
+  const perms = usePermissions();
 
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [activeModuleId, setActiveModuleId] = useState<string>(selectedModuleId || '');
@@ -1709,7 +1711,7 @@ export default function GridEditorPage() {
                 size="sm"
                 className="h-9"
                 onClick={addRow}
-                disabled={addingRow || loading}
+                disabled={addingRow || loading || !perms.canCreate}
               >
                 {addingRow ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
                 Add Row
@@ -1719,7 +1721,7 @@ export default function GridEditorPage() {
                 size="sm"
                 className="h-9"
                 onClick={discardAll}
-                disabled={dirtyCount === 0 || saving}
+                disabled={dirtyCount === 0 || saving || !perms.canEdit}
               >
                 <RotateCcw className="w-4 h-4 mr-1.5" />
                 Discard
@@ -1738,7 +1740,7 @@ export default function GridEditorPage() {
                 size="sm"
                 className="h-9 bg-red-600 hover:bg-red-700 text-white"
                 onClick={saveChanges}
-                disabled={dirtyCount === 0 || saving || loading}
+                disabled={dirtyCount === 0 || saving || loading || !perms.canEdit}
               >
                 {saving ? (
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />

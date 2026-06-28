@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
+import { hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 
 // GET /api/admin/lookups?lookupCode=xxx&includeInactive=true - List all lookups with values
@@ -12,9 +12,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can manage lookups
-    if (!isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage lookups.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can create lookups
-    if (!isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create lookups.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     const body = await request.json();
@@ -148,9 +148,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can update lookups
-    if (!isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update lookups.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     const body = await request.json();
@@ -294,9 +294,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can delete lookups
-    if (!isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete lookups.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);

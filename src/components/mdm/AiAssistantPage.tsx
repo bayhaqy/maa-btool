@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -137,6 +138,9 @@ export default function AiAssistantPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const canAccess = user?.roles?.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r)) ?? false;
+  const perms = usePermissions();
+  const isReadOnly = perms.isReadOnly;
+  const canEditOwnMessages = perms.canEditAI && !isReadOnly;
 
   // Load AI provider config on mount
   useEffect(() => {
@@ -238,7 +242,7 @@ export default function AiAssistantPage() {
   // ---- Send message (streaming) ----
   const handleSendMessage = useCallback(async (overrideMessage?: string) => {
     const content = (overrideMessage ?? inputMessage).trim();
-    if (!token || !content || isStreaming) return;
+    if (!token || !content || isStreaming || isReadOnly) return;
 
     const userMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
@@ -358,7 +362,7 @@ export default function AiAssistantPage() {
       abortControllerRef.current = null;
       setStreamingMessageId(null);
     }
-  }, [token, inputMessage, isStreaming, activeConversationId, loadConversations]);
+  }, [token, inputMessage, isStreaming, isReadOnly, activeConversationId, loadConversations]);
 
   const handleStop = () => {
     abortControllerRef.current?.abort();
@@ -513,12 +517,13 @@ export default function AiAssistantPage() {
 
   // ---- Message-level actions ----
   const handleEditMessage = (msgId: string, currentContent: string) => {
+    if (isReadOnly) return;
     setEditingMsgId(msgId);
     setEditingContent(currentContent);
   };
 
   const handleConfirmEditMessage = async () => {
-    if (!token || !editingMsgId || !editingContent.trim()) return;
+    if (!token || !editingMsgId || !editingContent.trim() || isReadOnly) return;
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'PATCH',
@@ -542,7 +547,7 @@ export default function AiAssistantPage() {
   };
 
   const handleConfirmDeleteMessage = async () => {
-    if (!token || !deleteMsgId) return;
+    if (!token || !deleteMsgId || isReadOnly) return;
     try {
       const res = await fetch(`/api/ai/chat?messageId=${deleteMsgId}`, {
         method: 'DELETE',
@@ -701,7 +706,7 @@ export default function AiAssistantPage() {
         </div>
 
         <div className="p-2 shrink-0 space-y-2">
-          <Button className="w-full bg-red-600 hover:bg-red-700 text-white h-9 text-sm" onClick={handleNewChat}>
+          <Button className="w-full bg-red-600 hover:bg-red-700 text-white h-9 text-sm" onClick={handleNewChat} disabled={isReadOnly}>
             <Plus className="w-4 h-4 mr-2" /> New Chat
           </Button>
 
@@ -801,6 +806,7 @@ export default function AiAssistantPage() {
                       </button>
 
                       <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
+                        {!isReadOnly && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleToggleBookmark(conv.id, conv.bookmarked); }}
                           className={cn(
@@ -818,6 +824,7 @@ export default function AiAssistantPage() {
                             <Bookmark className="w-4 h-4 text-muted-foreground" />
                           )}
                         </button>
+                        )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button
@@ -829,20 +836,20 @@ export default function AiAssistantPage() {
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 z-50">
-                            <DropdownMenuItem onClick={() => handleOpenRename(conv.id, conv.title || '')}>
+                            <DropdownMenuItem onClick={() => handleOpenRename(conv.id, conv.title || '')} disabled={isReadOnly}>
                               <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenCategorize(conv.id, conv.category)}>
+                            <DropdownMenuItem onClick={() => handleOpenCategorize(conv.id, conv.category)} disabled={isReadOnly}>
                               <Tag className="w-3.5 h-3.5 mr-2" /> Set Category
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleToggleBookmark(conv.id, conv.bookmarked)}>
+                            <DropdownMenuItem onClick={() => handleToggleBookmark(conv.id, conv.bookmarked)} disabled={isReadOnly}>
                               {conv.bookmarked ? (
                                 <><BookmarkCheck className="w-3.5 h-3.5 mr-2" /> Remove bookmark</>
                               ) : (
                                 <><Bookmark className="w-3.5 h-3.5 mr-2" /> Bookmark</>
                               )}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleTogglePin(conv.id, conv.pinned)}>
+                            <DropdownMenuItem onClick={() => handleTogglePin(conv.id, conv.pinned)} disabled={isReadOnly}>
                               <Pin className="w-3.5 h-3.5 mr-2" />
                               {conv.pinned ? 'Unpin' : 'Pin to top'}
                             </DropdownMenuItem>
@@ -850,6 +857,7 @@ export default function AiAssistantPage() {
                             <DropdownMenuItem
                               className="text-red-600 focus:text-red-700"
                               onClick={() => setDeleteConvId(conv.id)}
+                              disabled={isReadOnly}
                             >
                               <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
                             </DropdownMenuItem>
@@ -889,6 +897,11 @@ export default function AiAssistantPage() {
                 {aiConfigured === true && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                     <Zap className="w-3 h-3" /> Live AI
+                  </span>
+                )}
+                {isReadOnly && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                    <ShieldCheck className="w-3 h-3" /> Read Only
                   </span>
                 )}
               </h3>
@@ -955,7 +968,7 @@ export default function AiAssistantPage() {
                       <button
                         key={s.title}
                         onClick={() => handleSendMessage(s.prompt)}
-                        disabled={isStreaming}
+                        disabled={isStreaming || isReadOnly}
                         className="group text-left p-3 rounded-xl border bg-card hover:bg-accent/50 hover:border-red-300 dark:hover:border-red-700 transition-all disabled:opacity-50"
                       >
                         <div className="flex items-start gap-3">
@@ -1112,8 +1125,8 @@ export default function AiAssistantPage() {
                             )}
                           </button>
 
-                          {/* Edit button for user messages */}
-                          {msg.role === 'user' && !isStreaming && (
+                          {/* Edit button for user messages (only for non-readOnly users) */}
+                          {msg.role === 'user' && !isStreaming && canEditOwnMessages && (
                             <button
                               onClick={() => handleEditMessage(msg.id, msg.content)}
                               className="p-1 rounded hover:bg-accent"
@@ -1123,8 +1136,8 @@ export default function AiAssistantPage() {
                             </button>
                           )}
 
-                          {/* Delete message button */}
-                          {!isStreaming && (
+                          {/* Delete message button (only for non-readOnly users) */}
+                          {!isStreaming && canEditOwnMessages && (
                             <button
                               onClick={() => setDeleteMsgId(msg.id)}
                               className="p-1 rounded hover:bg-accent"
@@ -1203,7 +1216,7 @@ export default function AiAssistantPage() {
 
         {/* Input Bar + Quick Prompts */}
         <div className="border-t shrink-0 bg-card/50">
-          {!inputMessage.trim() && !isStreaming && messages.length > 0 && (
+          {!inputMessage.trim() && !isStreaming && messages.length > 0 && !isReadOnly && (
             <div className="px-3 pt-2 pb-1 max-w-3xl mx-auto">
               <div className="flex flex-wrap gap-1.5">
                 {[
@@ -1228,11 +1241,11 @@ export default function AiAssistantPage() {
               <div className="flex items-end gap-2 rounded-xl border bg-background focus-within:ring-2 focus-within:ring-red-500/30 focus-within:border-red-400 transition-all">
                 <Textarea
                   ref={textareaRef}
-                  placeholder="Ask me anything about MDM... (Enter to send, Shift+Enter for new line)"
+                  placeholder={isReadOnly ? "Read-only access — you cannot send messages" : "Ask me anything about MDM... (Enter to send, Shift+Enter for new line)"}
                   value={inputMessage}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isReadOnly}
                   rows={1}
                   className="flex-1 min-h-[44px] max-h-[160px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-3 py-3 text-sm"
                 />
@@ -1248,7 +1261,7 @@ export default function AiAssistantPage() {
                 ) : (
                   <Button
                     onClick={() => handleSendMessage()}
-                    disabled={!inputMessage.trim() || isStreaming}
+                    disabled={!inputMessage.trim() || isStreaming || isReadOnly}
                     className="bg-red-600 hover:bg-red-700 text-white h-11 w-11 shrink-0 my-1 mr-1 rounded-lg"
                     size="icon"
                     title="Send"
@@ -1258,7 +1271,15 @@ export default function AiAssistantPage() {
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground text-center mt-2">
-                AI responses may be inaccurate. Press <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Shift+Enter</kbd> for new line.
+                {isReadOnly ? (
+                  <span className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                    <ShieldCheck className="w-3 h-3" /> Read-only access — message sending is disabled
+                  </span>
+                ) : (
+                  <>
+                    AI responses may be inaccurate. Press <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Shift+Enter</kbd> for new line.
+                  </>
+                )}
               </p>
             </div>
           </div>

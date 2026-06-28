@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,11 +20,12 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Building2, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { Building2, Plus, MoreVertical, Pencil, Trash2, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AdminCompaniesPage() {
   const { token } = useAppStore();
+  const perms = usePermissions();
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -110,6 +112,16 @@ export default function AdminCompaniesPage() {
     setForm({ companyCode: '', companyName: '', isActive: true });
     setDialogOpen(true);
   };
+
+  if (!perms.canAdmin) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[60vh]">
+        <ShieldAlert className="w-12 h-12 text-destructive mb-4" />
+        <h2 className="text-xl font-bold">Access Denied</h2>
+        <p className="text-muted-foreground mt-2">You do not have permission to access this page.</p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

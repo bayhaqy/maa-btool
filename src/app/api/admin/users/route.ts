@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, hashPassword } from '@/lib/auth';
-import { checkAuthAndPermission } from '@/lib/rbac';
+import { hasPermission } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can manage users
-    if (!tokenPayload.roles.includes('Super Admin')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can manage users.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -65,9 +65,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can create users
-    if (!tokenPayload.roles.includes('Super Admin')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can create users.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -161,9 +161,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can update users
-    if (!tokenPayload.roles.includes('Super Admin')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can update users.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -273,9 +273,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only Super Admin can delete users
-    if (!tokenPayload.roles.includes('Super Admin')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Only Super Admin can delete users.' }, { status: 403 });
+    // Require admin:write permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
