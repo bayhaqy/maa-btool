@@ -1,0 +1,18 @@
+#!/bin/bash
+# Ensure prisma/schema.prisma has PostgreSQL provider before committing
+SCHEMA_FILE="prisma/schema.prisma"
+if [ -f "$SCHEMA_FILE" ]; then
+  PROVIDER=$(grep 'provider.*=.*"sqlite"' "$SCHEMA_FILE")
+  if [ -n "$PROVIDER" ]; then
+    echo "⚠️  Detected SQLite provider in $SCHEMA_FILE"
+    echo "   Switching to PostgreSQL for commit..."
+    # Switch to PostgreSQL provider
+    sed -i 's/provider  = "sqlite"/provider  = "postgresql"/' "$SCHEMA_FILE"
+    # Add directUrl if not present
+    if ! grep -q "directUrl" "$SCHEMA_FILE"; then
+      sed -i '/url       = env("DATABASE_URL")/a\  directUrl = env("DIRECT_DATABASE_URL")' "$SCHEMA_FILE"
+    fi
+    git add "$SCHEMA_FILE"
+    echo "✅ Schema switched to PostgreSQL for commit"
+  fi
+fi
