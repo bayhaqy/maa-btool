@@ -930,3 +930,62 @@ Task: Rework Admin UI Pages with Stibo-style Multi-Tenant Terminology and Featur
 - `src/app/api/admin/companies/provision/route.ts`
 - `src/app/api/admin/roles/route.ts`
 - `src/app/api/admin/roles/duplicate/route.ts` (new file)
+
+---
+Task ID: 3b
+Agent: Sub Agent
+Task: Convert JSON-holding String fields to proper Json type in prisma/schema.prisma
+
+## Summary
+Converted 30 String fields that hold JSON data to the native Prisma `Json` type in the PostgreSQL schema. The SQLite schema was left unchanged (String) since Prisma's SQLite provider stores Json as text.
+
+## Fields Converted (String → Json in schema.prisma):
+
+| Model | Field | Type Change |
+|-------|-------|-------------|
+| RolePermission | columnRestrictions | String? → Json? |
+| RolePermission | rowFilter | String? → Json? |
+| RolePermission | allowedStates | String? → Json? |
+| DataRecord | currentPayload | String → Json |
+| DataVersion | payloadSnapshot | String → Json |
+| ApprovalTicket | deltaPayload | String? → Json? |
+| ApprovalTicket | workflowHistory | String? → Json? |
+| WorkflowTemplate | stepConfig | String → Json |
+| WorkflowTemplate | autoApproveRules | String? → Json? |
+| WorkflowTemplate | slaConfig | String? → Json? |
+| WorkflowTransition | condition | String? → Json? |
+| WorkflowTransition | businessRuleIds | String? → Json? |
+| WorkflowTransition | notifyRoles | String? → Json? |
+| DigitalAsset | tags | String? → Json? |
+| DigitalAsset | rightsInfo | String? → Json? |
+| ApiKey | permissions | String → Json |
+| DataExchangeEndpoint | connectionConfig | String → Json |
+| DataExchangeEndpoint | mappingConfig | String? → Json? |
+| DataExchangeEndpoint | scheduleConfig | String? → Json? |
+| DataExchangeEndpoint | transformRules | String? → Json? |
+| DataExchangeEndpoint | errorHandling | String? → Json? |
+| AiConversation | tags | String? → Json? |
+| BusinessRule | conditionJson | String → Json |
+| BusinessRule | actionJson | String? → Json? |
+| SavedView | columnConfig | String? → Json? |
+| SavedView | filterConfig | String? → Json? |
+| BulkUpdateJob | targetFilter | String → Json |
+| BulkUpdateJob | operations | String → Json |
+| BulkUpdateJob | results | String? → Json? |
+| AiPrompt | inputAttributes | String? → Json? |
+| TenantAiConfig | customHeaders | String? → Json? |
+
+## Fields Intentionally NOT Converted:
+- `conditionType` in BusinessRule — enum string value, not JSON
+- `tags` in Documentation — plain text tags, not in scope
+- `content` in AiMessage — chat text
+- `settingValue` in AppSettings — flexible string
+- All plain text fields (roleName, companyName, description, email, etc.)
+
+## Schema Validation:
+- ✅ PostgreSQL schema validates successfully
+- ✅ SQLite schema validates successfully (kept as String)
+
+## Files Modified:
+- `prisma/schema.prisma` — 30 field type changes String→Json
+- `prisma/schema.sqlite.prisma` — no type changes (SQLite stores Json as text)
