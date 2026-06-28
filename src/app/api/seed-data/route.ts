@@ -719,6 +719,222 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Seed Digital Assets (Stibo DAM) ─────────────────────────────────────
+    const existingAssets = await db.digitalAsset.count({ where: { companyId: company.id } });
+    if (existingAssets === 0) {
+      const sampleAssets = [
+        { assetType: 'IMAGE', fileName: 'product_hero.jpg', originalFileName: 'product_hero.jpg', filePath: '/placeholder.jpg', fileSize: 245000, mimeType: 'image/jpeg', title: 'Product Hero Image', description: 'Main hero banner for product launch campaign', altText: 'Product hero banner', category: 'Marketing', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'banner', 'product']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB' },
+        { assetType: 'IMAGE', fileName: 'logo_dark.png', originalFileName: 'logo_dark.png', filePath: '/placeholder.jpg', fileSize: 52000, mimeType: 'image/png', title: 'Company Logo (Dark)', description: 'Official company logo on dark background', altText: 'Company logo', category: 'Brand', status: 'APPROVED', tags: JSON.stringify(['logo', 'brand', 'identity']), width: 800, height: 400, dpi: 150, colorSpace: 'sRGB' },
+        { assetType: 'VIDEO', fileName: 'tutorial_overview.mp4', originalFileName: 'tutorial_overview.mp4', filePath: '/placeholder.mp4', fileSize: 15700000, mimeType: 'video/mp4', title: 'Product Tutorial Overview', description: '5-minute overview tutorial for new users', category: 'Training', status: 'IN_REVIEW', tags: JSON.stringify(['tutorial', 'video', 'onboarding']), duration: 300, frameRate: 30 },
+        { assetType: 'DOCUMENT', fileName: 'user_guide_v3.pdf', originalFileName: 'user_guide_v3.pdf', filePath: '/placeholder.pdf', fileSize: 3200000, mimeType: 'application/pdf', title: 'User Guide v3.0', description: 'Comprehensive user guide for version 3.0', category: 'Documentation', status: 'PUBLISHED', tags: JSON.stringify(['guide', 'documentation', 'manual']), pageCount: 45 },
+        { assetType: 'IMAGE', fileName: 'summer_sale_banner.jpg', originalFileName: 'summer_sale_banner.jpg', filePath: '/placeholder.jpg', fileSize: 180000, mimeType: 'image/jpeg', title: 'Summer Sale Banner', description: 'Summer promotional banner for e-commerce', altText: 'Summer sale promotional banner', category: 'Marketing', status: 'APPROVED', tags: JSON.stringify(['banner', 'sale', 'promotion', 'summer']), width: 1200, height: 628, dpi: 72, validFrom: new Date('2025-06-01').toISOString(), validTo: new Date('2025-08-31').toISOString(), rightsInfo: JSON.stringify({ license: 'Internal Use Only', owner: 'Marketing Dept', restrictions: 'Do not distribute externally' }) },
+        { assetType: 'SPREADSHEET', fileName: 'pricing_matrix.xlsx', originalFileName: 'pricing_matrix.xlsx', filePath: '/placeholder.xlsx', fileSize: 450000, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', title: 'Pricing Matrix Q3 2025', description: 'Pricing matrix for all product lines Q3', category: 'Finance', status: 'DRAFT', tags: JSON.stringify(['pricing', 'finance', 'quarterly']) },
+        { assetType: 'AUDIO', fileName: 'podcast_ep12.mp3', originalFileName: 'podcast_ep12.mp3', filePath: '/placeholder.mp3', fileSize: 8500000, mimeType: 'audio/mpeg', title: 'Industry Insights Podcast - Ep 12', description: 'Interview with industry expert on data governance', category: 'Marketing', status: 'PUBLISHED', tags: JSON.stringify(['podcast', 'interview', 'governance']), duration: 1800 },
+        { assetType: 'IMAGE', fileName: 'team_photo_2025.jpg', originalFileName: 'team_photo_2025.jpg', filePath: '/placeholder.jpg', fileSize: 4100000, mimeType: 'image/jpeg', title: 'Team Photo 2025', description: 'Annual team photograph', altText: 'Team photo 2025', category: 'Internal', status: 'APPROVED', tags: JSON.stringify(['team', 'photo', 'annual']), width: 4000, height: 2667, dpi: 300 },
+        { assetType: 'PRESENTATION', fileName: 'roadmap_q3.pptx', originalFileName: 'roadmap_q3.pptx', filePath: '/placeholder.pptx', fileSize: 2800000, mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', title: 'Product Roadmap Q3 2025', description: 'Quarterly product roadmap presentation', category: 'Strategy', status: 'IN_REVIEW', tags: JSON.stringify(['roadmap', 'strategy', 'quarterly']), pageCount: 24 },
+        { assetType: 'IMAGE', fileName: 'social_post_linkedin.png', originalFileName: 'social_post_linkedin.png', filePath: '/placeholder.jpg', fileSize: 95000, mimeType: 'image/png', title: 'LinkedIn Social Post', description: 'Social media post template for LinkedIn', altText: 'LinkedIn post', category: 'Marketing', status: 'DRAFT', tags: JSON.stringify(['social', 'linkedin', 'template']), width: 1200, height: 627, dpi: 72, validTo: new Date('2025-03-01').toISOString(), rightsInfo: JSON.stringify({ license: 'Creative Commons', owner: 'Content Team', restrictions: 'Attribution required' }) },
+        { assetType: 'DOCUMENT', fileName: 'data_governance_policy.pdf', originalFileName: 'data_governance_policy.pdf', filePath: '/placeholder.pdf', fileSize: 1200000, mimeType: 'application/pdf', title: 'Data Governance Policy', description: 'Enterprise data governance policy document v2.1', category: 'Governance', status: 'APPROVED', tags: JSON.stringify(['policy', 'governance', 'compliance']), pageCount: 18 },
+        { assetType: 'IMAGE', fileName: 'expired_campaign.jpg', originalFileName: 'expired_campaign.jpg', filePath: '/placeholder.jpg', fileSize: 210000, mimeType: 'image/jpeg', title: 'Expired Winter Campaign', description: 'Winter campaign asset (rights expired)', altText: 'Winter campaign', category: 'Marketing', status: 'ARCHIVED', tags: JSON.stringify(['campaign', 'winter', 'expired']), width: 1600, height: 900, dpi: 72, validFrom: new Date('2024-11-01').toISOString(), validTo: new Date('2025-02-01').toISOString(), rightsInfo: JSON.stringify({ license: 'Seasonal License', owner: 'External Agency', restrictions: 'Use only during Nov-Jan period' }) },
+      ];
+
+      for (const asset of sampleAssets) {
+        await db.digitalAsset.create({
+          data: {
+            companyId: company.id,
+            uploadedById: user.id,
+            ...asset,
+            validFrom: asset.validFrom ? new Date(asset.validFrom) : null,
+            validTo: asset.validTo ? new Date(asset.validTo) : null,
+          },
+        });
+      }
+      summary['DIGITAL_ASSETS'] = sampleAssets.length;
+    }
+
+    // ── Seed Workflow Templates (Stibo Visual Workflow) ────────────────────
+    const existingTemplates = await db.workflowTemplate.count();
+    if (existingTemplates === 0) {
+      // Product Approval Workflow: DRAFT → IN_REVIEW → APPROVED → PUBLISHED with rejection paths
+      const productTemplate = await db.workflowTemplate.create({
+        data: {
+          name: 'Product Approval Workflow',
+          description: 'Full product approval lifecycle with review, approval, and publishing stages. Includes rejection and archival paths.',
+          moduleScope: 'PRODUCT',
+          stepCount: 6,
+          stepConfig: JSON.stringify([
+            { stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 },
+            { stateCode: 'IN_REVIEW', stateName: 'In Review', stateType: 'IN_REVIEW', color: '#f59e0b', isInitial: false, isFinal: false, sortOrder: 1 },
+            { stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 2 },
+            { stateCode: 'REJECTED', stateName: 'Rejected', stateType: 'REJECTED', color: '#ef4444', isInitial: false, isFinal: false, sortOrder: 3 },
+            { stateCode: 'PUBLISHED', stateName: 'Published', stateType: 'PUBLISHED', color: '#8b5cf6', isInitial: false, isFinal: true, sortOrder: 4 },
+            { stateCode: 'ARCHIVED', stateName: 'Archived', stateType: 'ARCHIVED', color: '#94a3b8', isInitial: false, isFinal: true, sortOrder: 5 },
+          ]),
+          autoApproveRules: JSON.stringify([
+            { condition: 'completeness >= 100 AND accuracy >= 95', targetState: 'APPROVED', description: 'Auto-approve when data quality is high' },
+          ]),
+          slaConfig: JSON.stringify({
+            defaultDeadlineHours: 48,
+            escalationRules: [
+              { afterHours: 24, assignToRole: 'Manager', description: 'Escalate to manager after 24h' },
+              { afterHours: 48, assignToRole: 'Super Admin', description: 'Escalate to super admin after 48h' },
+            ],
+          }),
+        },
+      });
+
+      const productStates = await Promise.all([
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 } }),
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'IN_REVIEW', stateName: 'In Review', stateType: 'IN_REVIEW', color: '#f59e0b', isInitial: false, isFinal: false, sortOrder: 1 } }),
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 2 } }),
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'REJECTED', stateName: 'Rejected', stateType: 'REJECTED', color: '#ef4444', isInitial: false, isFinal: false, sortOrder: 3 } }),
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'PUBLISHED', stateName: 'Published', stateType: 'PUBLISHED', color: '#8b5cf6', isInitial: false, isFinal: true, sortOrder: 4 } }),
+        db.workflowState.create({ data: { templateId: productTemplate.id, stateCode: 'ARCHIVED', stateName: 'Archived', stateType: 'ARCHIVED', color: '#94a3b8', isInitial: false, isFinal: true, sortOrder: 5 } }),
+      ]);
+
+      const psMap = Object.fromEntries(productStates.map(s => [s.stateCode, s.id]));
+
+      const productTransitions = [
+        { fromStateCode: 'DRAFT', toStateCode: 'IN_REVIEW', transitionName: 'Submit for Review', requiredRole: 'Data Entry', isAuto: false, notifyRoles: ['Manager'], condition: null, sortOrder: 0 },
+        { fromStateCode: 'IN_REVIEW', toStateCode: 'APPROVED', transitionName: 'Approve', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 1 },
+        { fromStateCode: 'IN_REVIEW', toStateCode: 'REJECTED', transitionName: 'Reject', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 2 },
+        { fromStateCode: 'REJECTED', toStateCode: 'DRAFT', transitionName: 'Resubmit', requiredRole: 'Data Entry', isAuto: false, notifyRoles: [], condition: null, sortOrder: 3 },
+        { fromStateCode: 'APPROVED', toStateCode: 'PUBLISHED', transitionName: 'Publish', requiredRole: 'Manager', isAuto: true, notifyRoles: ['Data Entry', 'Manager'], condition: 'completeness >= 100', sortOrder: 4 },
+        { fromStateCode: 'APPROVED', toStateCode: 'IN_REVIEW', transitionName: 'Send Back to Review', requiredRole: 'Manager', isAuto: false, notifyRoles: [], condition: null, sortOrder: 5 },
+        { fromStateCode: 'PUBLISHED', toStateCode: 'ARCHIVED', transitionName: 'Archive', requiredRole: 'Super Admin', isAuto: false, notifyRoles: ['Manager'], condition: null, sortOrder: 6 },
+        { fromStateCode: 'DRAFT', toStateCode: 'ARCHIVED', transitionName: 'Archive Draft', requiredRole: 'Manager', isAuto: false, notifyRoles: [], condition: null, sortOrder: 7 },
+        { fromStateCode: 'REJECTED', toStateCode: 'ARCHIVED', transitionName: 'Archive Rejected', requiredRole: 'Super Admin', isAuto: false, notifyRoles: [], condition: null, sortOrder: 8 },
+      ];
+
+      for (const t of productTransitions) {
+        await db.workflowTransition.create({
+          data: {
+            templateId: productTemplate.id,
+            fromStateId: psMap[t.fromStateCode],
+            toStateId: psMap[t.toStateCode],
+            transitionName: t.transitionName,
+            condition: t.condition,
+            requiredRole: t.requiredRole,
+            isAuto: t.isAuto,
+            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+            sortOrder: t.sortOrder,
+          },
+        });
+      }
+
+      // Simple Review Workflow: DRAFT → APPROVED → PUBLISHED
+      const simpleTemplate = await db.workflowTemplate.create({
+        data: {
+          name: 'Simple Review',
+          description: 'Lightweight review workflow for low-risk data changes. Direct approval with optional publishing.',
+          moduleScope: null,
+          stepCount: 3,
+          stepConfig: JSON.stringify([
+            { stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 },
+            { stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 1 },
+            { stateCode: 'PUBLISHED', stateName: 'Published', stateType: 'PUBLISHED', color: '#8b5cf6', isInitial: false, isFinal: true, sortOrder: 2 },
+          ]),
+          autoApproveRules: null,
+          slaConfig: JSON.stringify({
+            defaultDeadlineHours: 24,
+            escalationRules: [
+              { afterHours: 12, assignToRole: 'Manager', description: 'Escalate to manager after 12h' },
+            ],
+          }),
+        },
+      });
+
+      const simpleStates = await Promise.all([
+        db.workflowState.create({ data: { templateId: simpleTemplate.id, stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 } }),
+        db.workflowState.create({ data: { templateId: simpleTemplate.id, stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 1 } }),
+        db.workflowState.create({ data: { templateId: simpleTemplate.id, stateCode: 'PUBLISHED', stateName: 'Published', stateType: 'PUBLISHED', color: '#8b5cf6', isInitial: false, isFinal: true, sortOrder: 2 } }),
+      ]);
+
+      const ssMap = Object.fromEntries(simpleStates.map(s => [s.stateCode, s.id]));
+
+      const simpleTransitions = [
+        { fromStateCode: 'DRAFT', toStateCode: 'APPROVED', transitionName: 'Approve', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 0 },
+        { fromStateCode: 'APPROVED', toStateCode: 'PUBLISHED', transitionName: 'Publish', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 1 },
+      ];
+
+      for (const t of simpleTransitions) {
+        await db.workflowTransition.create({
+          data: {
+            templateId: simpleTemplate.id,
+            fromStateId: ssMap[t.fromStateCode],
+            toStateId: ssMap[t.toStateCode],
+            transitionName: t.transitionName,
+            condition: t.condition,
+            requiredRole: t.requiredRole,
+            isAuto: t.isAuto,
+            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+            sortOrder: t.sortOrder,
+          },
+        });
+      }
+
+      // Vendor Onboarding Workflow: DRAFT → IN_REVIEW → APPROVED → REJECTED → ARCHIVED
+      const vendorTemplate = await db.workflowTemplate.create({
+        data: {
+          name: 'Vendor Onboarding',
+          description: 'Vendor onboarding workflow with compliance checks and approval gates.',
+          moduleScope: 'VENDOR',
+          stepCount: 5,
+          stepConfig: JSON.stringify([
+            { stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 },
+            { stateCode: 'IN_REVIEW', stateName: 'Compliance Review', stateType: 'IN_REVIEW', color: '#f59e0b', isInitial: false, isFinal: false, sortOrder: 1 },
+            { stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 2 },
+            { stateCode: 'REJECTED', stateName: 'Rejected', stateType: 'REJECTED', color: '#ef4444', isInitial: false, isFinal: false, sortOrder: 3 },
+            { stateCode: 'ARCHIVED', stateName: 'Archived', stateType: 'ARCHIVED', color: '#94a3b8', isInitial: false, isFinal: true, sortOrder: 4 },
+          ]),
+          autoApproveRules: JSON.stringify([
+            { condition: 'vendor.complianceScore >= 90', targetState: 'APPROVED', description: 'Auto-approve vendors with high compliance score' },
+          ]),
+          slaConfig: JSON.stringify({
+            defaultDeadlineHours: 72,
+            escalationRules: [
+              { afterHours: 48, assignToRole: 'Super Admin', description: 'Escalate to super admin after 48h' },
+            ],
+          }),
+        },
+      });
+
+      const vendorStates = await Promise.all([
+        db.workflowState.create({ data: { templateId: vendorTemplate.id, stateCode: 'DRAFT', stateName: 'Draft', stateType: 'DRAFT', color: '#6b7280', isInitial: true, isFinal: false, sortOrder: 0 } }),
+        db.workflowState.create({ data: { templateId: vendorTemplate.id, stateCode: 'IN_REVIEW', stateName: 'Compliance Review', stateType: 'IN_REVIEW', color: '#f59e0b', isInitial: false, isFinal: false, sortOrder: 1 } }),
+        db.workflowState.create({ data: { templateId: vendorTemplate.id, stateCode: 'APPROVED', stateName: 'Approved', stateType: 'APPROVED', color: '#10b981', isInitial: false, isFinal: false, sortOrder: 2 } }),
+        db.workflowState.create({ data: { templateId: vendorTemplate.id, stateCode: 'REJECTED', stateName: 'Rejected', stateType: 'REJECTED', color: '#ef4444', isInitial: false, isFinal: false, sortOrder: 3 } }),
+        db.workflowState.create({ data: { templateId: vendorTemplate.id, stateCode: 'ARCHIVED', stateName: 'Archived', stateType: 'ARCHIVED', color: '#94a3b8', isInitial: false, isFinal: true, sortOrder: 4 } }),
+      ]);
+
+      const vsMap = Object.fromEntries(vendorStates.map(s => [s.stateCode, s.id]));
+
+      const vendorTransitions = [
+        { fromStateCode: 'DRAFT', toStateCode: 'IN_REVIEW', transitionName: 'Submit for Compliance Review', requiredRole: 'Data Entry', isAuto: false, notifyRoles: ['Manager'], condition: null, sortOrder: 0 },
+        { fromStateCode: 'IN_REVIEW', toStateCode: 'APPROVED', transitionName: 'Approve Vendor', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 1 },
+        { fromStateCode: 'IN_REVIEW', toStateCode: 'REJECTED', transitionName: 'Reject Vendor', requiredRole: 'Manager', isAuto: false, notifyRoles: ['Data Entry'], condition: null, sortOrder: 2 },
+        { fromStateCode: 'REJECTED', toStateCode: 'DRAFT', transitionName: 'Resubmit', requiredRole: 'Data Entry', isAuto: false, notifyRoles: ['Manager'], condition: null, sortOrder: 3 },
+        { fromStateCode: 'APPROVED', toStateCode: 'ARCHIVED', transitionName: 'Archive', requiredRole: 'Super Admin', isAuto: false, notifyRoles: [], condition: null, sortOrder: 4 },
+      ];
+
+      for (const t of vendorTransitions) {
+        await db.workflowTransition.create({
+          data: {
+            templateId: vendorTemplate.id,
+            fromStateId: vsMap[t.fromStateCode],
+            toStateId: vsMap[t.toStateCode],
+            transitionName: t.transitionName,
+            condition: t.condition,
+            requiredRole: t.requiredRole,
+            isAuto: t.isAuto,
+            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+            sortOrder: t.sortOrder,
+          },
+        });
+      }
+
+      summary['WORKFLOW_TEMPLATES'] = 3;
+    }
+
     const totalCreated = Object.values(summary).reduce((sum, count) => sum + count, 0);
 
     return NextResponse.json({

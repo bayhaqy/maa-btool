@@ -34,3 +34,60 @@ export const STATE_TRANSITIONS: Record<string, string[]> = {
   REJECTED: ['DRAFT', 'ARCHIVED'],
   ARCHIVED: [],
 };
+
+// ============================================================================
+// Stibo Systems Terminology Alignment
+// Traditional MDM terms → Stibo-aligned terms
+// ============================================================================
+
+export const STIBO_TERMINOLOGY: Record<string, string> = {
+  // Core entity terms
+  'Record': 'Entity Instance',
+  'Data Record': 'Entity Instance',
+  'Records': 'Entity Instances',
+  'Data Records': 'Entity Instances',
+  'New Record': 'New Entity Instance',
+  'Create Record': 'Create Entity Instance',
+  'Record Detail': 'Entity Instance Detail',
+  'Record Data': 'Attribute Values',
+  'Record Preview': 'Instance Preview',
+
+  // Field/attribute terms
+  'Field': 'Attribute',
+  'Fields': 'Attributes',
+  'Field Code': 'Attribute Code',
+  'Field Name': 'Attribute Name',
+  'Field Type': 'Attribute Type',
+  'Field Value': 'Attribute Value',
+
+  // Status/workflow terms
+  'Status': 'Workflow State',
+  'Status Change': 'State Transition',
+  'Available state transitions': 'Available workflow transitions',
+
+  // Quality terms
+  'Quality Score': 'Quality Score',
+  'Completeness': 'Completeness',
+  'Accuracy': 'Accuracy',
+  'Consistency': 'Consistency',
+};
+
+// Stibo Workflow State labels (enhanced with workflow context)
+export const WORKFLOW_STATE_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  IN_REVIEW: 'In Review',
+  ACTIVE: 'Active',
+  REVISION_PENDING: 'Revision Pending',
+  REJECTED: 'Rejected',
+  ARCHIVED: 'Archived',
+};
+
+// Stibo Workflow State descriptions
+export const WORKFLOW_STATE_DESCRIPTIONS: Record<string, string> = {
+  DRAFT: 'Entity instance is being authored or edited',
+  IN_REVIEW: 'Pending approval before publishing',
+  ACTIVE: 'Published and available for consumption',
+  REVISION_PENDING: 'Active record requires amendments',
+  REJECTED: 'Changes were rejected during review',
+  ARCHIVED: 'No longer active, retained for audit',
+};

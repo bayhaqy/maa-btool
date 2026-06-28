@@ -12,10 +12,17 @@ import {
   ChevronRight,
   Download,
   RotateCcw,
+  RotateCw,
   Info,
   Maximize2,
+  Minimize2,
+  Trash2,
+  Star,
+  Maximize,
+  Shrink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 // ============================================================================
 // Types
@@ -42,6 +49,10 @@ interface ImageLightboxProps {
   initialIndex?: number;
   open: boolean;
   onClose: () => void;
+  onDelete?: (imageId: string) => void;
+  onSetPrimary?: (imageId: string) => void;
+  onRotate?: (imageId: string, degrees: number) => void;
+  token?: string | null;
 }
 
 // ============================================================================
@@ -64,22 +75,31 @@ export default function ImageLightbox({
   initialIndex = 0,
   open,
   onClose,
+  onDelete,
+  onSetPrimary,
+  onRotate,
+  token,
 }: ImageLightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
   const currentImage = images[currentIndex];
 
-  // Reset zoom/pan when changing images
+  // Reset zoom/pan/rotation when changing images
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setRotation(0);
   }, [currentIndex]);
 
   // Reset when lightbox opens
@@ -88,9 +108,20 @@ export default function ImageLightbox({
       setCurrentIndex(initialIndex);
       setZoom(1);
       setPan({ x: 0, y: 0 });
+      setRotation(0);
       setShowInfo(false);
+      setIsFullscreen(false);
     }
   }, [open, initialIndex]);
+
+  // Handle fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -98,7 +129,11 @@ export default function ImageLightbox({
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'Escape':
-          onClose();
+          if (isFullscreen) {
+            document.exitFullscreen();
+          } else {
+            onClose();
+          }
           break;
         case 'ArrowLeft':
           if (images.length > 1) {
@@ -118,17 +153,33 @@ export default function ImageLightbox({
           handleZoomOut();
           break;
         case '0':
-          setZoom(1);
-          setPan({ x: 0, y: 0 });
+          handleFitToScreen();
+          break;
+        case '1':
+          handleMaximize();
+          break;
+        case 'r':
+          handleRotateCW();
+          break;
+        case 'R':
+          handleRotateCCW();
           break;
         case 'i':
           setShowInfo((v) => !v);
+          break;
+        case 'f':
+          handleToggleFullscreen();
+          break;
+        case 'Delete':
+          if (onDelete && currentImage && !currentImage.pending) {
+            handleDelete();
+          }
           break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, images.length, onClose]);
+  }, [open, images.length, onClose, isFullscreen, currentImage, onDelete]);
 
   // Mouse wheel zoom
   const handleWheel = useCallback(
@@ -155,39 +206,150 @@ export default function ImageLightbox({
     });
   }, []);
 
-  const handleResetZoom = useCallback(() => {
+  const handleFitToScreen = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, []);
 
-  // Pan/drag handlers
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (zoom <= 1) return;
-      e.preventDefault();
-      setIsDragging(true);
-      setIsPanning(true);
-      panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
-    },
-    [zoom, pan]
-  );
+  const handleMaximize = useCallback(() => {
+    setZoom(2);
+    setPan({ x: 0, y: 0 });
+  }, []);
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isPanning) return;
-      const dx = e.clientX - panStart.current.x;
-      const dy = e.clientY - panStart.current.y;
-      setPan({
-        x: panStart.current.panX + dx,
-        y: panStart.current.panY + dy,
+  // Rotate handlers
+  const handleRotateCW = useCallback(() => {
+    setRotation((prev) => (prev + 90) % 360);
+  }, []);
+
+  const handleRotateCCW = useCallback(() => {
+    setRotation((prev) => (prev - 90 + 360) % 360);
+  }, []);
+
+  const handleResetRotation = useCallback(() => {
+    setRotation(0);
+  }, []);
+
+  // Server-side rotate (calls API)
+  const handleServerRotate = useCallback(async (degrees: number) => {
+    if (!token || !currentImage || currentImage.pending || isRotating) return;
+    setIsRotating(true);
+    try {
+      const res = await fetch(`/api/images/${currentImage.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'rotate', degrees }),
       });
-    },
-    [isPanning]
-  );
+      if (res.ok) {
+        toast.success(`Image rotated ${degrees > 0 ? 'clockwise' : 'counter-clockwise'}`);
+        if (onRotate) onRotate(currentImage.id, degrees);
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to rotate image');
+        // Revert local rotation on failure
+        setRotation((prev) => (prev - degrees + 360) % 360);
+      }
+    } catch {
+      toast.error('Network error during rotation');
+      setRotation((prev) => (prev - degrees + 360) % 360);
+    } finally {
+      setIsRotating(false);
+    }
+  }, [token, currentImage, isRotating, onRotate]);
 
-  const handleMouseUp = useCallback(() => {
-    setIsPanning(false);
-    setIsDragging(false);
+  // Delete handler
+  const handleDelete = useCallback(async () => {
+    if (!currentImage) return;
+
+    if (currentImage.pending) {
+      // Pending image: just call the onDelete callback
+      if (onDelete) onDelete(currentImage.id);
+      // Navigate away if possible
+      if (images.length > 1) {
+        setCurrentIndex((i) => {
+          const next = i >= images.length - 1 ? i - 1 : i;
+          return Math.max(0, next);
+        });
+      }
+      return;
+    }
+
+    if (!token || isDeleting) return;
+
+    // Confirm deletion
+    const confirmed = window.confirm(`Delete "${currentImage.fileName}"? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/images/${currentImage.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        toast.success('Image deleted');
+        if (onDelete) onDelete(currentImage.id);
+        // Navigate to next image or close
+        if (images.length <= 1) {
+          onClose();
+        } else {
+          setCurrentIndex((i) => {
+            const next = i >= images.length - 1 ? i - 1 : i;
+            return Math.max(0, next);
+          });
+        }
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to delete image');
+      }
+    } catch {
+      toast.error('Network error during deletion');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [currentImage, token, isDeleting, onDelete, images.length, onClose]);
+
+  // Set primary handler
+  const handleSetPrimary = useCallback(async () => {
+    if (!currentImage || currentImage.pending) return;
+    if (currentImage.isPrimary) {
+      toast.info('This image is already the primary image');
+      return;
+    }
+    if (onSetPrimary) {
+      onSetPrimary(currentImage.id);
+      return;
+    }
+    // Fallback: call API directly
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/images/${currentImage.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'setPrimary' }),
+      });
+      if (res.ok) {
+        toast.success('Set as primary image');
+      } else {
+        toast.error('Failed to set primary image');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+  }, [currentImage, token, onSetPrimary]);
+
+  // Fullscreen toggle
+  const handleToggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
   }, []);
 
   // Download handler
@@ -207,19 +369,25 @@ export default function ImageLightbox({
     return img.variants?.large || img.variants?.medium || img.filePath;
   };
 
+  // Combine zoom + rotation transform
+  const imageTransform = `scale(${zoom}) rotate(${rotation}deg)`;
+
   if (!open || images.length === 0) return null;
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={containerRef}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 bg-black/90 flex flex-col"
+          className={cn(
+            'fixed inset-0 z-50 bg-black/90 flex flex-col',
+            isFullscreen && 'bg-black'
+          )}
           onClick={(e) => {
-            // Close only if clicking on the background (not the image or controls)
             if (e.target === e.currentTarget && zoom <= 1) {
               onClose();
             }
@@ -241,7 +409,7 @@ export default function ImageLightbox({
               )}
               {currentImage?.isPrimary && (
                 <Badge className="bg-emerald-600 text-white text-[10px] h-5 px-1.5 border-0">
-                  Primary
+                  <Star className="w-3 h-3 mr-0.5 fill-white" /> Primary
                 </Badge>
               )}
               {currentImage?.pending && (
@@ -250,7 +418,7 @@ export default function ImageLightbox({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-wrap justify-end">
               {/* Zoom controls */}
               <Button
                 variant="ghost"
@@ -279,8 +447,36 @@ export default function ImageLightbox({
                 variant="ghost"
                 size="sm"
                 className="text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0"
-                onClick={handleResetZoom}
-                title="Reset zoom (0)"
+                onClick={handleFitToScreen}
+                title="Fit to screen (0)"
+              >
+                <Shrink className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0"
+                onClick={handleMaximize}
+                title="Actual size (1)"
+              >
+                <Maximize className="w-4 h-4" />
+              </Button>
+
+              <div className="w-px h-5 bg-white/20 mx-1" />
+
+              {/* Rotate controls */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0"
+                onClick={() => {
+                  handleRotateCCW();
+                  if (token && currentImage && !currentImage.pending) {
+                    handleServerRotate(-90);
+                  }
+                }}
+                disabled={isRotating}
+                title="Rotate 90° counter-clockwise (R)"
               >
                 <RotateCcw className="w-4 h-4" />
               </Button>
@@ -288,12 +484,43 @@ export default function ImageLightbox({
                 variant="ghost"
                 size="sm"
                 className="text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0"
-                onClick={() => setZoom(2)}
-                title="Fit to screen"
+                onClick={() => {
+                  handleRotateCW();
+                  if (token && currentImage && !currentImage.pending) {
+                    handleServerRotate(90);
+                  }
+                }}
+                disabled={isRotating}
+                title="Rotate 90° clockwise (r)"
               >
-                <Maximize2 className="w-4 h-4" />
+                <RotateCw className="w-4 h-4" />
               </Button>
+              {rotation !== 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-white hover:bg-white/10 h-8 px-2 text-[10px]"
+                  onClick={handleResetRotation}
+                  title="Reset rotation"
+                >
+                  {rotation}°
+                </Button>
+              )}
+
               <div className="w-px h-5 bg-white/20 mx-1" />
+
+              {/* Action buttons */}
+              {onSetPrimary && !currentImage?.isPrimary && !currentImage?.pending && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-amber-400 hover:bg-white/10 h-8 w-8 p-0"
+                  onClick={handleSetPrimary}
+                  title="Set as primary image"
+                >
+                  <Star className="w-4 h-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -312,6 +539,27 @@ export default function ImageLightbox({
               >
                 <Download className="w-4 h-4" />
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0"
+                onClick={handleToggleFullscreen}
+                title="Toggle fullscreen (F)"
+              >
+                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </Button>
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-red-400 hover:bg-white/10 h-8 w-8 p-0"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  title="Delete image (Del)"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
               <div className="w-px h-5 bg-white/20 mx-1" />
               <Button
                 variant="ghost"
@@ -325,21 +573,48 @@ export default function ImageLightbox({
             </div>
           </div>
 
+          {/* Rotation indicator */}
+          {isRotating && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 bg-black/70 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-2">
+              <RotateCw className="w-4 h-4 animate-spin" />
+              Rotating image...
+            </div>
+          )}
+
           {/* Main content area */}
           <div className="flex-1 relative overflow-hidden flex">
             {/* Image container */}
             <div
-              ref={containerRef}
               className={cn(
                 'flex-1 flex items-center justify-center relative',
                 zoom > 1 ? 'cursor-grab' : 'cursor-default',
                 isDragging && 'cursor-grabbing'
               )}
               onWheel={handleWheel}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              onMouseDown={(e) => {
+                if (zoom <= 1) return;
+                e.preventDefault();
+                setIsDragging(true);
+                setIsPanning(true);
+                panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+              }}
+              onMouseMove={(e) => {
+                if (!isPanning) return;
+                const dx = e.clientX - panStart.current.x;
+                const dy = e.clientY - panStart.current.y;
+                setPan({
+                  x: panStart.current.panX + dx,
+                  y: panStart.current.panY + dy,
+                });
+              }}
+              onMouseUp={() => {
+                setIsPanning(false);
+                setIsDragging(false);
+              }}
+              onMouseLeave={() => {
+                setIsPanning(false);
+                setIsDragging(false);
+              }}
             >
               {currentImage && (
                 <motion.img
@@ -357,7 +632,7 @@ export default function ImageLightbox({
                   alt={currentImage.altText || currentImage.fileName || 'Image'}
                   className="max-w-full max-h-full object-contain select-none"
                   style={{
-                    transform: `scale(${zoom})`,
+                    transform: imageTransform,
                     transformOrigin: 'center center',
                     transition: isPanning ? 'none' : 'transform 0.15s ease-out',
                   }}
@@ -439,6 +714,7 @@ export default function ImageLightbox({
                         }
                         alt={currentImage.altText || 'Preview'}
                         className="w-full h-40 object-cover"
+                        style={{ transform: `rotate(${rotation}deg)` }}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.opacity = '0.2';
                         }}
@@ -480,6 +756,14 @@ export default function ImageLightbox({
                         value={currentImage.isPrimary ? 'Yes' : 'No'}
                       />
                       <InfoRow
+                        label="Rotation"
+                        value={rotation !== 0 ? `${rotation}°` : '0° (none)'}
+                      />
+                      <InfoRow
+                        label="Zoom"
+                        value={`${Math.round(zoom * 100)}%`}
+                      />
+                      <InfoRow
                         label="Uploaded"
                         value={
                           currentImage.createdAt
@@ -496,6 +780,68 @@ export default function ImageLightbox({
                         }
                       />
                     </div>
+
+                    {/* Quick actions */}
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                      <p className="text-white/50 text-xs font-medium uppercase tracking-wider">Actions</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-white/70 hover:text-white hover:bg-white/10 h-8 text-xs gap-1.5 justify-start"
+                          onClick={handleDownload}
+                        >
+                          <Download className="w-3 h-3" /> Download
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-white/70 hover:text-white hover:bg-white/10 h-8 text-xs gap-1.5 justify-start"
+                          onClick={handleToggleFullscreen}
+                        >
+                          {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                          {isFullscreen ? 'Exit FS' : 'Fullscreen'}
+                        </Button>
+                        {!currentImage.isPrimary && !currentImage.pending && onSetPrimary && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white/70 hover:text-amber-400 hover:bg-white/10 h-8 text-xs gap-1.5 justify-start"
+                            onClick={handleSetPrimary}
+                          >
+                            <Star className="w-3 h-3" /> Set Primary
+                          </Button>
+                        )}
+                        {onDelete && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white/70 hover:text-red-400 hover:bg-white/10 h-8 text-xs gap-1.5 justify-start"
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                          >
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Keyboard shortcuts */}
+                    <div className="space-y-1.5 pt-2 border-t border-white/10">
+                      <p className="text-white/50 text-xs font-medium uppercase tracking-wider">Shortcuts</p>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                        <ShortcutRow label="Zoom in" shortcut="+" />
+                        <ShortcutRow label="Zoom out" shortcut="-" />
+                        <ShortcutRow label="Fit screen" shortcut="0" />
+                        <ShortcutRow label="Actual size" shortcut="1" />
+                        <ShortcutRow label="Rotate CW" shortcut="r" />
+                        <ShortcutRow label="Rotate CCW" shortcut="R" />
+                        <ShortcutRow label="Info panel" shortcut="I" />
+                        <ShortcutRow label="Fullscreen" shortcut="F" />
+                        <ShortcutRow label="Navigate" shortcut="←→" />
+                        <ShortcutRow label="Delete" shortcut="Del" />
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -511,7 +857,7 @@ export default function ImageLightbox({
                   type="button"
                   onClick={() => setCurrentIndex(idx)}
                   className={cn(
-                    'flex-shrink-0 w-12 h-12 rounded border-2 overflow-hidden transition-all',
+                    'flex-shrink-0 w-12 h-12 rounded border-2 overflow-hidden transition-all relative',
                     idx === currentIndex
                       ? 'border-white ring-2 ring-white/30 scale-110'
                       : 'border-white/20 opacity-50 hover:opacity-80 hover:border-white/40'
@@ -525,6 +871,9 @@ export default function ImageLightbox({
                       (e.target as HTMLImageElement).style.opacity = '0.2';
                     }}
                   />
+                  {img.isPrimary && (
+                    <Star className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                  )}
                 </button>
               ))}
             </div>
@@ -536,7 +885,7 @@ export default function ImageLightbox({
 }
 
 // ============================================================================
-// Info row sub-component
+// Sub-components
 // ============================================================================
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -547,5 +896,14 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       </span>
       <span className="text-white/90 text-xs break-all">{value}</span>
     </div>
+  );
+}
+
+function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
+  return (
+    <>
+      <span className="text-white/40">{label}</span>
+      <span className="text-white/70 font-mono text-right">{shortcut}</span>
+    </>
   );
 }

@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.stibosystems.com/blog/digital-asset-management",
+    "name": "What is Digital Asset Management (DAM)? - Stibo Systems",
+    "snippet": "Digital asset management (DAM) is the process of organizing, storing and retrieving digital assets such as images, videos, audio files and other digital content ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/solution-sheet/digital-asset-management.pdf",
+    "name": "[PDF] Digital Asset Management for Product MDM - Stibo Systems",
+    "snippet": "▫ Gather relevant metadata for each image. Assign metadata values to that image based on the value's accuracy score. Enrich web content with ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibodx.com/cue-platform/cue-dam",
+    "name": "Cue Dam - Stibo DX",
+    "snippet": "Context-rich assets. Every asset carries metadata, rights, transcripts, variants, and usage history, so editorials see full context, not just a file.",
+    "host_name": "www.stibodx.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/2025.4/pdf/DigitalAssetsUserGuide.pdf",
+    "name": "[PDF] Digital Assets User Guide - Stibo Systems Documentation",
+    "snippet": "Images are assets, usually with a MIME type of image/*, and can be converted during export from. STEP. Modifications can include changes to size, color, ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=6yt9IDQ-Gak",
+    "name": "Digital Asset Management: How to Organize Digital Content Efficiently",
+    "snippet": "Struggling to keep track of your team's files, versions, and folders? In this video, we break down how you can modernize your digital asset ...",
+    "host_name": "www.youtube.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://getmirrix.com/home-pop-up-test",
+    "name": "AI-Powered DAM for Stibo STEP | Mirrix Digital Asset Management",
+    "snippet": "Mirrix is the best AI-powered DAM for Stibo STEP. Easily manage, link,and enrich product images and assets with full PIM integration and product hierarchy ...",
+    "host_name": "getmirrix.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=Op4yKKuSpwk",
+    "name": "Stibo Systems MDM 2024.2: Streamline DAM Integration with Cliplister",
+    "snippet": "Streamline your digital asset management (DAM) integration with Stibo Systems MDM 2024.2 and Cliplister. This video demonstrates how our ...",
+    "host_name": "www.youtube.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://pics.io/digital-asset-management",
+    "name": "Digital Asset Management System (DAM) - Pics.io",
+    "snippet": "DAM allows your team to share and collaborate on your asset library through a unified interface from which you can upload, compare, and comment on assets. Who ...",
+    "host_name": "pics.io",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.acquia.com/glossary/metadata",
+    "name": "Unlocking the Power of Metadata in Digital Asset Management",
+    "snippet": "Unlock the power of metadata in digital asset management—improve searchability, workflow, and content organization with this comprehensive guide.",
+    "host_name": "www.acquia.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/latest/web/content/digitasst/storeassetext/dam/cliplister_dam_integration/cliplister_dam_integration.html?TocPath=Digital%20Assets%7CStoring%20Assets%20Externally%7CExternal%20Digital%20Asset%20Management%20(DAM)%7CCliplister%20DAM%20Integration%7C_____0",
+    "name": "Cliplister DAM Integration - Stibo Systems Documentation",
+    "snippet": "STEP supports a connection with an external digital asset management(DAM) system called DemoUp Cliplister. Through this connection, users can upload assets ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

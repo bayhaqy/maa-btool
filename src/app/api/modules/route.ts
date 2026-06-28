@@ -6,7 +6,7 @@ import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
 // GET /api/modules - List all modules (with field counts)
-// GET /api/modules?action=detail&id=xxx - Get module with fields, validations, and lookup data
+// GET /api/modules?action=detail&id=xxx - Get module with fields, validations, lookup data, and attribute groups
 // GET /api/modules?action=stats - Get statistics for all modules
 // GET /api/modules?action=export&id=xxx - Export module as JSON
 export async function GET(request: NextRequest) {
@@ -17,7 +17,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
-    // ── Rate limit: read endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('read', tokenPayload!.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -30,7 +29,7 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const id = searchParams.get('id');
 
-    // Module detail with fields
+    // Module detail with fields, attribute groups
     if (action === 'detail' && id) {
       const metaModule = await db.metaModule.findUnique({
         where: { id },
@@ -43,7 +42,11 @@ export async function GET(request: NextRequest) {
               lookupMaster: {
                 include: { values: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
               },
+              group: true,
             },
+          },
+          attributeGroups: {
+            orderBy: { sortOrder: 'asc' },
           },
         },
       });
@@ -82,6 +85,7 @@ export async function GET(request: NextRequest) {
         id: m.id,
         moduleCode: m.moduleCode,
         moduleName: m.moduleName,
+        entityType: m.entityType,
         moduleIcon: m.moduleIcon,
         description: m.description,
         requireApproval: m.requireApproval,
@@ -93,7 +97,6 @@ export async function GET(request: NextRequest) {
         draftCount: 0,
       }));
 
-      // Get active/draft counts per module
       for (const stat of stats) {
         const statusCounts = await db.dataRecord.groupBy({
           by: ['status'],
@@ -122,8 +125,10 @@ export async function GET(request: NextRequest) {
               lookupMaster: {
                 include: { values: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
               },
+              group: true,
             },
           },
+          attributeGroups: { orderBy: { sortOrder: 'asc' } },
           businessRules: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
         },
       });
@@ -132,18 +137,25 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Module not found' }, { status: 404 });
       }
 
-      // Build clean export JSON (strip internal IDs)
       const exportData = {
-        version: '1.0',
+        version: '2.0',
         exportedAt: new Date().toISOString(),
         module: {
           moduleCode: metaModule.moduleCode,
           moduleName: metaModule.moduleName,
+          entityType: metaModule.entityType,
           moduleIcon: metaModule.moduleIcon,
           description: metaModule.description,
           requireApproval: metaModule.requireApproval,
           sortOrder: metaModule.sortOrder,
         },
+        attributeGroups: metaModule.attributeGroups.map((g) => ({
+          groupCode: g.groupCode,
+          groupName: g.groupName,
+          description: g.description,
+          sortOrder: g.sortOrder,
+          isCollapsed: g.isCollapsed,
+        })),
         fields: metaModule.fields.map((f) => ({
           fieldCode: f.fieldCode,
           fieldName: f.fieldName,
@@ -156,6 +168,16 @@ export async function GET(request: NextRequest) {
           sortOrder: f.sortOrder,
           lookupCode: f.lookupMaster?.lookupCode || null,
           cascadesFromFieldCode: f.cascadesFromFieldCode,
+          groupId: f.groupId,
+          groupCode: f.group?.groupCode || null,
+          isInherited: f.isInherited,
+          categoryScope: f.categoryScope,
+          unitOfMeasure: f.unitOfMeasure,
+          minValue: f.minValue,
+          maxValue: f.maxValue,
+          maxLength: f.maxLength,
+          regexPattern: f.regexPattern,
+          isMultiple: f.isMultiple,
           validations: f.validations.map((v) => ({
             ruleType: v.ruleType,
             ruleValue: v.ruleValue,
@@ -175,7 +197,6 @@ export async function GET(request: NextRequest) {
         })),
       };
 
-      // ── Audit: export ─────────────────────────────────────────────────
       await logAudit({
         action: AuditAction.BULK_EXPORT,
         entityType: 'MetaModule',
@@ -206,6 +227,7 @@ export async function GET(request: NextRequest) {
         id: m.id,
         moduleCode: m.moduleCode,
         moduleName: m.moduleName,
+        entityType: m.entityType,
         moduleIcon: m.moduleIcon,
         description: m.description,
         requireApproval: m.requireApproval,
@@ -226,6 +248,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/modules - Create module (Super Admin only)
 // POST /api/modules?action=clone&sourceId=xxx - Clone a module
+// POST /api/modules?action=attribute-group - Create attribute group (Super Admin only)
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -233,7 +256,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only Super Admin can create modules' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -246,6 +268,44 @@ export async function POST(request: NextRequest) {
     const action = searchParams.get('action');
     const sourceId = searchParams.get('sourceId');
 
+    // Create attribute group
+    if (action === 'attribute-group') {
+      const body = await request.json();
+      const { moduleId, groupCode, groupName, description, sortOrder, isCollapsed } = body;
+
+      if (!moduleId || !groupCode || !groupName) {
+        return NextResponse.json(
+          { error: 'moduleId, groupCode, and groupName are required' },
+          { status: 400 }
+        );
+      }
+
+      const mod = await db.metaModule.findUnique({ where: { id: moduleId } });
+      if (!mod) {
+        return NextResponse.json({ error: 'Module not found' }, { status: 404 });
+      }
+
+      const existing = await db.attributeGroup.findUnique({
+        where: { moduleId_groupCode: { moduleId, groupCode } },
+      });
+      if (existing) {
+        return NextResponse.json({ error: 'Group code already exists in this module' }, { status: 409 });
+      }
+
+      const group = await db.attributeGroup.create({
+        data: {
+          moduleId,
+          groupCode,
+          groupName,
+          description,
+          sortOrder: sortOrder ?? 0,
+          isCollapsed: isCollapsed ?? true,
+        },
+      });
+
+      return NextResponse.json({ group }, { status: 201 });
+    }
+
     // Clone / duplicate a module
     if (action === 'clone' && sourceId) {
       const sourceModule = await db.metaModule.findUnique({
@@ -256,6 +316,7 @@ export async function POST(request: NextRequest) {
             orderBy: { sortOrder: 'asc' },
             include: { validations: true },
           },
+          attributeGroups: { orderBy: { sortOrder: 'asc' } },
           businessRules: { where: { isActive: true } },
         },
       });
@@ -268,21 +329,36 @@ export async function POST(request: NextRequest) {
       const newCode = body.moduleCode || `${sourceModule.moduleCode}_COPY`;
       const newName = body.moduleName || `${sourceModule.moduleName} (Copy)`;
 
-      // Check for code uniqueness
       const existing = await db.metaModule.findUnique({ where: { moduleCode: newCode } });
       if (existing) {
         return NextResponse.json({ error: 'Module code already exists' }, { status: 409 });
       }
 
-      // Create the cloned module with fields, validations, and business rules
+      // Create a mapping from old group IDs to new group IDs for the clone
+      const groupIdMap = new Map<string, string>();
+
       const clonedModule = await db.metaModule.create({
         data: {
           moduleCode: newCode,
           moduleName: newName,
+          entityType: body.entityType || sourceModule.entityType,
           moduleIcon: body.moduleIcon || sourceModule.moduleIcon,
           description: body.description || sourceModule.description,
           requireApproval: body.requireApproval ?? sourceModule.requireApproval,
           sortOrder: body.sortOrder ?? sourceModule.sortOrder + 1,
+          attributeGroups: {
+            create: sourceModule.attributeGroups.map((g) => {
+              const newGroupId = `temp_${g.id}`; // Will be replaced by DB
+              groupIdMap.set(g.id, newGroupId);
+              return {
+                groupCode: g.groupCode,
+                groupName: g.groupName,
+                description: g.description,
+                sortOrder: g.sortOrder,
+                isCollapsed: g.isCollapsed,
+              };
+            }),
+          },
           fields: {
             create: sourceModule.fields.map((f) => ({
               fieldCode: f.fieldCode,
@@ -296,6 +372,15 @@ export async function POST(request: NextRequest) {
               sortOrder: f.sortOrder,
               lookupId: f.lookupId,
               cascadesFromFieldCode: f.cascadesFromFieldCode,
+              isMultiple: f.isMultiple,
+              isInherited: f.isInherited,
+              categoryScope: f.categoryScope,
+              unitOfMeasure: f.unitOfMeasure,
+              minValue: f.minValue,
+              maxValue: f.maxValue,
+              maxLength: f.maxLength,
+              regexPattern: f.regexPattern,
+              // groupId will need re-linking after groups are created
               validations: {
                 create: f.validations.map((v) => ({
                   ruleType: v.ruleType,
@@ -321,11 +406,36 @@ export async function POST(request: NextRequest) {
         },
         include: {
           fields: { include: { validations: true } },
+          attributeGroups: true,
           businessRules: true,
         },
       });
 
-      // ── Audit: module clone ────────────────────────────────────────────
+      // Re-link fields to their new attribute groups
+      // Map old group codes to new group IDs
+      const newGroups = clonedModule.attributeGroups;
+      const oldGroupCodeToNewId = new Map<string, string>();
+      for (const ng of newGroups) {
+        oldGroupCodeToNewId.set(ng.groupCode, ng.id);
+      }
+
+      // Update fields that had a groupId in the source
+      for (let i = 0; i < sourceModule.fields.length; i++) {
+        const sourceField = sourceModule.fields[i];
+        if (sourceField.groupId) {
+          const sourceGroup = sourceModule.attributeGroups.find(g => g.id === sourceField.groupId);
+          if (sourceGroup) {
+            const newGroupId = oldGroupCodeToNewId.get(sourceGroup.groupCode);
+            if (newGroupId && clonedModule.fields[i]) {
+              await db.metaField.update({
+                where: { id: clonedModule.fields[i].id },
+                data: { groupId: newGroupId },
+              });
+            }
+          }
+        }
+      }
+
       await logAudit({
         action: AuditAction.MODULE_CREATE,
         entityType: 'MetaModule',
@@ -340,7 +450,7 @@ export async function POST(request: NextRequest) {
 
     // Regular create
     const body = await request.json();
-    const { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
+    const { moduleCode, moduleName, entityType, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
 
     if (!moduleCode || !moduleName) {
       return NextResponse.json({ error: 'moduleCode and moduleName are required' }, { status: 400 });
@@ -355,6 +465,7 @@ export async function POST(request: NextRequest) {
       data: {
         moduleCode,
         moduleName,
+        entityType: entityType || 'PRODUCT',
         moduleIcon: moduleIcon || 'Database',
         description,
         requireApproval: requireApproval ?? true,
@@ -363,13 +474,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // ── Audit: module create ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.MODULE_CREATE,
       entityType: 'MetaModule',
       entityId: metaModule.id,
-      description: `Module "${moduleName}" (${moduleCode}) created`,
-      newValues: { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive },
+      description: `Module "${moduleName}" (${moduleCode}) created with entity type ${entityType || 'PRODUCT'}`,
+      newValues: { moduleCode, moduleName, entityType, moduleIcon, description, requireApproval, sortOrder, isActive },
       req: request,
     });
 
@@ -381,6 +491,7 @@ export async function POST(request: NextRequest) {
 }
 
 // PUT /api/modules - Update module (Super Admin only)
+// PUT /api/modules?action=attribute-group - Update attribute group
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -388,7 +499,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Only Super Admin can update modules' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -397,8 +507,40 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+
+    // Update attribute group
+    if (action === 'attribute-group') {
+      const body = await request.json();
+      const { id, groupCode, groupName, description, sortOrder, isCollapsed } = body;
+
+      if (!id) {
+        return NextResponse.json({ error: 'Attribute group id is required' }, { status: 400 });
+      }
+
+      const existing = await db.attributeGroup.findUnique({ where: { id } });
+      if (!existing) {
+        return NextResponse.json({ error: 'Attribute group not found' }, { status: 404 });
+      }
+
+      const group = await db.attributeGroup.update({
+        where: { id },
+        data: {
+          ...(groupCode !== undefined && { groupCode }),
+          ...(groupName !== undefined && { groupName }),
+          ...(description !== undefined && { description }),
+          ...(sortOrder !== undefined && { sortOrder }),
+          ...(isCollapsed !== undefined && { isCollapsed }),
+        },
+      });
+
+      return NextResponse.json({ group });
+    }
+
+    // Update module
     const body = await request.json();
-    const { id, moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
+    const { id, moduleCode, moduleName, entityType, moduleIcon, description, requireApproval, sortOrder, isActive } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Module id is required' }, { status: 400 });
@@ -421,6 +563,7 @@ export async function PUT(request: NextRequest) {
       data: {
         ...(moduleCode !== undefined && { moduleCode }),
         ...(moduleName !== undefined && { moduleName }),
+        ...(entityType !== undefined && { entityType }),
         ...(moduleIcon !== undefined && { moduleIcon }),
         ...(description !== undefined && { description }),
         ...(requireApproval !== undefined && { requireApproval }),
@@ -429,7 +572,6 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // ── Audit: module update ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.MODULE_UPDATE,
       entityType: 'MetaModule',
@@ -438,13 +580,14 @@ export async function PUT(request: NextRequest) {
       oldValues: {
         moduleCode: existing.moduleCode,
         moduleName: existing.moduleName,
+        entityType: existing.entityType,
         moduleIcon: existing.moduleIcon,
         description: existing.description,
         requireApproval: existing.requireApproval,
         sortOrder: existing.sortOrder,
         isActive: existing.isActive,
       },
-      newValues: { moduleCode, moduleName, moduleIcon, description, requireApproval, sortOrder, isActive },
+      newValues: { moduleCode, moduleName, entityType, moduleIcon, description, requireApproval, sortOrder, isActive },
       req: request,
     });
 
@@ -456,6 +599,7 @@ export async function PUT(request: NextRequest) {
 }
 
 // DELETE /api/modules - Soft delete (Super Admin only)
+// DELETE /api/modules?action=attribute-group - Delete attribute group
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -463,7 +607,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Only Super Admin can delete modules' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -472,9 +615,40 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { id } = body;
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
 
+    let body: Record<string, string> = {};
+    try {
+      body = await request.json();
+    } catch {
+      // No body
+    }
+
+    // Delete attribute group
+    if (action === 'attribute-group') {
+      const { id } = body;
+      if (!id) {
+        return NextResponse.json({ error: 'Attribute group id is required' }, { status: 400 });
+      }
+
+      const existing = await db.attributeGroup.findUnique({ where: { id } });
+      if (!existing) {
+        return NextResponse.json({ error: 'Attribute group not found' }, { status: 404 });
+      }
+
+      // Unlink all fields from this group before deleting
+      await db.metaField.updateMany({
+        where: { groupId: id },
+        data: { groupId: null },
+      });
+
+      await db.attributeGroup.delete({ where: { id } });
+      return NextResponse.json({ message: 'Attribute group deleted' });
+    }
+
+    // Soft delete module
+    const { id } = body;
     if (!id) {
       return NextResponse.json({ error: 'Module id is required' }, { status: 400 });
     }
@@ -489,7 +663,6 @@ export async function DELETE(request: NextRequest) {
       data: { isActive: false },
     });
 
-    // ── Audit: module delete ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.MODULE_DELETE,
       entityType: 'MetaModule',

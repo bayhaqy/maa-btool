@@ -2,15 +2,20 @@ import { type TokenPayload } from './auth';
 import { db } from './db';
 
 // ============================================================
-// A. Granular Permission Types
+// A. Granular Permission Types (STIBO RBAC)
+// Stibo roles: Viewer, Editor, Approver, Data Steward, Administrator, System Admin
 // ============================================================
 
 export const PERMISSIONS = {
   // Data permissions
   DATA_READ: 'data:read',
-  DATA_WRITE: 'data:write',
+  DATA_CREATE: 'data:create',
+  DATA_EDIT: 'data:edit',
   DATA_DELETE: 'data:delete',
   DATA_APPROVE: 'data:approve',
+  DATA_EXPORT: 'data:export',
+  DATA_IMPORT: 'data:import',
+  DATA_BULK: 'data:bulk',
 
   // Schema permissions
   SCHEMA_READ: 'schema:read',
@@ -31,6 +36,12 @@ export const PERMISSIONS = {
   INTEGRATION_READ: 'integration:read',
   INTEGRATION_WRITE: 'integration:write', // Super Admin only
 
+  // DAM permissions
+  DAM_READ: 'dam:read',
+  DAM_UPLOAD: 'dam:upload',
+  DAM_DELETE: 'dam:delete',
+  DAM_MANAGE: 'dam:manage',
+
   // Legacy compatibility
   DOC_READ: 'doc:read',
   DOC_WRITE: 'doc:write',
@@ -45,26 +56,59 @@ export const PERMISSIONS = {
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 // ============================================================
-// B. Role-Permission Mapping
+// B. STIBO Role-Permission Mapping
+// Viewer: READ-ONLY across all accessible modules
+// Editor: Can create/edit records but NOT delete/approve
+// Approver: Can review and approve changes
+// Data Steward: Can correct data, manage quality
+// Administrator: Can configure system, manage users
+// System Admin: Full access
 // ============================================================
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   'Super Admin': ['*'], // Full access to ALL permissions
 
-  'Manager': [
-    'data:read', 'data:write', 'data:delete', 'data:approve',
+  'Administrator': [
+    'data:read', 'data:create', 'data:edit', 'data:delete', 'data:approve', 'data:export', 'data:import', 'data:bulk',
+    'schema:read', 'schema:write',
+    'admin:read', 'admin:write',
+    'audit:read',
+    'ai:read', 'ai:write',
+    'dam:read', 'dam:upload', 'dam:delete', 'dam:manage',
+    'doc:read', 'doc:write',
+    'hierarchy:read', 'hierarchy:write',
+    'bulk:read', 'bulk:write',
+    'integration:read', 'integration:write',
+    'api:manage', 'sftp:manage',
+  ],
+
+  'Data Steward': [
+    'data:read', 'data:create', 'data:edit', 'data:delete', 'data:approve', 'data:export',
     'schema:read',
     'audit:read',
     'ai:read',
+    'dam:read', 'dam:upload', 'dam:delete',
     'doc:read', 'doc:write',
     'hierarchy:read', 'hierarchy:write',
     'bulk:read', 'bulk:write',
   ],
 
-  'Data Entry': [
-    'data:read', 'data:write',
+  'Approver': [
+    'data:read', 'data:edit', 'data:approve', 'data:export',
+    'schema:read',
+    'audit:read',
+    'ai:read',
+    'dam:read', 'dam:upload',
+    'doc:read',
+    'hierarchy:read',
+    'bulk:read',
+  ],
+
+  'Editor': [
+    'data:read', 'data:create', 'data:edit', 'data:export',
     'schema:read',
     'ai:read',
+    'dam:read', 'dam:upload',
     'doc:read',
     'hierarchy:read',
     'bulk:read', 'bulk:write',
@@ -76,33 +120,33 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'audit:read',
     'doc:read',
     'hierarchy:read',
-  ],
-
-  'Doc Writer': [
-    'data:read',
-    'schema:read',
-    'doc:read', 'doc:write',
+    'dam:read',
+    'ai:read',
   ],
 
   'API Manager': [
-    'data:read',
+    'data:read', 'data:export',
     'integration:read', 'integration:write',
     'api:manage',
     'doc:read',
   ],
 
   'SFTP Manager': [
-    'data:read',
+    'data:read', 'data:import', 'data:export',
     'integration:read',
     'sftp:manage',
     'doc:read',
   ],
+};
 
-  'AI User': [
-    'data:read',
-    'ai:read',
-    'doc:read',
-  ],
+// STIBO: Role type descriptions for UI
+export const ROLE_TYPE_INFO: Record<string, { label: string; description: string; color: string; icon: string }> = {
+  'VIEWER': { label: 'Viewer', description: 'Read-only access to data and reports', color: '#6b7280', icon: 'Eye' },
+  'EDITOR': { label: 'Editor', description: 'Can create and edit records, cannot delete or approve', color: '#3b82f6', icon: 'Pencil' },
+  'APPROVER': { label: 'Approver', description: 'Can review and approve record changes', color: '#8b5cf6', icon: 'CheckCircle' },
+  'DATA_STEWARD': { label: 'Data Steward', description: 'Can correct data, manage quality and stewardship', color: '#f59e0b', icon: 'Shield' },
+  'ADMINISTRATOR': { label: 'Administrator', description: 'Can configure system, manage users and settings', color: '#ef4444', icon: 'Settings' },
+  'SYSTEM_ADMIN': { label: 'System Admin', description: 'Full unrestricted access to all features', color: '#dc2626', icon: 'Crown' },
 };
 
 // ============================================================
@@ -112,6 +156,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
 /**
  * Check if any of the user's roles grant the specified permission.
  * Super Admin (*) always returns true.
+ * Viewer roles are strictly read-only - no write operations allowed.
  */
 export function hasPermission(roles: string[], permission: string): boolean {
   for (const role of roles) {
@@ -130,8 +175,20 @@ export function hasAnyPermission(roles: string[], permissions: string[]): boolea
 }
 
 /**
+ * Check if user has write-level permission (anything beyond read).
+ * Viewer users should ALWAYS return false for write operations.
+ */
+export function canWrite(roles: string[]): boolean {
+  return hasAnyPermission(roles, [
+    'data:create', 'data:edit', 'data:delete', 'data:approve',
+    'schema:write', 'admin:write', 'ai:write',
+    'dam:upload', 'dam:delete', 'dam:manage',
+    'integration:write', 'bulk:write',
+  ]);
+}
+
+/**
  * Require a permission — throws an error if not granted.
- * Useful in API routes where you want a guard-clause pattern.
  */
 export function requirePermission(roles: string[], permission: string): void {
   if (!hasPermission(roles, permission)) {
@@ -140,8 +197,7 @@ export function requirePermission(roles: string[], permission: string): void {
 }
 
 /**
- * Filter a list of items by permission. Returns only items where the
- * user has the permission returned by getPermission for that item.
+ * Filter a list of items by permission.
  */
 export function filterByPermission<T>(
   items: T[],
@@ -153,7 +209,6 @@ export function filterByPermission<T>(
 
 /**
  * Require a permission — returns an error object instead of throwing.
- * Compatible with the existing checkAuthAndPermission pattern.
  */
 export function checkPermission(roles: string[], permission: string): { allowed: boolean; error?: string } {
   if (!hasPermission(roles, permission)) {
@@ -166,7 +221,7 @@ export function checkPermission(roles: string[], permission: string): { allowed:
 export async function checkModulePermission(
   roles: string[],
   moduleId: string,
-  action: 'read' | 'write' | 'delete' | 'approve'
+  action: 'read' | 'create' | 'edit' | 'delete' | 'approve' | 'export' | 'import' | 'bulk'
 ): Promise<boolean> {
   // Super Admin bypasses all checks
   if (roles.includes('Super Admin')) return true;
@@ -174,9 +229,13 @@ export async function checkModulePermission(
   // Check role-level permissions
   const actionMap: Record<string, string> = {
     read: 'data:read',
-    write: 'data:write',
+    create: 'data:create',
+    edit: 'data:edit',
     delete: 'data:delete',
     approve: 'data:approve',
+    export: 'data:export',
+    import: 'data:import',
+    bulk: 'data:bulk',
   };
 
   if (!hasPermission(roles, actionMap[action])) return false;
@@ -199,16 +258,19 @@ export async function checkModulePermission(
   return permissions.some(p => {
     switch (action) {
       case 'read': return p.canRead;
-      case 'write': return p.canWrite;
+      case 'create': return p.canCreate;
+      case 'edit': return p.canEdit;
       case 'delete': return p.canDelete;
       case 'approve': return p.canApprove;
+      case 'export': return p.canExport;
+      case 'import': return p.canImport;
+      case 'bulk': return p.canBulkUpdate;
     }
   });
 }
 
 /**
  * Legacy-compatible helper: check auth + permission in one call.
- * Returns an error object or empty object if allowed.
  */
 export function requirePermissionLegacy(roles: string[], permission: string): { allowed: boolean; error?: string } {
   if (!hasPermission(roles, permission)) {
@@ -217,7 +279,6 @@ export function requirePermissionLegacy(roles: string[], permission: string): { 
   return { allowed: true };
 }
 
-// Keep the old function name as alias for backward compatibility
 export { requirePermissionLegacy as checkRequirePermission };
 
 // Helper for API routes: get token + check permission
@@ -238,4 +299,14 @@ export function checkAuthAndPermission(
 // Check if user is Super Admin
 export function isSuperAdmin(roles: string[]): boolean {
   return roles.includes('Super Admin');
+}
+
+// Check if user is Viewer only (read-only)
+export function isViewerOnly(roles: string[]): boolean {
+  return roles.length > 0 && roles.every(role => {
+    const perms = ROLE_PERMISSIONS[role] || [];
+    return perms.length > 0 && perms.every(p =>
+      p === '*' || p.endsWith(':read') || p === 'doc:read' || p === 'hierarchy:read'
+    );
+  });
 }

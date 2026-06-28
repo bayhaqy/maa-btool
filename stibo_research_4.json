@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/academy/app-240-course-outline.pdf",
+    "name": "[PDF] Course outline | Data Modeling - Stibo Systems",
+    "snippet": "Recall data validation on attributes using different attribute validation base types (e.g. Text,. Number, Date, and List of Values). • Apply reference ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/11.1/pdf/ConfigurationManagementUserGuide.pdf",
+    "name": "[PDF] Configuration Management User Guide",
+    "snippet": "Using Advanced STEPXML, configuration definitions for workflows, Web UIs, integration endpoints (IEPs), and business rules can be exported.",
+    "host_name": "doc.stibosystems.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://ecorptrainings.blogspot.com/2017/04/step-data-modelling-configuring-data.html",
+    "name": "STEP DATA MODELLING - Ecorp Trainings",
+    "snippet": "Administrate data validation on attributes using different attribute validation base types (e.g. Text, Number, Date, and List of Values). Apply ...",
+    "host_name": "ecorptrainings.blogspot.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=A9iTvm9RvgI",
+    "name": "Master Data Management || STEP ||MDM||STIBO Trainig - YouTube",
+    "snippet": "STIBO TERMINOLGY||Master Data Management || STEP ||MDM||STIBO Trainig||PIM || #StiboSystems #mdm MDM #DataGovernance #Collibra #INFA19 ...",
+    "host_name": "www.youtube.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/latest/web/content/syssetup/attributes/listofvalues_lov_.html",
+    "name": "List of Values (LOV) - Stibo Systems Documentation",
+    "snippet": "A List of Values (LOV) is a defined set of values that can be selected for an attribute with the validation base type of LOV. LOVs are maintained on the System ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://unitofmeasure.com/glossary",
+    "name": "Glossary | PIM and MDM Consultants for Stibo Systems Enterprise",
+    "snippet": "A collection of attributes that define a specific aspect or feature of a product, such as dimensions, materials, or warranties. Attribute mapping.",
+    "host_name": "unitofmeasure.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=UG9M_syv1Hk",
+    "name": "Understanding Data Model & Taxonomy in StiboSystems - YouTube",
+    "snippet": "Ask The Experts: Understanding Data Model & Taxonomy in StiboSystems. 3.2K views · 5 years ago ...more ...",
+    "host_name": "www.youtube.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/academy/academy-app-240-course-outline.pdf",
+    "name": "[PDF] Data Modeling - APP 240 - Course outline - Stibo Systems",
+    "snippet": "Recall data validation on attributes using different attribute validation base types (e.g. Text,. Number, Date, and List of Values). • Apply reference ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://septane.wordpress.com/2018/09/30/stibo-step-notes",
+    "name": "STIBO-STEP Notes - Septane",
+    "snippet": "The supported workflow enabled object types are: Assets; Attributes; Classifications; Entities; Lists of Values (LOVs); Planned pages; Products ...",
+    "host_name": "septane.wordpress.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://mdmlist.com/home/stibo-step",
+    "name": "Stibo Systems STEP | The Disruptive MDM / PIM / DQM List",
+    "snippet": "Stibo Systems' award-winning Master Data Management platform, STEP, handles everything from product and customer data to location and supplier data.",
+    "host_name": "mdmlist.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

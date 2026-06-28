@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/brochure/brochure-step-en.pdf",
+    "name": "[PDF] brochure-step-en.pdf - Stibo Systems",
+    "snippet": "STEP is a holistic multidomain MDM platform that integrates views of products, customers, suppliers, assets, locations and other critical data ...\nConfigurable business rules validate attribute values and workflows help manage attribute changes. Evaluate attribute changes through STEP's ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/the-complete-a-z-of-master-data-management",
+    "name": "A Complete Master Data Management Glossary - Stibo Systems",
+    "snippet": "Master data management (MDM) supports digital asset management by connecting digital assets to appropriate master data records. DAM can be an integrated ...\nIn MDM, an attribute is a specification or characteristic that helps define an entity. For instance, a product can have several attributes, such as color, ...\nYou can define numerous business rules in your MDM to determine how your data is organized, categorized, enriched, managed and approved. Business rules are ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/master-data-management-tools-a-complete-guide",
+    "name": "Master Data Management Tools: A Complete Guide - Stibo Systems",
+    "snippet": "Effective MDM tools let you define relationships between different data domains and adapt to changing business requirements without programming.\nUnderstand master data management tools, their types, AI features and how to choose the right one to turn your data into a competitive ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://unitofmeasure.com/category/data-governance",
+    "name": "Data Governance | PIM and MDM Consultants for Stibo Systems",
+    "snippet": "Data Governance in STEP is designed to ensure consistency, reliability, and accountability. It provides: Structured data hierarchies; Attribute validation rules ...",
+    "host_name": "unitofmeasure.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/blog/digital-asset-management",
+    "name": "What is Digital Asset Management (DAM)? - Stibo Systems",
+    "snippet": "Digital asset management (DAM) is the process of organizing, storing and retrieving digital assets such as images, videos, audio files and other digital ...",
+    "host_name": "www.stibosystems.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.stibosystems.com/hubfs/resource-library/en/academy/app-240-course-outline.pdf",
+    "name": "[PDF] Course outline | Data Modeling - Stibo Systems",
+    "snippet": "Course objective 1 - Build a data model in STEP based on common/good practices. Learning objectives: • Apply attribute validation using List of Values (LOV). • ...\nRecall attribute validation using List of Values (LOV). • Define category-specific attributes to product hierarchy, allowing for inheritance of attribute values ...\nRecall data validation on attributes using different attribute validation base types (e.g. Text, Number, Date, and List of Values).",
+    "host_name": "www.stibosystems.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://hamari.agency/pim/stibo-systems",
+    "name": "Stibo Systems - Hamari",
+    "snippet": "Stibo Product MDM utilizes data modelling, roles, workflows, business rules, and controls to effectively allow you to control and oversee data ...\nEvery attribute has a defined type, such as text, item number, or list of values. Each type also has associated attribution validation rules, ...",
+    "host_name": "hamari.agency",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=I_lZRZzaaoE",
+    "name": "Stibo Systems MDM: From On-Premise Challenges to Cloud-Based",
+    "snippet": "Comments ; Ask the Experts: Workflows, Business Rules, and Web UI in Stibo STEP. Amplifi Data Management & Strategy · 9K views ; How To Think SO ...",
+    "host_name": "www.youtube.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://stackoverflow.com/questions/59772496/stibo-step-search-business-rules",
+    "name": "Stibo Step Search Business Rules - Stack Overflow",
+    "snippet": "I have inherited a project and I'm trying to track down all the places an attribute is used. I have a attribute VA-1 but we have business rules ...",
+    "host_name": "stackoverflow.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://doc.stibosystems.com/doc/version/11.0/pdf/BusinessRulesUserGuide.pdf",
+    "name": "[PDF] Business Rules User Guide - Stibo Systems Documentation",
+    "snippet": "Review the most common ways to use business rules as described in Using Business Rules in STEP. 2. Review the decisions that affect how a ...\nStandardize Address business action operations are valid for execution on entities with flat attributes, e.g., Address object types and address ...",
+    "host_name": "doc.stibosystems.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

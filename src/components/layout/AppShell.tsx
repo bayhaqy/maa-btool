@@ -49,6 +49,8 @@ import {
   Brain,
   ShieldCheck,
   Scale,
+  Image as ImageIcon,
+  Cable,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -157,7 +159,9 @@ const AiSettingsPage = dynamic(() => import('@/components/mdm/AiSettingsPage'), 
 const DataStewardshipPage = dynamic(() => import('@/components/mdm/DataStewardshipPage'), { loading: () => <PageSkeleton /> });
 const DataCatalogPage = dynamic(() => import('@/components/mdm/DataCatalogPage'), { loading: () => <PageSkeleton /> });
 const DataQualityPage = dynamic(() => import('@/components/mdm/DataQualityPage'), { loading: () => <PageSkeleton /> });
+const DigitalAssetPage = dynamic(() => import('@/components/mdm/DigitalAssetPage'), { loading: () => <PageSkeleton /> });
 const BusinessRulesPage = dynamic(() => import('@/components/mdm/BusinessRulesPage'), { loading: () => <PageSkeleton /> });
+const DataExchangePage = dynamic(() => import('@/components/mdm/DataExchangePage'), { loading: () => <PageSkeleton /> });
 
 interface NavItem {
   label: string;
@@ -188,6 +192,7 @@ const dataNav: NavItem[] = [
   { label: 'Data Stewardship', page: 'data-stewardship', icon: ShieldCheck },
   { label: 'Data Catalog', page: 'data-catalog', icon: BookOpen },
   { label: 'Data Quality', page: 'data-quality', icon: CheckCircle2 },
+  { label: 'Digital Assets', page: 'digital-assets', icon: ImageIcon },
 ];
 
 const schemaNav: NavItem[] = [
@@ -214,6 +219,7 @@ const aiNav: NavItem[] = [
 
 const integrationsNav: NavItem[] = [
   { label: 'API Management', page: 'api-management', icon: Key },
+  { label: 'Data Exchange', page: 'data-exchange', icon: Cable },
 ];
 
 const adminNav: NavItem[] = [
@@ -323,6 +329,7 @@ function PageContent() {
     'data-stewardship': <DataStewardshipPage />,
     'data-catalog': <DataCatalogPage />,
     'data-quality': <DataQualityPage />,
+    'digital-assets': <DigitalAssetPage />,
     'business-rules': <BusinessRulesPage />,
     workflow: <WorkflowPage />,
     hierarchy: <HierarchyPage />,
@@ -341,6 +348,7 @@ function PageContent() {
     'ai-review': <AiReviewPage />,
     'ai-settings': <AiSettingsPage />,
     'api-management': <ApiManagementPage />,
+    'data-exchange': <DataExchangePage />,
     'brand-settings': <BrandSettingsPage />,
     'system-health': <SystemHealthPage />,
     about: <AboutPage />,
@@ -594,6 +602,7 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     'data-stewardship': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Stewardship' }],
     'data-catalog': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Catalog' }],
     'data-quality': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Quality' }],
+    'digital-assets': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Digital Assets' }],
     'business-rules': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Governance & Workflow' }, { label: 'Business Rules' }],
     workflow: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Governance & Workflow' }, { label: 'Workflow' }],
     hierarchy: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Schema & Taxonomy' }, { label: 'Hierarchy' }],
@@ -633,6 +642,7 @@ const searchNavigationItems: SearchCommandItem[] = [
   { label: 'Data Stewardship', page: 'data-stewardship', icon: ShieldCheck, keywords: ['steward', 'golden', 'record', 'ownership', 'merge'] },
   { label: 'Data Catalog', page: 'data-catalog', icon: BookOpen, keywords: ['catalog', 'taxonomy', 'classification', 'assets', 'lineage'] },
   { label: 'Data Quality', page: 'data-quality', icon: CheckCircle2, keywords: ['quality', 'dedup', 'validation', 'profiling', 'score'] },
+  { label: 'Digital Assets', page: 'digital-assets', icon: ImageIcon, keywords: ['dam', 'asset', 'image', 'video', 'upload', 'media', 'digital'] },
   { label: 'Schema Builder', page: 'modules', icon: Database, keywords: ['schema', 'builder', 'master', 'model'] },
   { label: 'Hierarchy', page: 'hierarchy', icon: Network, keywords: ['tree', 'structure', 'taxonomy'] },
   { label: 'Workflow', page: 'workflow', icon: GitBranch, keywords: ['approval', 'review', 'pending'] },
@@ -765,6 +775,7 @@ export default function AppShell() {
       'data-stewardship': 'Data Stewardship',
       'data-catalog': 'Data Catalog',
       'data-quality': 'Data Quality',
+      'digital-assets': 'Digital Asset Management',
       'business-rules': 'Business Rules',
       workflow: 'Approval Workflow',
       hierarchy: 'Hierarchy',

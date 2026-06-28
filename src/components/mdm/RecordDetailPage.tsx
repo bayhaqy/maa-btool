@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { STATUS_COLORS, STATUS_LABELS, STATE_TRANSITIONS } from '@/lib/constants';
+import { STATUS_COLORS, STATUS_LABELS, STATE_TRANSITIONS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS, STIBO_TERMINOLOGY } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,9 +31,11 @@ import {
   Image as ImageIcon, Upload, X, Star, RefreshCw,
   ChevronDown, Check, Shield, Activity, Database,
   TrendingUp, BarChart3, Eye, ArrowRight, User, Layers,
-  Search, Zap, AlertTriangle,
+  Search, Zap, AlertTriangle, ZoomIn, RotateCw, RotateCcw,
+  Trash2, Download, Maximize2, GripVertical,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
 
 const TRANSITION_ICONS: Record<string, React.ElementType> = {
   IN_REVIEW: Send,
@@ -43,6 +45,167 @@ const TRANSITION_ICONS: Record<string, React.ElementType> = {
   REVISION_PENDING: GitBranch,
   ARCHIVED: Archive,
 };
+
+// StatusBadge helper for the RecordDetailPage
+const STATUS_BADGE_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  DRAFT: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', border: 'border-gray-300 dark:border-gray-600', dot: 'bg-gray-400' },
+  IN_REVIEW: { bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-300 dark:border-amber-700', dot: 'bg-amber-500' },
+  ACTIVE: { bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-400', border: 'border-emerald-300 dark:border-emerald-700', dot: 'bg-emerald-500' },
+  REVISION_PENDING: { bg: 'bg-sky-50 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-300 dark:border-sky-700', dot: 'bg-sky-500' },
+  REJECTED: { bg: 'bg-red-50 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-300 dark:border-red-700', dot: 'bg-red-500' },
+  ARCHIVED: { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-300 dark:border-slate-600', dot: 'bg-slate-400' },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const config = STATUS_BADGE_CONFIG[status];
+  const label = WORKFLOW_STATE_LABELS[status] || STATUS_LABELS[status] || status;
+  if (!config) return <Badge className="text-xs border">{label}</Badge>;
+  return (
+    <Badge className={cn('text-xs border inline-flex items-center gap-1.5 font-medium', config.bg, config.text, config.border)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
+      {label}
+    </Badge>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ImageGalleryCard – card component for the Images tab gallery
+// Shows a single image with action buttons (delete, primary, replace, zoom)
+// ---------------------------------------------------------------------------
+function ImageGalleryCard({
+  image,
+  isEditing,
+  onDelete,
+  onSetPrimary,
+  onReplace,
+  onZoom,
+  token,
+}: {
+  image: any;
+  isEditing: boolean;
+  onDelete: () => void;
+  onSetPrimary: () => void;
+  onReplace: (file: File) => void;
+  onZoom: () => void;
+  token?: string | null;
+}) {
+  const replaceRef = useRef<HTMLInputElement>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  return (
+    <>
+      <div className="relative group rounded-lg border overflow-hidden bg-muted/20 aspect-square">
+        <img
+          src={image.variants?.small || image.variants?.thumbnail || image.filePath}
+          alt={image.altText || image.fileName}
+          className="w-full h-full object-cover"
+          onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.2'; }}
+        />
+
+        {/* Primary badge */}
+        {image.isPrimary && (
+          <div className="absolute top-1.5 left-1.5 bg-amber-500 text-white rounded-full p-0.5 shadow-sm">
+            <Star className="w-3 h-3 fill-white" />
+          </div>
+        )}
+
+        {/* Pending badge */}
+        {image.pending && (
+          <div className="absolute top-1.5 right-1.5 bg-amber-400 text-white rounded px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide shadow-sm">
+            Pending
+          </div>
+        )}
+
+        {/* File name at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1">
+          <p className="text-[9px] text-white truncate">{image.fileName}</p>
+        </div>
+
+        {/* Hover overlay with action buttons */}
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white hover:text-white hover:bg-white/20"
+            onClick={onZoom}
+            title="Zoom / View"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          {isEditing && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:text-amber-300 hover:bg-white/20"
+                onClick={onSetPrimary}
+                title="Set as primary"
+              >
+                <Star className={cn('w-4 h-4', image.isPrimary && 'fill-amber-300 text-amber-300')} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:text-blue-300 hover:bg-white/20"
+                onClick={() => replaceRef.current?.click()}
+                title="Replace image"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:text-red-400 hover:bg-white/20"
+                onClick={onDelete}
+                title="Delete image"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* Hidden file input for replace */}
+        <input
+          ref={replaceRef}
+          type="file"
+          accept="image/*,.heic,.heif,.avif"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onReplace(file);
+          }}
+        />
+      </div>
+
+      {/* Lightbox for this image */}
+      <ImageLightbox
+        images={[{
+          id: image.id,
+          fileName: image.fileName,
+          filePath: image.filePath,
+          altText: image.altText,
+          isPrimary: image.isPrimary,
+          sortOrder: image.sortOrder,
+          fileSize: image.fileSize,
+          mimeType: image.mimeType,
+          variants: image.variants,
+          pending: image.pending,
+        }]}
+        initialIndex={0}
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        onDelete={() => { onDelete(); setLightboxOpen(false); }}
+        onSetPrimary={onSetPrimary}
+        token={token}
+      />
+    </>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // ImageUploadField – inline component for IMAGE data type fields.
@@ -60,6 +223,7 @@ function ImageUploadField({
   onReplaceImage,
   disabled,
   hasPendingChanges,
+  token,
 }: {
   fieldName: string;
   images: any[];
@@ -69,11 +233,14 @@ function ImageUploadField({
   onReplaceImage: (imageId: string, file: File) => void;
   disabled: boolean;
   hasPendingChanges: boolean;
+  token?: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [replaceTarget, setReplaceTarget] = useState<string | null>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [rotatingImages, setRotatingImages] = useState<Set<string>>(new Set());
 
   const handleUpload = (files: FileList | null) => {
     onAddFiles(files);
@@ -118,44 +285,47 @@ function ImageUploadField({
         </div>
       );
     }
+    const lightboxImgs = images.map((img: any) => ({
+      id: img.id,
+      fileName: img.fileName,
+      filePath: img.filePath,
+      altText: img.altText,
+      isPrimary: img.isPrimary,
+      sortOrder: img.sortOrder,
+      fileSize: img.fileSize,
+      mimeType: img.mimeType,
+      variants: img.variants,
+    }));
     return (
-      <div className="flex flex-wrap gap-2">
-        {images.map((img: any) => (
-          <div
-            key={img.id}
-            className="relative group w-20 h-20 rounded-md overflow-hidden border bg-muted/30 cursor-pointer"
-            onClick={() => setPreviewImage(img.filePath)}
-          >
-            <img
-              src={img.filePath}
-              alt={img.altText || img.fileName}
-              className="w-full h-full object-cover"
-            />
-            {img.isPrimary && (
-              <Star className="absolute top-1 right-1 w-3 h-3 text-amber-500 fill-amber-500" />
-            )}
-          </div>
-        ))}
-        {/* Lightbox preview */}
-        {previewImage && (
-          <div
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-            onClick={() => setPreviewImage(null)}
-          >
-            <img
-              src={previewImage}
-              alt="Preview"
-              className="max-w-full max-h-full rounded-lg shadow-xl object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <button
-              className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/40 text-white transition-colors"
-              onClick={() => setPreviewImage(null)}
+      <div>
+        <div className="flex flex-wrap gap-2">
+          {images.map((img: any, idx: number) => (
+            <div
+              key={img.id}
+              className="relative group w-20 h-20 rounded-md overflow-hidden border bg-muted/30 cursor-pointer"
+              onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
             >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+              <img
+                src={img.variants?.small || img.variants?.thumbnail || img.filePath}
+                alt={img.altText || img.fileName}
+                className="w-full h-full object-cover"
+              />
+              {img.isPrimary && (
+                <Star className="absolute top-1 right-1 w-3 h-3 text-amber-500 fill-amber-500" />
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <ZoomIn className="w-5 h-5 text-white" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <ImageLightbox
+          images={lightboxImgs}
+          initialIndex={lightboxIndex}
+          open={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+          token={token}
+        />
       </div>
     );
   }
@@ -174,19 +344,19 @@ function ImageUploadField({
       {/* Existing + pending images */}
       {images.length > 0 && (
         <div className="flex flex-wrap gap-3">
-          {images.map((img: any) => (
+          {images.map((img: any, idx: number) => (
             <div
               key={img.id}
               className="relative group w-24 h-24 rounded-lg overflow-hidden border-2 bg-muted/20 transition-all"
             >
               <img
-                src={img.filePath}
+                src={img.variants?.small || img.variants?.thumbnail || img.filePath}
                 alt={img.altText || img.fileName}
                 className="w-full h-full object-cover cursor-pointer"
-                onClick={() => setPreviewImage(img.filePath)}
+                onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
               />
               {/* Overlay on hover */}
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-0.5">
                 <Button
                   type="button"
                   variant="ghost"
@@ -211,11 +381,21 @@ function ImageUploadField({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  className="h-7 w-7 text-white hover:text-emerald-400"
+                  onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
+                  title="Zoom / View"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   className="h-7 w-7 text-white hover:text-red-400"
                   onClick={() => onDeleteImage(img.id)}
                   title="Delete image"
                 >
-                  <X className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
               {img.isPrimary && (
@@ -235,6 +415,28 @@ function ImageUploadField({
           ))}
         </div>
       )}
+
+      {/* Lightbox */}
+      <ImageLightbox
+        images={images.map((img: any) => ({
+          id: img.id,
+          fileName: img.fileName,
+          filePath: img.filePath,
+          altText: img.altText,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+          fileSize: img.fileSize,
+          mimeType: img.mimeType,
+          variants: img.variants,
+          pending: img.pending,
+        }))}
+        initialIndex={lightboxIndex}
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        onDelete={(imageId) => { onDeleteImage(imageId); }}
+        onSetPrimary={(imageId) => { onSetPrimary(imageId); }}
+        token={token}
+      />
 
       {/* Drop zone */}
       <div
@@ -274,27 +476,6 @@ function ImageUploadField({
         className="hidden"
         onChange={(e) => handleReplaceFile(e.target.files)}
       />
-
-      {/* Lightbox preview */}
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-          onClick={() => setPreviewImage(null)}
-        >
-          <img
-            src={previewImage}
-            alt="Preview"
-            className="max-w-full max-h-full rounded-lg shadow-xl object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/40 text-white transition-colors"
-            onClick={() => setPreviewImage(null)}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -853,7 +1034,7 @@ export default function RecordDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed'); return; }
-      toast.success(`Status changed to ${STATUS_LABELS[transitionDialog.target]}`);
+      toast.success(`Workflow state changed to ${WORKFLOW_STATE_LABELS[transitionDialog.target] || STATUS_LABELS[transitionDialog.target]}`);
       setTransitionDialog(null);
       loadData();
     } catch {
@@ -881,6 +1062,7 @@ export default function RecordDetailPage() {
           onReplaceImage={(imageId, file) => replaceImage(field.fieldCode, imageId, file)}
           disabled={disabled}
           hasPendingChanges={fieldHasPendingOps(field.fieldCode)}
+          token={token}
         />
       );
     }
@@ -1178,12 +1360,12 @@ export default function RecordDetailPage() {
         </Button>
         <div className="flex-1">
           <h2 className="text-2xl font-bold">
-            {isNewRecord ? 'Create Record' : 'Record Detail'}
+            {isNewRecord ? 'Create Entity Instance' : 'Entity Instance Detail'}
           </h2>
           {!isNewRecord && record && (
             <div className="flex items-center gap-2 mt-1">
               <Badge className={cn('text-xs border', STATUS_COLORS[record.status] || '')}>
-                {STATUS_LABELS[record.status] || record.status}
+                {(WORKFLOW_STATE_LABELS[record.status] || STATUS_LABELS[record.status] || record.status)}
               </Badge>
               <span className="text-xs text-muted-foreground">v{record.version} &middot; {record.module?.moduleName}</span>
             </div>
@@ -1224,6 +1406,9 @@ export default function RecordDetailPage() {
             <TabsTrigger value="details" className="gap-1.5">
               <FileText className="w-4 h-4" /> Details
             </TabsTrigger>
+            <TabsTrigger value="images" className="gap-1.5">
+              <ImageIcon className="w-4 h-4" /> Images
+            </TabsTrigger>
             <TabsTrigger value="versions" className="gap-1.5">
               <History className="w-4 h-4" /> Version History
             </TabsTrigger>
@@ -1245,9 +1430,9 @@ export default function RecordDetailPage() {
               <div className="lg:col-span-2 space-y-6">
                 <Card className="shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Record Data</CardTitle>
+                    <CardTitle className="text-lg">Attribute Values</CardTitle>
                     <CardDescription>
-                      {module?.moduleName} — {fields.length} fields
+                      {module?.moduleName} — {fields.length} attributes
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1306,62 +1491,108 @@ export default function RecordDetailPage() {
 
               {/* Sidebar */}
               <div className="space-y-6">
-                {/* Quality Score */}
-                {recordQualityScore !== null && (
-                  <Card className="shadow-sm">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4" /> Record Quality
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-col items-center">
-                      <div className="relative w-24 h-24">
-                        <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-                          <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="10" />
-                          <circle
-                            cx="60" cy="60" r="50" fill="none"
-                            className={recordQualityScore >= 85 ? 'text-emerald-500' : recordQualityScore >= 70 ? 'text-amber-500' : 'text-red-500'}
-                            strokeWidth="10"
-                            strokeLinecap="round"
-                            strokeDasharray={`${(recordQualityScore / 100) * 314} 314`}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className={cn('text-xl font-bold', recordQualityScore >= 85 ? 'text-emerald-600' : recordQualityScore >= 70 ? 'text-amber-600' : 'text-red-600')}>
-                            {recordQualityScore}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground">quality</span>
+                {/* Quality Score & Completeness */}
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4" /> Instance Quality
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {recordQualityScore !== null && (
+                      <div className="flex flex-col items-center">
+                        <div className="relative w-24 h-24">
+                          <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="10" />
+                            <circle
+                              cx="60" cy="60" r="50" fill="none"
+                              className={recordQualityScore >= 85 ? 'text-emerald-500' : recordQualityScore >= 70 ? 'text-amber-500' : 'text-red-500'}
+                              strokeWidth="10"
+                              strokeLinecap="round"
+                              strokeDasharray={`${(recordQualityScore / 100) * 314} 314`}
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className={cn('text-xl font-bold', recordQualityScore >= 85 ? 'text-emerald-600' : recordQualityScore >= 70 ? 'text-amber-600' : 'text-red-600')}>
+                              {recordQualityScore}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground">quality</span>
+                          </div>
                         </div>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-2 text-center">
-                        Based on module-level quality metrics
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
+                    )}
+                    {/* Completeness bar */}
+                    {(() => {
+                      const totalAttrs = fields.length || 1;
+                      const filledAttrs = fields.filter((f: any) => {
+                        const val = editPayload[f.fieldCode];
+                        return val !== undefined && val !== null && val !== '';
+                      }).length;
+                      const completeness = Math.round((filledAttrs / totalAttrs) * 100);
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground font-medium">Completeness</span>
+                            <span className={cn('text-xs font-bold', completeness >= 85 ? 'text-emerald-600' : completeness >= 60 ? 'text-amber-600' : 'text-red-600')}>
+                              {completeness}%
+                            </span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={cn(
+                                'h-full rounded-full transition-all',
+                                completeness >= 85 ? 'bg-emerald-500' :
+                                completeness >= 60 ? 'bg-amber-500' : 'bg-red-500'
+                              )}
+                              style={{ width: `${completeness}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            {filledAttrs} of {totalAttrs} attributes filled
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
 
-                {/* Status Transition */}
-                {availableTransitions.length > 0 && (
+                {/* Workflow State & Transitions */}
+                {record && (
                   <Card className="shadow-sm">
                     <CardHeader>
-                      <CardTitle className="text-lg">Actions</CardTitle>
-                      <CardDescription>Available state transitions</CardDescription>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Activity className="w-4 h-4" /> Workflow State
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-2">
-                      {availableTransitions.map((target) => {
-                        const Icon = TRANSITION_ICONS[target] || FileText;
-                        return (
-                          <Button
-                            key={target}
-                            variant="outline"
-                            className="w-full justify-start h-11"
-                            onClick={() => setTransitionDialog({ target, notes: '' })}
-                          >
-                            <Icon className="w-4 h-4 mr-2" />
-                            {STATUS_LABELS[target] || target}
-                          </Button>
-                        );
-                      })}
+                    <CardContent className="space-y-3">
+                      {/* Current state indicator */}
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={record.status} />
+                        {WORKFLOW_STATE_DESCRIPTIONS[record.status] && (
+                          <span className="text-[10px] text-muted-foreground">{WORKFLOW_STATE_DESCRIPTIONS[record.status]}</span>
+                        )}
+                      </div>
+
+                      {/* Available transitions */}
+                      {availableTransitions.length > 0 && (
+                        <div className="space-y-1.5 pt-2 border-t">
+                          <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Available Transitions</p>
+                          {availableTransitions.map((target) => {
+                            const Icon = TRANSITION_ICONS[target] || FileText;
+                            return (
+                              <Button
+                                key={target}
+                                variant="outline"
+                                className="w-full justify-start h-9 text-xs"
+                                onClick={() => setTransitionDialog({ target, notes: '' })}
+                              >
+                                <Icon className="w-3.5 h-3.5 mr-2" />
+                                {WORKFLOW_STATE_LABELS[target] || STATUS_LABELS[target] || target}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 )}
@@ -1400,6 +1631,142 @@ export default function RecordDetailPage() {
                 )}
               </div>
             </div>
+          </TabsContent>
+
+          {/* Images Tab - Full Image Gallery */}
+          <TabsContent value="images">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <ImageIcon className="w-5 h-5" /> Image Gallery
+                    </CardTitle>
+                    <CardDescription>
+                      All images associated with this entity instance
+                    </CardDescription>
+                  </div>
+                  {isEditing && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*,.heic,.heif,.avif';
+                        input.multiple = true;
+                        input.onchange = (e) => {
+                          const files = (e.target as HTMLInputElement).files;
+                          // Add to the first IMAGE field, or use '_general'
+                          const imageFields = fields.filter((f: any) => f.dataType === 'IMAGE');
+                          const fieldCode = imageFields.length > 0 ? imageFields[0].fieldCode : '_general';
+                          addPendingFiles(fieldCode, files);
+                        };
+                        input.click();
+                      }}
+                    >
+                      <Upload className="w-3.5 h-3.5" /> Upload Images
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  // Collect all images from all fields
+                  const allImages = Object.entries(recordImages).flatMap(([fieldCode, imgs]) =>
+                    (imgs as any[]).map((img) => ({ ...img, fieldCode }))
+                  );
+
+                  if (allImages.length === 0) {
+                    return (
+                      <div className="py-12 text-center">
+                        <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium">No images</h3>
+                        <p className="text-muted-foreground text-sm mt-1">
+                          This entity instance has no images attached
+                        </p>
+                        {isEditing && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-4 gap-1.5"
+                            onClick={() => {
+                              const input = document.createElement('input');
+                              input.type = 'file';
+                              input.accept = 'image/*,.heic,.heif,.avif';
+                              input.multiple = true;
+                              input.onchange = (e) => {
+                                const files = (e.target as HTMLInputElement).files;
+                                const imageFields = fields.filter((f: any) => f.dataType === 'IMAGE');
+                                const fieldCode = imageFields.length > 0 ? imageFields[0].fieldCode : '_general';
+                                addPendingFiles(fieldCode, files);
+                              };
+                              input.click();
+                            }}
+                          >
+                            <Upload className="w-3.5 h-3.5" /> Upload First Image
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-6">
+                      {Object.entries(recordImages).map(([fieldCode, imgs]) => {
+                        if ((imgs as any[]).length === 0) return null;
+                        const field = fields.find((f: any) => f.fieldCode === fieldCode);
+                        return (
+                          <div key={fieldCode}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <h4 className="text-sm font-semibold">
+                                {field?.fieldName || fieldCode === '_general' ? 'General Images' : fieldCode}
+                              </h4>
+                              <Badge variant="outline" className="text-[10px]">
+                                {(imgs as any[]).length} image{(imgs as any[]).length !== 1 ? 's' : ''}
+                              </Badge>
+                              {fieldHasPendingOps(fieldCode) && (
+                                <Badge className="text-[10px] bg-amber-50 text-amber-700 border-amber-200 border">
+                                  Unsaved changes
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                              {(imgs as any[]).map((img: any, idx: number) => (
+                                <ImageGalleryCard
+                                  key={img.id}
+                                  image={img}
+                                  isEditing={isEditing}
+                                  onDelete={() => deleteImage(fieldCode, img.id)}
+                                  onSetPrimary={() => setPrimaryImage(fieldCode, img.id)}
+                                  onReplace={(file) => replaceImage(fieldCode, img.id, file)}
+                                  onZoom={() => {}}
+                                  token={token}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Summary stats */}
+                      <div className="flex items-center gap-4 pt-4 border-t">
+                        <div className="text-xs text-muted-foreground">
+                          Total: <span className="font-bold">{allImages.length}</span> images
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Primary: <span className="font-bold">{allImages.filter((i) => i.isPrimary).length}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Pending: <span className="font-bold">{allImages.filter((i) => i.pending).length}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Version History Tab */}
@@ -1740,9 +2107,9 @@ export default function RecordDetailPage() {
       {isNewRecord && (
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg">Record Data</CardTitle>
+            <CardTitle className="text-lg">Attribute Values</CardTitle>
             <CardDescription>
-              {module?.moduleName} — {fields.length} fields
+              {module?.moduleName} — {fields.length} attributes
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1770,9 +2137,9 @@ export default function RecordDetailPage() {
       <Dialog open={!!transitionDialog} onOpenChange={() => setTransitionDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Confirm Status Change</DialogTitle>
+            <DialogTitle>Confirm Workflow State Transition</DialogTitle>
             <DialogDescription>
-              Change record status from {record ? STATUS_LABELS[record.status] : ''} to {transitionDialog ? STATUS_LABELS[transitionDialog.target] : ''}
+              Change entity instance workflow state from {record ? (WORKFLOW_STATE_LABELS[record.status] || STATUS_LABELS[record.status]) : ''} to {transitionDialog ? (WORKFLOW_STATE_LABELS[transitionDialog.target] || STATUS_LABELS[transitionDialog.target]) : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
