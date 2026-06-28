@@ -59,6 +59,8 @@ model SysUser {
   auditLogs    AuditLog[] @relation("AuditLogUser")
   savedViews      SavedView[]
   bulkUpdateJobs  BulkUpdateJob[]
+  stewardshipAssigned StewardshipTask[] @relation("StewardshipAssignee")
+  stewardshipCreated  StewardshipTask[] @relation("StewardshipAssigner")
 }
 
 model SysRole {
@@ -123,6 +125,7 @@ model MetaModule {
   businessRules   BusinessRule[]
   savedViews      SavedView[]
   bulkUpdateJobs  BulkUpdateJob[]
+  stewardshipTasks StewardshipTask[]
 }
 
 model MetaField {
@@ -231,6 +234,7 @@ model DataRecord {
   approvalTickets ApprovalTicket[]
   hierarchyNodes  HierarchyNode[]
   images          ImageAsset[]
+  stewardshipTasks StewardshipTask[]
 }
 
 model DataVersion {
@@ -744,4 +748,36 @@ model DataQualityScore {
   calculatedAt DateTime @default(now())
 
   @@unique([recordId, metricType, metricCode])
+}
+
+// ============================================================
+// 17. DATA STEWARDSHIP (STIBO Data Governance)
+// Tasks assigned to data stewards for reviewing, correcting,
+// and enriching data. Derived from quality issues, approval
+// workflows, or manual assignment.
+// ============================================================
+
+model StewardshipTask {
+  id          String    @id @default(cuid())
+  moduleId    String
+  recordId    String?
+  taskType    String    @default("QUALITY_REVIEW") // QUALITY_REVIEW | OWNERSHIP_ASSIGN | DATA_CORRECTION | ENRICHMENT | DEDUP_REVIEW
+  title       String
+  description String?
+  priority    String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  status      String    @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | CANCELLED | ESCALATED
+  assignedTo  String?
+  assignedBy  String?
+  dueDate     DateTime?
+  completedAt DateTime?
+  resolution  String?
+  // JSON: additional context (quality issue details, suggested fixes, etc.)
+  context     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  module      MetaModule @relation(fields: [moduleId], references: [id])
+  record      DataRecord? @relation(fields: [recordId], references: [id])
+  assignee    SysUser?   @relation("StewardshipAssignee", fields: [assignedTo], references: [id])
+  assigner    SysUser?   @relation("StewardshipAssigner", fields: [assignedBy], references: [id])
 }

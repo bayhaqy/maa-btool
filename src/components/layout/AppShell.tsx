@@ -47,6 +47,8 @@ import {
   BookTemplate,
   CheckCheck,
   Brain,
+  ShieldCheck,
+  Scale,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -152,6 +154,10 @@ const BulkJobsPage = dynamic(() => import('@/components/mdm/BulkJobsPage'), { lo
 const AiPromptsPage = dynamic(() => import('@/components/mdm/AiPromptsPage'), { loading: () => <PageSkeleton /> });
 const AiReviewPage = dynamic(() => import('@/components/mdm/AiReviewPage'), { loading: () => <PageSkeleton /> });
 const AiSettingsPage = dynamic(() => import('@/components/mdm/AiSettingsPage'), { loading: () => <PageSkeleton /> });
+const DataStewardshipPage = dynamic(() => import('@/components/mdm/DataStewardshipPage'), { loading: () => <PageSkeleton /> });
+const DataCatalogPage = dynamic(() => import('@/components/mdm/DataCatalogPage'), { loading: () => <PageSkeleton /> });
+const DataQualityPage = dynamic(() => import('@/components/mdm/DataQualityPage'), { loading: () => <PageSkeleton /> });
+const BusinessRulesPage = dynamic(() => import('@/components/mdm/BusinessRulesPage'), { loading: () => <PageSkeleton /> });
 
 interface NavItem {
   label: string;
@@ -173,21 +179,36 @@ interface NotificationItem {
   actionParams?: Record<string, string>;
 }
 
-const mainNav: NavItem[] = [
+const homeNav: NavItem[] = [
   { label: 'Dashboard', page: 'dashboard', icon: LayoutDashboard },
+];
+
+const dataNav: NavItem[] = [
   { label: 'Data Records', page: 'data-records', icon: FileText },
+  { label: 'Data Stewardship', page: 'data-stewardship', icon: ShieldCheck },
+  { label: 'Data Catalog', page: 'data-catalog', icon: BookOpen },
+  { label: 'Data Quality', page: 'data-quality', icon: CheckCircle2 },
+];
+
+const schemaNav: NavItem[] = [
+  { label: 'Schema Builder', page: 'modules', icon: Database },
+  { label: 'Hierarchy', page: 'hierarchy', icon: Network },
+];
+
+const governanceNav: NavItem[] = [
   { label: 'Workflow', page: 'workflow', icon: GitBranch },
+  { label: 'Business Rules', page: 'business-rules', icon: Scale },
 ];
 
 const toolsNav: NavItem[] = [
-  { label: 'Hierarchy Manager', page: 'hierarchy', icon: Network },
   { label: 'Bulk Import', page: 'bulk-import', icon: Upload },
   { label: 'Bulk Jobs', page: 'bulk-jobs', icon: Zap },
   { label: 'Audit Log', page: 'audit-log', icon: ScrollText },
-  { label: 'Documentation Hub', page: 'documentation', icon: BookOpen },
+  { label: 'Documentation', page: 'documentation', icon: BookOpen },
+];
+
+const aiNav: NavItem[] = [
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles },
-  { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate },
-  { label: 'AI Review', page: 'ai-review', icon: CheckCheck },
   { label: 'AI Settings', page: 'ai-settings', icon: Brain },
 ];
 
@@ -299,6 +320,10 @@ function PageContent() {
     'data-records': <DataRecordsPage />,
     'grid-editor': <GridEditorPage />,
     'record-detail': <RecordDetailPage />,
+    'data-stewardship': <DataStewardshipPage />,
+    'data-catalog': <DataCatalogPage />,
+    'data-quality': <DataQualityPage />,
+    'business-rules': <BusinessRulesPage />,
     workflow: <WorkflowPage />,
     hierarchy: <HierarchyPage />,
     'hierarchy-detail': <HierarchyDetailPage />,
@@ -561,31 +586,35 @@ function formatNotifTime(isoTimestamp: string): string {
 function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageView }[] {
   const paths: Record<PageView, { label: string; page?: PageView }[]> = {
     dashboard: [{ label: 'Home', page: 'dashboard' as PageView }],
-    modules: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Modules' }],
-    'module-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Modules', page: 'modules' as PageView }, { label: 'Module Builder' }],
-    'data-records': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records' }],
-    'grid-editor': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Grid Editor' }],
-    'record-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Record Detail' }],
-    workflow: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Workflow' }],
-    hierarchy: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Hierarchy Manager' }],
-    'hierarchy-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Hierarchy Manager', page: 'hierarchy' as PageView }, { label: 'Hierarchy Tree' }],
-    'bulk-import': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Bulk Import' }],
-    'bulk-jobs': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Bulk Jobs' }],
-    'admin-users': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Users' }],
-    'admin-roles': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Roles' }],
-    'admin-companies': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Companies' }],
-    'admin-lookups': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Lookups' }],
-    'audit-log': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Audit Log' }],
+    modules: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Schema & Taxonomy' }, { label: 'Schema Builder' }],
+    'module-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Schema & Taxonomy' }, { label: 'Schema Builder', page: 'modules' as PageView }, { label: 'Module Builder' }],
+    'data-records': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Records' }],
+    'grid-editor': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Grid Editor' }],
+    'record-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Records', page: 'data-records' as PageView }, { label: 'Record Detail' }],
+    'data-stewardship': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Stewardship' }],
+    'data-catalog': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Catalog' }],
+    'data-quality': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Data Management' }, { label: 'Data Quality' }],
+    'business-rules': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Governance & Workflow' }, { label: 'Business Rules' }],
+    workflow: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Governance & Workflow' }, { label: 'Workflow' }],
+    hierarchy: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Schema & Taxonomy' }, { label: 'Hierarchy' }],
+    'hierarchy-detail': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Schema & Taxonomy' }, { label: 'Hierarchy', page: 'hierarchy' as PageView }, { label: 'Hierarchy Tree' }],
+    'bulk-import': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'Bulk Import' }],
+    'bulk-jobs': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'Bulk Jobs' }],
+    'admin-users': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'Users' }],
+    'admin-roles': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'Roles' }],
+    'admin-companies': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'Companies' }],
+    'admin-lookups': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'Lookups' }],
+    'audit-log': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'Audit Log' }],
     settings: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Settings' }],
-    documentation: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Documentation Hub' }],
-    'ai-assistant': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Assistant' }],
-    'ai-prompts': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Prompts' }],
-    'ai-review': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Review' }],
-    'ai-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI & Intelligence' }, { label: 'AI Settings' }],
-    'api-management': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Integrations' }, { label: 'API Management' }],
-    'brand-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'Settings' }],
-    'system-health': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'System Health' }],
-    about: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Admin' }, { label: 'About' }],
+    documentation: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'Documentation' }],
+    'ai-assistant': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Assistant' }],
+    'ai-prompts': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Prompts' }],
+    'ai-review': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Review' }],
+    'ai-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Settings' }],
+    'api-management': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'API Management' }],
+    'brand-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'Settings' }],
+    'system-health': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'System Health' }],
+    about: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Administration' }, { label: 'About' }],
   };
   return paths[currentPage] || [{ label: 'Home', page: 'dashboard' as PageView }];
 }
@@ -600,25 +629,28 @@ interface SearchCommandItem {
 
 const searchNavigationItems: SearchCommandItem[] = [
   { label: 'Dashboard', page: 'dashboard', icon: LayoutDashboard, keywords: ['home', 'overview'] },
-  { label: 'Modules', page: 'modules', icon: Database, keywords: ['schema', 'builder', 'master'] },
   { label: 'Data Records', page: 'data-records', icon: FileText, keywords: ['records', 'entries', 'data'] },
+  { label: 'Data Stewardship', page: 'data-stewardship', icon: ShieldCheck, keywords: ['steward', 'golden', 'record', 'ownership', 'merge'] },
+  { label: 'Data Catalog', page: 'data-catalog', icon: BookOpen, keywords: ['catalog', 'taxonomy', 'classification', 'assets', 'lineage'] },
+  { label: 'Data Quality', page: 'data-quality', icon: CheckCircle2, keywords: ['quality', 'dedup', 'validation', 'profiling', 'score'] },
+  { label: 'Schema Builder', page: 'modules', icon: Database, keywords: ['schema', 'builder', 'master', 'model'] },
+  { label: 'Hierarchy', page: 'hierarchy', icon: Network, keywords: ['tree', 'structure', 'taxonomy'] },
   { label: 'Workflow', page: 'workflow', icon: GitBranch, keywords: ['approval', 'review', 'pending'] },
-  { label: 'Hierarchy Manager', page: 'hierarchy', icon: Network, keywords: ['tree', 'structure'] },
+  { label: 'Business Rules', page: 'business-rules', icon: Scale, keywords: ['rules', 'validation', 'cross-field', 'engine', 'governance'] },
   { label: 'Bulk Import', page: 'bulk-import', icon: Upload, keywords: ['upload', 'export', 'import'] },
   { label: 'Bulk Jobs', page: 'bulk-jobs', icon: Zap, keywords: ['bulk', 'update', 'wizard', 'mass', 'edit'] },
   { label: 'Audit Log', page: 'audit-log', icon: ScrollText, keywords: ['log', 'history', 'activity'] },
+  { label: 'Documentation', page: 'documentation', icon: BookOpen, keywords: ['docs', 'knowledge', 'help', 'wiki'] },
+  { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles, keywords: ['chat', 'ai', 'assistant', 'bot'] },
+  { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate, keywords: ['ai', 'prompt', 'template', 'genai'] },
+  { label: 'AI Review', page: 'ai-review', icon: CheckCheck, keywords: ['ai', 'review', 'queue', 'approve', 'reject', 'pending'] },
+  { label: 'AI Settings', page: 'ai-settings', icon: Brain, keywords: ['ai', 'settings', 'provider', 'api', 'key', 'configuration'] },
+  { label: 'API Management', page: 'api-management', icon: Key, keywords: ['api', 'keys', 'rest', 'integration'] },
   { label: 'Users', page: 'admin-users', icon: Users, keywords: ['admin', 'accounts'] },
   { label: 'Roles', page: 'admin-roles', icon: Shield, keywords: ['admin', 'permissions'] },
   { label: 'Companies', page: 'admin-companies', icon: Building2, keywords: ['admin', 'tenants'] },
   { label: 'Lookups', page: 'admin-lookups', icon: ListFilter, keywords: ['admin', 'dropdown', 'values'] },
   { label: 'Settings', page: 'settings', icon: Settings, keywords: ['preferences', 'theme', 'account'] },
-  { label: 'Documentation Hub', page: 'documentation', icon: BookOpen, keywords: ['docs', 'knowledge', 'help', 'wiki'] },
-  { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles, keywords: ['chat', 'ai', 'assistant', 'bot'] },
-  { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate, keywords: ['ai', 'prompt', 'template', 'stibo', 'genai', 'pttt', 'gaidgrp'] },
-  { label: 'AI Review', page: 'ai-review', icon: CheckCheck, keywords: ['ai', 'review', 'queue', 'approve', 'reject', 'pending'] },
-  { label: 'AI Settings', page: 'ai-settings', icon: Brain, keywords: ['ai', 'settings', 'provider', 'api', 'key', 'gemini', 'openai', 'configuration'] },
-  { label: 'API Management', page: 'api-management', icon: Key, keywords: ['api', 'keys', 'rest', 'integration'] },
-  { label: 'Settings', page: 'brand-settings', icon: Palette, keywords: ['brand', 'customization', 'logo', 'theme', 'style', 'settings'] },
   { label: 'System Health', page: 'system-health', icon: Activity, keywords: ['status', 'health', 'monitoring', 'services', 'system', 'uptime'] },
   { label: 'About', page: 'about', icon: Info, keywords: ['about', 'developer', 'info', 'version'] },
 ];
@@ -632,13 +664,20 @@ export default function AppShell() {
   // ── Role-filtered navigation ───────────────────────────────────────────
   // Build the per-user nav lists using the centralized page-access map.
   const allowedPages = getAllowedPages(user?.roles);
-  const filteredMainNav = filterNavByRole(mainNav, user?.roles);
+  const filteredHomeNav = filterNavByRole(homeNav, user?.roles);
+  const filteredDataNav = filterNavByRole(dataNav, user?.roles);
+  const filteredSchemaNav = filterNavByRole(schemaNav, user?.roles);
+  const filteredGovernanceNav = filterNavByRole(governanceNav, user?.roles);
   const filteredToolsNav = filterNavByRole(toolsNav, user?.roles);
+  const filteredAiNav = filterNavByRole(aiNav, user?.roles);
   const filteredIntegrationsNav = filterNavByRole(integrationsNav, user?.roles);
   const filteredAdminNav = filterNavByRole(adminNav, user?.roles);
-  // Modules menu item — only superadmin (Schema section).
-  const showModules = allowedPages.has('modules');
+  const showHomeSection = filteredHomeNav.length > 0;
+  const showDataSection = filteredDataNav.length > 0;
+  const showSchemaSection = filteredSchemaNav.length > 0;
+  const showGovernanceSection = filteredGovernanceNav.length > 0;
   const showToolsSection = filteredToolsNav.length > 0;
+  const showAiSection = filteredAiNav.length > 0;
   const showIntegrationsSection = filteredIntegrationsNav.length > 0;
   const showAdminSection = isSuperAdmin && filteredAdminNav.length > 0;
   const isImpersonating = !!originalUser;
@@ -718,13 +757,17 @@ export default function AppShell() {
   const getTitle = () => {
     const titles: Record<PageView, string> = {
       dashboard: 'Dashboard',
-      modules: 'Modules',
+      modules: 'Schema Builder',
       'module-detail': 'Module Builder',
       'data-records': 'Data Records',
       'grid-editor': 'Grid Editor',
       'record-detail': 'Record Detail',
+      'data-stewardship': 'Data Stewardship',
+      'data-catalog': 'Data Catalog',
+      'data-quality': 'Data Quality',
+      'business-rules': 'Business Rules',
       workflow: 'Approval Workflow',
-      hierarchy: 'Hierarchy Manager',
+      hierarchy: 'Hierarchy',
       'hierarchy-detail': 'Hierarchy Tree',
       'bulk-import': 'Bulk Import / Export',
       'bulk-jobs': 'Bulk Update Jobs',
@@ -734,7 +777,7 @@ export default function AppShell() {
       'admin-lookups': 'Lookup Management',
       'audit-log': 'Audit Log',
       settings: 'Settings',
-      documentation: 'Documentation Hub',
+      documentation: 'Documentation',
       'ai-assistant': 'AI Assistant',
       'ai-prompts': 'AI Prompt Library',
       'ai-review': 'AI Review Queue',
@@ -854,19 +897,37 @@ export default function AppShell() {
 
           {/* Sidebar Content */}
           <ScrollArea className="flex-1 custom-scrollbar">
-            {filteredMainNav.length > 0 && (
-              <NavSection title="Main" items={filteredMainNav} collapsed={!sidebarOpen} />
+            {showHomeSection && (
+              <NavSection title="Home" items={filteredHomeNav} collapsed={!sidebarOpen} />
             )}
-            {showModules && (
+            {showDataSection && (
               <>
                 <Separator className="mx-3" />
-                <NavSection title="Schema" items={[{ label: 'Modules', page: 'modules', icon: Database }]} collapsed={!sidebarOpen} />
+                <NavSection title="Data Management" items={filteredDataNav} collapsed={!sidebarOpen} />
+              </>
+            )}
+            {showSchemaSection && (
+              <>
+                <Separator className="mx-3" />
+                <NavSection title="Schema & Taxonomy" items={filteredSchemaNav} collapsed={!sidebarOpen} />
+              </>
+            )}
+            {showGovernanceSection && (
+              <>
+                <Separator className="mx-3" />
+                <NavSection title="Governance & Workflow" items={filteredGovernanceNav} collapsed={!sidebarOpen} />
               </>
             )}
             {showToolsSection && (
               <>
                 <Separator className="mx-3" />
-                <NavSection title="Tools" items={filteredToolsNav} collapsed={!sidebarOpen} />
+                <NavSection title="Tools & Integration" items={filteredToolsNav} collapsed={!sidebarOpen} />
+              </>
+            )}
+            {showAiSection && (
+              <>
+                <Separator className="mx-3" />
+                <NavSection title="AI Hub" items={filteredAiNav} collapsed={!sidebarOpen} />
               </>
             )}
             {showIntegrationsSection && (
@@ -878,7 +939,7 @@ export default function AppShell() {
             {showAdminSection && (
               <>
                 <Separator className="mx-3" />
-                <NavSection title="Admin" items={filteredAdminNav} collapsed={!sidebarOpen} />
+                <NavSection title="Administration" items={filteredAdminNav} collapsed={!sidebarOpen} />
               </>
             )}
           </ScrollArea>

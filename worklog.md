@@ -1865,3 +1865,255 @@ Unresolved Issues:
 - Gemini API key quota exceeded (429 error) - external billing issue, not code issue
 - Dev server OOM during lint (resource limitation, user acknowledged to focus on Vercel)
 - Some TypeScript errors in seed-data route (non-blocking)
+
+---
+Task ID: P1-backend
+Agent: Backend API Developer
+Task: Create backend APIs for Stibo-aligned features
+
+Work Log:
+- Read existing worklog.md, Prisma schema, lib/auth.ts, lib/rbac.ts, lib/db.ts, lib/audit.ts, lib/rate-limit.ts
+- Reviewed existing API routes (business-rules, audit) to understand current patterns
+- Added StewardshipTask model to Prisma schema with relations to SysUser, MetaModule, DataRecord
+- Enhanced lib/audit.ts with ipAddress/userAgent support, sanitizeInput(), validateSafeString() utilities
+- Created 4 new API route files and enhanced 2 existing ones
+
+Files Created:
+1. /src/app/api/data-quality/route.ts - GET endpoint returning data quality metrics
+   - Overall quality score (weighted: 30% completeness, 25% accuracy, 20% consistency, 15% timeliness, 10% uniqueness)
+   - Per-module quality breakdown with all 5 dimensions
+   - Deduplication stats: duplicate count, merge candidates
+   - Quality trend (last 30 days) from DataQualityScore table
+   - Rule condition evaluator for accuracy calculation
+
+2. /src/app/api/stewardship/route.ts - GET/POST/PATCH endpoints
+   - GET: List stewardship tasks with filtering (status, taskType, priority, assignedTo, moduleId)
+   - GET: Includes summary stats + derived approval tasks from pending approval tickets
+   - POST: Create/assign tasks with validation (taskType, priority, assignee)
+   - PATCH: Update task status (complete, reassign) with auto completedAt
+   - Rate limiting on POST (30/min)
+
+3. /src/app/api/data-catalog/route.ts - GET endpoint
+   - List all data assets grouped by Stibo domain (Product, Customer, Supplier, Asset, etc.)
+   - Per-asset: owner, last updated, quality score, record count, field count, status distribution
+   - Support search/filter by domain, moduleCode, search text
+   - Resolves owner names from user IDs
+
+4. /src/components/mdm/DataQualityPage.tsx - Stub page component
+5. /src/components/mdm/BusinessRulesPage.tsx - Stub page component
+
+Files Enhanced:
+1. /src/app/api/business-rules/route.ts - Enhanced with:
+   - GET: No longer requires moduleId; supports filtering by conditionType, actionType, trigger, isActive, search
+   - GET: Returns summary with type distributions and pagination
+   - POST: Expanded to Manager+ role (not just Super Admin)
+   - POST/PUT: Input validation for conditionType, actionType, trigger enums
+   - POST/PUT/DELETE: Full audit logging with IP and user agent
+   - Rate limiting on POST (20/min)
+
+2. /src/app/api/audit/route.ts - Enhanced with:
+   - RBAC check using checkAuthAndPermission (audit:read)
+   - Additional filters: moduleName, entityId
+   - CSV export via ?export=csv parameter (up to 10k rows)
+   - Input sanitization and validation
+   - Summary stats (actionTypes, entityTypes distributions)
+   - Proper limit capping at 100
+
+Schema Changes:
+- Added StewardshipTask model with fields: id, moduleId, recordId, taskType, title, description, priority, status, assignedTo, assignedBy, dueDate, completedAt, resolution, context
+- Added relations: SysUser.stewardshipAssigned, SysUser.stewardshipCreated, MetaModule.stewardshipTasks, DataRecord.stewardshipTasks
+
+Security Enhancements Applied to ALL New Routes:
+- Authentication check via getTokenFromHeaders
+- Authorization check via checkAuthAndPermission (RBAC)
+- Rate limiting on mutation endpoints (POST/PATCH)
+- Input sanitization via sanitizeInput() on all user-provided strings
+- SQL injection validation via validateSafeString() on search inputs
+- Audit logging for all admin/mutation actions with IP and user agent
+- Proper HTTP status codes (401, 403, 400, 404, 422, 429, 500)
+- export const runtime = 'nodejs' and export const dynamic = 'force-dynamic'
+
+Verified Results:
+- All API endpoints return correct responses with auth token
+- Data Quality: Returns overall score, 5 dimensions, per-module breakdown, 30-day trend
+- Data Catalog: Returns 7 assets across 4 domains with owner resolution
+- Stewardship: CRUD operations working, approval tasks derived from pending tickets
+- Business Rules: Enhanced filtering and summary stats working
+- Audit: CSV export working with full before/after values and IP tracking
+- ESLint passes on all new/modified files
+- Prisma schema validated, db push successful, client generated
+
+---
+Task ID: P1
+Agent: Stibo STEP Architecture Overhaul Agent
+Task: Restructure navigation, page views, and app shell to match Stibo STEP enterprise MDM platform
+
+Work Log:
+- Read existing worklog.md, app-store.ts, AppShell.tsx, and page-access.ts to understand current state
+- Updated PageView type in /src/stores/app-store.ts with 4 new pages: data-stewardship, data-catalog, data-quality, business-rules
+- Reorganized PageView type with section comments (Home, Data Management, Schema, Workflow & Governance, Tools, AI Hub, Integrations, Administration)
+- Updated AppShell.tsx navigation structure from flat layout to Stibo STEP-style workbench sections:
+  - Home (Dashboard)
+  - Data Management (Data Records, Data Stewardship, Data Catalog, Data Quality)
+  - Schema & Taxonomy (Schema Builder, Hierarchy)
+  - Governance & Workflow (Workflow, Business Rules)
+  - Tools & Integration (Bulk Import, Bulk Jobs, Audit Log, Documentation)
+  - AI Hub (AI Assistant, AI Settings)
+  - Integrations (API Management)
+  - Administration (Super Admin only: Users, Roles, Companies, Lookups, System Health, Settings, About)
+- Added new Lucide icons: ShieldCheck, Scale
+- Added dynamic imports for 4 new page components
+- Updated page routing in PageContent with all new pages
+- Updated breadcrumb paths with Stibo-aligned section names
+- Updated search navigation items with new pages and keywords
+- Updated title map for new pages
+- Updated role-filtered navigation with new section variables
+- Updated sidebar NavSection rendering with Stibo STEP section labels
+- Updated /src/lib/page-access.ts:
+  - Added data-stewardship to Super Admin, Manager roles
+  - Added data-catalog to Super Admin, Manager, Data Entry, Viewer roles
+  - Added data-quality to Super Admin, Manager, Viewer roles
+  - Added business-rules to Super Admin, Manager roles
+- Created /src/components/mdm/DataStewardshipPage.tsx:
+  - Stewardship Tasks panel with table (review/merge/ownership/quality types)
+  - Golden Record management (survivor selection, record merging, confidence tracking)
+  - Record Ownership panel (domain ownership cards with quality scores)
+  - Data Quality Alerts (severity-based alert list with resolve actions)
+  - Task detail dialog and Golden Record detail dialog
+  - Uses Tabs, Table, Card, Badge, Dialog components
+- Created /src/components/mdm/DataCatalogPage.tsx:
+  - Browse data assets by domain (Product, Location, Partner, Commerce, Marketing)
+  - Taxonomy/classification expandable tree view with counts
+  - Search across all data assets with domain filtering
+  - Data lineage panel showing source-to-target mappings
+  - Asset detail dialog with metadata
+  - Uses Tabs, Card, Input, Dialog, Badge components
+- Created /src/components/mdm/DataQualityPage.tsx:
+  - Overall quality score (82/100) with SVG circular gauge
+  - Quality dimensions (Completeness, Accuracy, Consistency, Timeliness, Uniqueness) with progress bars and trends
+  - Quality trend chart over 6 months (bar chart)
+  - Module-by-module quality breakdown table
+  - Deduplication panel (duplicate records, similarity scores, merge actions)
+  - Data profiling (field-level stats: null %, unique values, pattern analysis, avg length)
+  - Uses Tabs, Table, Card, Progress, Badge components
+- Created /src/components/mdm/BusinessRulesPage.tsx:
+  - Rules list with name, type, trigger, action, status
+  - Enable/disable toggle per rule via Switch component
+  - Create rule dialog with conditions builder (field, operator, value)
+  - Rule types: CROSS_FIELD, REQUIRED_IF, LOV_CROSS, SCRIPTED
+  - Actions: BLOCK, WARN, SET_VALUE, SEND_EMAIL
+  - Trigger points: SAVE, APPROVE, IMPORT
+  - Rule detail dialog with conditions display and actions
+  - Search and filter by type/trigger
+  - Uses Table, Card, Dialog, Switch, Select, Badge components
+- Ran prisma generate successfully
+- Lint check passed for all changed files (pre-existing lint errors in DataRecordsPage.tsx unrelated to this task)
+- Dev server confirmed compiling and serving all new pages
+
+Summary:
+Restructured the MAA BTOOL MDM platform navigation from a flat layout to a Stibo STEP-aligned workbench-style UI with 8 navigation sections. Added 4 new enterprise-grade page components (Data Stewardship, Data Catalog, Data Quality, Business Rules) with comprehensive mock data, interactive elements, and professional layouts. All components use shadcn/ui, support dark mode, are responsive, and follow the no-indigo/blue color rule.
+
+---
+Task ID: P1a+P5
+Agent: Dashboard & Data Records Overhaul Agent
+Task: Overhaul Dashboard and Data Records pages to match Stibo STEP
+
+Work Log:
+
+**1. Dashboard API Endpoint** (`/src/app/api/dashboard/stats/route.ts`)
+- Created new GET endpoint `/api/dashboard/stats` that returns comprehensive dashboard analytics
+- Computes core counts: total modules, total records, active/draft/in_review records, pending/overdue/my tasks, approved/rejected today
+- Returns records by module with status breakdown (active/draft counts per module)
+- Computes status distribution via Prisma groupBy
+- Calculates workflow pipeline counts for all statuses (DRAFT → IN_REVIEW → ACTIVE → REVISION_PENDING → REJECTED → ARCHIVED)
+- Computes Data Quality Score with 5 dimensions: Completeness, Accuracy, Consistency, Timeliness, Uniqueness
+- Returns Data Governance metrics: business rules compliance, approval completion rate, average time to approve (hours)
+- Generates 7-day quality trend data
+- Returns recent activity from latest updated records
+- Computes Golden Record stats: total, recently updated (24h), recently merged, by domain
+
+**2. Dashboard Page Overhaul** (`/src/components/mdm/DashboardPage.tsx`)
+- **A. Data Quality Score** (prominent, top-left):
+  - Large circular SVG gauge with animated score (0-100)
+  - Color-coded: green (80+), amber (60-80), red (<60)
+  - Health badge: Healthy / Needs Attention / Critical
+  - Breakdown bars for 5 dimensions: Completeness, Accuracy, Consistency, Timeliness, Uniqueness
+  - Each bar has animated progress fill with icon
+
+- **B. Golden Record Statistics**:
+  - Total records count
+  - Updated in last 24h count
+  - Merged in last 24h count
+  - Records by Domain horizontal bar chart with animated fills
+
+- **C. Stewardship Tasks Panel**:
+  - Pending / Overdue / My Tasks counts in color-coded cards
+  - Quick action buttons: Review Pending (with badge count), Browse Records, Bulk Import, AI Assistant
+
+- **D. Workflow Pipeline**:
+  - Visual pipeline: Draft → In Review → Approved
+  - Each stage shows count, percentage, animated progress bar
+  - Chevron arrows between stages
+  - Bottom bar: approved today, rejected today, overdue counts with icons
+
+- **E. Data Governance Metrics**:
+  - 3 metric cards: Rules Compliance, Approval Rate, Avg Approve time
+  - 7-day Quality Trend using recharts AreaChart with gradient fill
+  - CartesianGrid, formatted tooltips
+
+- **F. Module Cards** (enhanced):
+  - Quality score per module (active/total ratio)
+  - Record count, active/draft ratio
+  - Last modified awareness
+  - Quick action buttons: Records, Grid, Add
+  - Progress bar visualization
+
+- **Additional**: Status Distribution PieChart, Records by Module BarChart, Recent Activity Timeline with avatars and action icons, Refresh button with timestamp
+
+- **Layout**: Responsive grid (12-column on lg), animated with Framer Motion, dark mode support, NO blue/indigo colors, professional enterprise look
+
+**3. Data Records Page Overhaul** (`/src/components/mdm/DataRecordsPage.tsx`)
+
+- **A. Advanced Table with TanStack Table-like features**:
+  - Sortable columns: click header to sort asc/desc, with visual sort indicators (ArrowUp/ArrowDown/ArrowUpDown)
+  - Column visibility toggle via Popover with checkboxes
+  - Inline editing: double-click any cell to enter edit mode, Enter to save, Escape to cancel, blur to save
+  - Row selection with checkboxes (individual + select all)
+  - Bulk actions toolbar: appears when rows selected (Submit for Approval, Bulk Edit, Delete, Clear)
+
+- **B. Stibo-style Record Browser (Split View)**:
+  - ResizablePanelGroup with left panel (table) and right panel (record preview)
+  - Click a record in split view → preview it on the right without navigation
+  - "Open Full Record" button in preview panel
+  - Toggle between list view and split view (Columns3 icon)
+  - Record preview shows all fields, status, company, module, action buttons (Edit, Duplicate, Submit)
+
+- **C. Advanced Filter Panel**:
+  - Collapsible filter panel with add/remove filters
+  - Filter by any field with operator: Contains, Equals, Starts with, Not contains
+  - AND/OR logic toggle
+  - Save current view as "Saved View" via /api/saved-views
+  - Load saved views with one click
+  - Quick filter tabs: All Records, My Records, Pending Review, Recently Modified
+  - Active filter tags with clear buttons and "Clear all"
+
+- **D. Status Workflow Bar**:
+  - Visual status pipeline at top of record list
+  - Click any status to filter by that status
+  - Shows count at each status with colored dot indicators
+  - Active status has red ring highlight
+
+- **E. Record Actions**:
+  - Right-click context menu on records (ContextMenu from radix-ui)
+  - Quick actions: Edit (⌘E), View (⌘V), Duplicate (⌘D), Submit for Approval (⌘S), Delete (⌘⌫)
+  - Context menu is context-aware (Submit only shows for DRAFT/REJECTED)
+  - Keyboard shortcuts displayed in menu
+
+- **Styling**: Dark mode support, NO blue/indigo colors, red accent theme, Framer Motion animations, responsive design, custom scrollbar, enterprise professional look
+
+**4. Technical Details**:
+- All components use shadcn/ui exclusively
+- No lint errors (all inner components refactored to standalone or inlined to avoid react-hooks/static-components)
+- Prisma generate completed successfully
+- All API routes use existing auth/RBAC middleware
+- Dashboard API uses efficient Prisma queries with Promise.all for parallel execution
