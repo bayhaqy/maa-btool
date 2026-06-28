@@ -31,6 +31,7 @@ import {
 import {
   Shield, Plus, MoreVertical, Pencil, Trash2, Eye, Users, Lock,
   CheckCircle, Crown, Settings, AlertTriangle, Info, ShieldAlert,
+  Building2, Copy, Globe,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -54,10 +55,14 @@ interface RoleData {
   roleType: string;
   scope: string;
   isSystem: boolean;
+  isGlobal: boolean;
+  companyId: string;
   color: string | null;
   icon: string | null;
   permissionCount: number;
   userCount: number;
+  assignedUsers?: Array<{ id: string; username: string; displayName: string | null }>;
+  company?: { id: string; companyCode: string; companyName: string } | null;
   permissions: Array<{
     id: string;
     moduleId: string;
@@ -97,6 +102,7 @@ const ROLE_ICON_MAP: Record<string, React.ReactNode> = {
   Shield: <Shield className="w-4 h-4" />,
   Settings: <Settings className="w-4 h-4" />,
   Crown: <Crown className="w-4 h-4" />,
+  Building2: <Building2 className="w-4 h-4" />,
 };
 
 // ── Role type badge colors ─────────────────────────────────────────
@@ -112,16 +118,18 @@ function getRoleTypeBadgeStyle(roleType: string): { bg: string; text: string; bo
 
 // ── Main Component ─────────────────────────────────────────────────
 export default function AdminRolesPage() {
-  const { token } = useAppStore();
+  const { token, user: currentUser } = useAppStore();
   const perms = usePermissions();
   const [roles, setRoles] = useState<RoleData[]>([]);
   const [modules, setModules] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editRole, setEditRole] = useState<RoleData | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [roleToDelete, setRoleToDelete] = useState<RoleData | null>(null);
   const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set());
+  const [expandedUserLists, setExpandedUserLists] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({
     roleName: '',
     description: '',
@@ -131,18 +139,30 @@ export default function AdminRolesPage() {
   });
   const [saving, setSaving] = useState(false);
 
+  // Company filter for multi-tenant isolation
+  const [companyFilter, setCompanyFilter] = useState<string>('ALL');
+
+  // Duplicate to company dialog
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] = useState<RoleData | null>(null);
+  const [duplicateTargetCompanyId, setDuplicateTargetCompanyId] = useState<string>('');
+  const [duplicating, setDuplicating] = useState(false);
+
   const loadData = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
-      const [rRes, mRes] = await Promise.all([
+      const [rRes, mRes, cRes] = await Promise.all([
         fetch('/api/admin/roles', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/companies', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const rData = await rRes.json();
       const mData = await mRes.json();
+      const cData = await cRes.json();
       setRoles(rData.roles || []);
       setModules(mData.modules || []);
+      setCompanies(cData.companies || []);
     } catch {
       toast.error('Failed to load data');
     } finally {
@@ -153,6 +173,20 @@ export default function AdminRolesPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Auto-set company filter for non-Super-Admin users
+  useEffect(() => {
+    if (!perms.isSuperAdmin && currentUser?.companyId && companyFilter === 'ALL') {
+      setCompanyFilter(currentUser.companyId);
+    }
+  }, [perms.isSuperAdmin, currentUser?.companyId, companyFilter]);
+
+  // ── Filtered roles based on company ──────────────────────────────────
+  const filteredRoles = useMemo(() => {
+    if (companyFilter === 'ALL') return roles;
+    // Show roles that belong to the selected company + global roles (isGlobal=true)
+    return roles.filter((r) => r.isGlobal || r.companyId === companyFilter);
+  }, [roles, companyFilter]);
 
   // Determine if current form roleType is VIEWER (read-only)
   const isViewerType = form.roleType === 'VIEWER';
@@ -190,6 +224,8 @@ export default function AdminRolesPage() {
         roleType: form.roleType,
         scope: form.scope,
         permissions: form.permissions,
+        // Auto-assign companyId based on filter for new roles
+        ...(!editRole && companyFilter !== 'ALL' ? { companyId: companyFilter } : {}),
       };
 
       if (editRole) {
@@ -199,8 +235,8 @@ export default function AdminRolesPage() {
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok) { toast.error(data.error || 'Failed to update role'); return; }
-        toast.success('Role updated successfully');
+        if (!res.ok) { toast.error(data.error || 'Failed to update user group'); return; }
+        toast.success('User Group updated successfully');
       } else {
         const res = await fetch('/api/admin/roles', {
           method: 'POST',
@@ -208,8 +244,8 @@ export default function AdminRolesPage() {
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok) { toast.error(data.error || 'Failed to create role'); return; }
-        toast.success('Role created successfully');
+        if (!res.ok) { toast.error(data.error || 'Failed to create user group'); return; }
+        toast.success('User Group created successfully');
       }
       setDialogOpen(false);
       setEditRole(null);
@@ -230,13 +266,39 @@ export default function AdminRolesPage() {
         body: JSON.stringify({ id: roleToDelete.id }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || 'Failed to delete role'); return; }
-      toast.success('Role deleted successfully');
+      if (!res.ok) { toast.error(data.error || 'Failed to delete user group'); return; }
+      toast.success('User Group deleted successfully');
       setDeleteConfirmOpen(false);
       setRoleToDelete(null);
       loadData();
     } catch {
       toast.error('Network error');
+    }
+  };
+
+  const handleDuplicateToCompany = async () => {
+    if (!token || !duplicateSource || !duplicateTargetCompanyId) return;
+    setDuplicating(true);
+    try {
+      const res = await fetch('/api/admin/roles/duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          sourceRoleId: duplicateSource.id,
+          targetCompanyId: duplicateTargetCompanyId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed to duplicate user group'); return; }
+      toast.success(`User Group "${duplicateSource.roleName}" duplicated to target account`);
+      setDuplicateDialogOpen(false);
+      setDuplicateSource(null);
+      setDuplicateTargetCompanyId('');
+      loadData();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -285,7 +347,6 @@ export default function AdminRolesPage() {
   };
 
   const togglePermission = (moduleId: string, permKey: string) => {
-    // Prevent toggling write permissions for VIEWER
     if (isViewerType && permKey !== 'canRead') return;
 
     setForm((prev) => ({
@@ -296,7 +357,6 @@ export default function AdminRolesPage() {
     }));
   };
 
-  // Toggle all write permissions for a module
   const toggleAllWrite = (moduleId: string, enable: boolean) => {
     if (isViewerType) return;
     setForm((prev) => ({
@@ -316,7 +376,6 @@ export default function AdminRolesPage() {
     }));
   };
 
-  // Ensure permission entry exists for a module
   const ensurePermission = (moduleId: string): PermissionRow => {
     const existing = form.permissions.find((p) => p.moduleId === moduleId);
     if (existing) return existing;
@@ -344,16 +403,25 @@ export default function AdminRolesPage() {
     });
   };
 
+  const toggleUserList = (roleId: string) => {
+    setExpandedUserLists((prev) => {
+      const next = new Set(prev);
+      if (next.has(roleId)) next.delete(roleId);
+      else next.add(roleId);
+      return next;
+    });
+  };
+
   // ── Compute role type stats ──────────────────────────────────────
   const roleTypeStats = useMemo(() => {
     const stats: Record<string, number> = {};
     Object.keys(ROLE_TYPE_INFO).forEach((key) => { stats[key] = 0; });
-    roles.forEach((r) => {
+    filteredRoles.forEach((r) => {
       const rt = r.roleType || 'VIEWER';
       stats[rt] = (stats[rt] || 0) + 1;
     });
     return stats;
-  }, [roles]);
+  }, [filteredRoles]);
 
   // ── Loading State ────────────────────────────────────────────────
   if (!perms.canAdmin) {
@@ -388,19 +456,50 @@ export default function AdminRolesPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Role Management</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Configure Stibo RBAC roles and granular module permissions
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">User Groups & Privilege Rules</h2>
+            <p className="text-muted-foreground text-sm mt-1">
+              Configure user groups and their privilege rules (Stibo RBAC)
+            </p>
+          </div>
+          {perms.isReadOnly && (
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+              <Eye className="w-3 h-3 mr-1" /> Read Only
+            </Badge>
+          )}
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" /> Add Role
+          <Plus className="w-4 h-4 mr-2" /> Add User Group
         </Button>
       </div>
 
+      {/* ── Company Filter ────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <Building2 className="w-4 h-4 text-muted-foreground" />
+        <Label className="text-sm font-medium whitespace-nowrap">Filter by Account:</Label>
+        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="All Accounts" />
+          </SelectTrigger>
+          <SelectContent>
+            {perms.isSuperAdmin && (
+              <SelectItem value="ALL">All Accounts</SelectItem>
+            )}
+            {companies.filter((c) => c.isActive).map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.companyName} ({c.companyCode})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {companyFilter !== 'ALL' && (
+          <Badge variant="outline" className="text-xs">
+            Showing {filteredRoles.length} group{filteredRoles.length !== 1 ? 's' : ''}
+          </Badge>
+        )}
+      </div>
+
       {/* ── Role Type Summary Cards ─────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         {Object.entries(ROLE_TYPE_INFO).map(([key, info]) => {
           const style = getRoleTypeBadgeStyle(key);
           const count = roleTypeStats[key] || 0;
@@ -428,24 +527,26 @@ export default function AdminRolesPage() {
 
       {/* ── Role Cards ──────────────────────────────────────────── */}
       <div className="space-y-4">
-        {roles.length === 0 && (
+        {filteredRoles.length === 0 && (
           <Card className="shadow-sm">
             <CardContent className="p-8 text-center">
               <Shield className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
-              <p className="text-muted-foreground">No roles configured yet</p>
+              <p className="text-muted-foreground">No user groups found for the selected account</p>
               <Button variant="outline" className="mt-4" onClick={openCreate}>
-                <Plus className="w-4 h-4 mr-2" /> Create First Role
+                <Plus className="w-4 h-4 mr-2" /> Create First User Group
               </Button>
             </CardContent>
           </Card>
         )}
 
-        {roles.map((role) => {
+        {filteredRoles.map((role) => {
           const roleType = role.roleType || 'VIEWER';
           const typeInfo = ROLE_TYPE_INFO[roleType];
           const style = getRoleTypeBadgeStyle(roleType);
           const isExpanded = expandedRoles.has(role.id);
           const isViewer = roleType === 'VIEWER';
+          const isUserListExpanded = expandedUserLists.has(role.id);
+          const companyName = role.company?.companyName || (role.isGlobal ? 'System' : '-');
 
           return (
             <Card key={role.id} className="shadow-sm">
@@ -462,7 +563,7 @@ export default function AdminRolesPage() {
                       {role.roleName}
                     </CardTitle>
 
-                    {/* Role type badge */}
+                    {/* Group Type badge */}
                     <Badge
                       className="text-xs font-semibold border"
                       style={{
@@ -474,16 +575,23 @@ export default function AdminRolesPage() {
                       {typeInfo?.label || roleType}
                     </Badge>
 
+                    {/* Global badge */}
+                    {role.isGlobal && (
+                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                        <Globe className="w-3 h-3 mr-1" /> Global
+                      </Badge>
+                    )}
+
                     {/* READ-ONLY badge for Viewer */}
                     {isViewer && (
-                      <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800">
+                      <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
                         <Lock className="w-3 h-3 mr-1" /> READ-ONLY
                       </Badge>
                     )}
 
                     {/* System role badge */}
                     {role.isSystem && (
-                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800">
+                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
                         <Lock className="w-3 h-3 mr-1" /> System
                       </Badge>
                     )}
@@ -493,15 +601,43 @@ export default function AdminRolesPage() {
                   </CardDescription>
 
                   {/* Meta info row */}
-                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
                     <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" /> {role.userCount} user{role.userCount !== 1 ? 's' : ''}
+                      <Building2 className="w-3.5 h-3.5" /> {companyName}
                     </span>
                     <span>•</span>
-                    <span>{role.permissionCount} module permission{role.permissionCount !== 1 ? 's' : ''}</span>
+                    <span className="flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" />
+                      <button
+                        className="hover:underline cursor-pointer"
+                        onClick={() => toggleUserList(role.id)}
+                      >
+                        {role.userCount} user{role.userCount !== 1 ? 's' : ''}
+                      </button>
+                    </span>
+                    <span>•</span>
+                    <span>{role.permissionCount} privilege rule{role.permissionCount !== 1 ? 's' : ''}</span>
                     <span>•</span>
                     <span>Scope: {role.scope || 'MODULE'}</span>
                   </div>
+
+                  {/* ── Expandable User List ──────────────────────── */}
+                  {isUserListExpanded && (
+                    <div className="mt-2 rounded-lg border bg-muted/30 p-2 text-sm">
+                      <p className="text-xs font-semibold mb-1 text-muted-foreground">Assigned Users:</p>
+                      {role.assignedUsers && role.assignedUsers.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {role.assignedUsers.map((u) => (
+                            <Badge key={u.id} variant="outline" className="text-xs">
+                              {u.displayName || u.username}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No users assigned to this group</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 ml-4 shrink-0">
@@ -519,12 +655,25 @@ export default function AdminRolesPage() {
                         <MoreVertical className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="w-52">
                       <DropdownMenuItem onClick={() => openEdit(role)}>
-                        <Pencil className="w-4 h-4 mr-2" /> Edit Role
+                        <Pencil className="w-4 h-4 mr-2" /> Edit User Group
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => toggleRoleExpand(role.id)}>
-                        <Eye className="w-4 h-4 mr-2" /> {isExpanded ? 'Hide' : 'View'} Permissions
+                        <Eye className="w-4 h-4 mr-2" /> {isExpanded ? 'Hide' : 'View'} Privilege Rules
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => toggleUserList(role.id)}>
+                        <Users className="w-4 h-4 mr-2" /> {isUserListExpanded ? 'Hide' : 'Show'} Users
+                      </DropdownMenuItem>
+                      {/* Duplicate to Company */}
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setDuplicateSource(role);
+                          setDuplicateTargetCompanyId('');
+                          setDuplicateDialogOpen(true);
+                        }}
+                      >
+                        <Copy className="w-4 h-4 mr-2" /> Duplicate to Account
                       </DropdownMenuItem>
                       {!role.isSystem && (
                         <>
@@ -536,7 +685,7 @@ export default function AdminRolesPage() {
                               setDeleteConfirmOpen(true);
                             }}
                           >
-                            <Trash2 className="w-4 h-4 mr-2" /> Delete Role
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete User Group
                           </DropdownMenuItem>
                         </>
                       )}
@@ -600,7 +749,7 @@ export default function AdminRolesPage() {
                   {isViewer && (
                     <div className="flex items-center gap-2 mt-3 text-xs text-amber-600 dark:text-amber-400">
                       <Lock className="w-3.5 h-3.5" />
-                      <span>All write permissions are disabled for Viewer roles (READ-ONLY)</span>
+                      <span>All write privilege rules are disabled for Viewer groups (READ-ONLY)</span>
                     </div>
                   )}
                 </CardContent>
@@ -610,7 +759,7 @@ export default function AdminRolesPage() {
                 <CardContent className="pt-0">
                   <Separator className="mb-4" />
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    No module permissions configured for this role
+                    No privilege rules configured for this user group
                   </p>
                 </CardContent>
               )}
@@ -624,18 +773,18 @@ export default function AdminRolesPage() {
         <DialogContent className="sm:max-w-4xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {editRole ? 'Edit Role' : 'Create New Role'}
+              {editRole ? 'Edit User Group' : 'Create New User Group'}
             </DialogTitle>
             <DialogDescription>
-              Configure role name, type, and granular module permissions following Stibo RBAC best practices
+              Configure user group name, group type, and granular privilege rules following Stibo RBAC best practices
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5 py-2 max-h-[65vh] overflow-y-auto custom-scrollbar pr-1">
-            {/* Role info section */}
+            {/* User Group info section */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="roleName" className="text-sm font-medium">Role Name *</Label>
+                <Label htmlFor="roleName" className="text-sm font-medium">Group Name *</Label>
                 <Input
                   id="roleName"
                   placeholder="e.g. Regional Manager"
@@ -647,7 +796,7 @@ export default function AdminRolesPage() {
                 <Label htmlFor="roleDesc" className="text-sm font-medium">Description</Label>
                 <Input
                   id="roleDesc"
-                  placeholder="Brief description of the role"
+                  placeholder="Brief description of the user group"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
@@ -655,15 +804,15 @@ export default function AdminRolesPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Role Type Selector */}
+              {/* Group Type Selector */}
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Role Type *</Label>
+                <Label className="text-sm font-medium">Group Type *</Label>
                 <Select
                   value={form.roleType}
                   onValueChange={handleRoleTypeChange}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select role type" />
+                    <SelectValue placeholder="Select group type" />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(ROLE_TYPE_INFO).map(([key, info]) => {
@@ -701,7 +850,7 @@ export default function AdminRolesPage() {
                     <SelectItem value="MODULE">
                       <div className="flex items-center gap-2">
                         <span>Module-level</span>
-                        <span className="text-muted-foreground text-xs">— Per-module permissions</span>
+                        <span className="text-muted-foreground text-xs">— Per-module privilege rules</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="GLOBAL">
@@ -715,7 +864,18 @@ export default function AdminRolesPage() {
               </div>
             </div>
 
-            {/* Role type info banner */}
+            {/* Auto-assigned account info */}
+            {!editRole && companyFilter !== 'ALL' && (
+              <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30 text-sm">
+                <Building2 className="w-4 h-4 text-muted-foreground" />
+                <span className="text-muted-foreground">This user group will be assigned to:</span>
+                <Badge variant="outline" className="text-xs">
+                  {companies.find((c) => c.id === companyFilter)?.companyName || 'Selected Account'}
+                </Badge>
+              </div>
+            )}
+
+            {/* Group type info banner */}
             {form.roleType && ROLE_TYPE_INFO[form.roleType] && (
               <div
                 className="flex items-start gap-3 rounded-lg p-3 border"
@@ -729,14 +889,14 @@ export default function AdminRolesPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold" style={{ color: getRoleTypeBadgeStyle(form.roleType).text }}>
-                    {ROLE_TYPE_INFO[form.roleType].label} Role
+                    {ROLE_TYPE_INFO[form.roleType].label} Group
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {ROLE_TYPE_INFO[form.roleType].description}
                   </p>
                   {isViewerType && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> All write permissions are disabled — this is a READ-ONLY role
+                      <Lock className="w-3 h-3" /> All write privilege rules are disabled — this is a READ-ONLY group
                     </p>
                   )}
                 </div>
@@ -745,10 +905,10 @@ export default function AdminRolesPage() {
 
             <Separator />
 
-            {/* ── Permission Matrix ──────────────────────────────── */}
+            {/* ── Privilege Rule Matrix ──────────────────────────── */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Permission Matrix</Label>
+                <Label className="text-sm font-medium">Privilege Rule Matrix</Label>
                 {!isViewerType && (
                   <div className="flex items-center gap-2">
                     <Button
@@ -835,7 +995,7 @@ export default function AdminRolesPage() {
                               <TooltipTrigger asChild>
                                 <span className="cursor-help text-xs">All W</span>
                               </TooltipTrigger>
-                              <TooltipContent>Toggle all write permissions</TooltipContent>
+                              <TooltipContent>Toggle all write privilege rules</TooltipContent>
                             </Tooltip>
                           </TableHead>
                         )}
@@ -860,7 +1020,6 @@ export default function AdminRolesPage() {
                                     disabled={isDisabled}
                                     onCheckedChange={() => {
                                       if (!form.permissions.find((p) => p.moduleId === m.id)) {
-                                        // Add new entry
                                         setForm((prev) => ({
                                           ...prev,
                                           permissions: [...prev.permissions, {
@@ -906,7 +1065,7 @@ export default function AdminRolesPage() {
               {isViewerType && (
                 <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-md border border-amber-200 dark:border-amber-800">
                   <Lock className="w-3.5 h-3.5 shrink-0" />
-                  <span>Viewer is a <strong>READ-ONLY</strong> role type. All write permissions (Create, Edit, Delete, Approve, Export, Import, Bulk) are disabled.</span>
+                  <span>Viewer is a <strong>READ-ONLY</strong> group type. All write privilege rules (Create, Edit, Delete, Approve, Export, Import, Bulk) are disabled.</span>
                 </div>
               )}
             </div>
@@ -921,7 +1080,7 @@ export default function AdminRolesPage() {
               disabled={saving || !form.roleName.trim()}
               className="bg-red-600 hover:bg-red-700 text-white"
             >
-              {saving ? 'Saving...' : editRole ? 'Update Role' : 'Create Role'}
+              {saving ? 'Saving...' : editRole ? 'Update User Group' : 'Create User Group'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -933,11 +1092,11 @@ export default function AdminRolesPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              Delete Role
+              Delete User Group
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the role <strong>&ldquo;{roleToDelete?.roleName}&rdquo;</strong>?
-              This action cannot be undone. All users with this role will lose its permissions.
+              Are you sure you want to delete the user group <strong>&ldquo;{roleToDelete?.roleName}&rdquo;</strong>?
+              This action cannot be undone. All users with this group will lose its privilege rules.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-row gap-2 sm:justify-end">
@@ -949,7 +1108,54 @@ export default function AdminRolesPage() {
               onClick={handleDelete}
               disabled={saving}
             >
-              {saving ? 'Deleting...' : 'Delete Role'}
+              {saving ? 'Deleting...' : 'Delete User Group'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Duplicate to Company Dialog ─────────────────────────── */}
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5" />
+              Duplicate to Account
+            </DialogTitle>
+            <DialogDescription>
+              Copy user group <strong>&ldquo;{duplicateSource?.roleName}&rdquo;</strong> to another account.
+              The group name, type, scope, and privilege rules will be copied. Users are not copied.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Target Account</Label>
+              <Select value={duplicateTargetCompanyId} onValueChange={setDuplicateTargetCompanyId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select target account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies
+                    .filter((c) => c.isActive && c.id !== duplicateSource?.companyId)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.companyName} ({c.companyCode})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="flex-row gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setDuplicateDialogOpen(false)} disabled={duplicating}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDuplicateToCompany}
+              disabled={duplicating || !duplicateTargetCompanyId}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {duplicating ? 'Duplicating...' : 'Duplicate'}
             </Button>
           </DialogFooter>
         </DialogContent>

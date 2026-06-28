@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders, hashPassword } from '@/lib/auth';
-import { hasPermission } from '@/lib/rbac';
+import { hasPermission, isSuperAdmin, isCompanyAdmin, canManageTenantUsers } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
-// GET /api/admin/users - List all users with roles and company info
+// GET /api/admin/users - List users with tenant-scoped filtering
+// Super Admin sees all users (optionally filter by ?companyId=xxx)
+// Company Admin sees only users from their own company
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -13,9 +15,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
-    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
+    // Require admin:write or tenant:users permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write') && !hasPermission(tokenPayload.roles, 'tenant:users')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write or tenant:users' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -27,12 +29,32 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // ── Tenant-scoped filtering ────────────────────────────────────────
+    const { searchParams } = new URL(request.url);
+    const requestedCompanyId = searchParams.get('companyId') || undefined;
+
+    let filterCompanyId: string | undefined;
+
+    if (isSuperAdmin(tokenPayload.roles)) {
+      // Super Admin: can see all users, optionally filter by companyId
+      filterCompanyId = requestedCompanyId;
+    } else if (isCompanyAdmin(tokenPayload.roles)) {
+      // Company Admin: can only see users from own company
+      if (requestedCompanyId && requestedCompanyId !== tokenPayload.companyId) {
+        return NextResponse.json({ error: 'You can only view users from your own company' }, { status: 403 });
+      }
+      filterCompanyId = tokenPayload.companyId;
+    } else {
+      return NextResponse.json({ error: 'Insufficient permissions to list users' }, { status: 403 });
+    }
+
     const users = await db.sysUser.findMany({
+      where: filterCompanyId ? { companyId: filterCompanyId } : undefined,
       orderBy: { createdAt: 'desc' },
       include: {
         company: { select: { id: true, companyCode: true, companyName: true } },
         userRoles: {
-          include: { role: { select: { id: true, roleName: true } } },
+          include: { role: { select: { id: true, roleName: true, roleType: true, companyId: true, isGlobal: true } } },
         },
       },
     });
@@ -57,7 +79,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/admin/users - Create user
+// POST /api/admin/users - Create user with tenant-scoped validation
+// Super Admin can create users in any company
+// Company Admin can only create users in their own company
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -65,9 +89,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
-    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
+    // Require admin:write or tenant:users permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write') && !hasPermission(tokenPayload.roles, 'tenant:users')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write or tenant:users' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -89,6 +113,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Tenant-scoped access: Company Admin can only create in own company ──
+    if (!canManageTenantUsers(companyId, tokenPayload.companyId, tokenPayload.roles)) {
+      return NextResponse.json(
+        { error: 'You can only create users in your own company' },
+        { status: 403 }
+      );
+    }
+
     // Check for duplicate username/email
     const existingUser = await db.sysUser.findFirst({
       where: { OR: [{ username }, { email }] },
@@ -106,6 +138,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
+    // ── Validate role IDs belong to the user's company or are global ─────
+    if (roleIds && roleIds.length > 0) {
+      const roles = await db.sysRole.findMany({
+        where: { id: { in: roleIds } },
+        select: { id: true, companyId: true, isGlobal: true, roleName: true },
+      });
+
+      for (const role of roles) {
+        // Roles must belong to the target company or be global
+        const isCompanyRole = role.companyId === companyId;
+        const isGlobalRole = role.isGlobal && role.companyId === 'SYSTEM';
+
+        if (!isCompanyRole && !isGlobalRole) {
+          // Company Admin: cannot assign roles from other companies
+          if (!isSuperAdmin(tokenPayload.roles)) {
+            return NextResponse.json(
+              { error: `Role "${role.roleName}" does not belong to your company and is not a global role` },
+              { status: 403 }
+            );
+          }
+        }
+      }
+
+      // Check that all roleIds were found
+      const foundIds = roles.map(r => r.id);
+      const missingIds = roleIds.filter((id: string) => !foundIds.includes(id));
+      if (missingIds.length > 0) {
+        return NextResponse.json(
+          { error: `Role IDs not found: ${missingIds.join(', ')}` },
+          { status: 404 }
+        );
+      }
+    }
+
     const passwordHash = await hashPassword(password);
 
     const user = await db.sysUser.create({
@@ -117,6 +183,7 @@ export async function POST(request: NextRequest) {
         userRoles: {
           create: (roleIds || []).map((roleId: string) => ({
             roleId,
+            companyId,
           })),
         },
       },
@@ -131,7 +198,7 @@ export async function POST(request: NextRequest) {
       action: AuditAction.USER_CREATE,
       entityType: 'SysUser',
       entityId: user.id,
-      description: `User "${username}" (${email}) created`,
+      description: `User "${username}" (${email}) created in company ${companyId}`,
       newValues: { username, email, companyId, roleIds: roleIds || [] },
       req: request,
     });
@@ -153,7 +220,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT /api/admin/users - Update user
+// PUT /api/admin/users - Update user with tenant-scoped validation
+// Super Admin can update any user
+// Company Admin can only update users in their own company
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -161,9 +230,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
-    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
+    // Require admin:write or tenant:users permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write') && !hasPermission(tokenPayload.roles, 'tenant:users')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write or tenant:users' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -190,11 +259,51 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // ── Tenant-scoped access: Company Admin can only update users in own company ──
+    if (!canManageTenantUsers(existing.companyId, tokenPayload.companyId, tokenPayload.roles)) {
+      return NextResponse.json(
+        { error: 'You can only update users in your own company' },
+        { status: 403 }
+      );
+    }
+
     // If email is changing, check for duplicates
     if (email && email !== existing.email) {
       const duplicate = await db.sysUser.findUnique({ where: { email } });
       if (duplicate) {
         return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
+      }
+    }
+
+    // ── Validate role IDs if being updated ─────────────────────────────
+    if (roleIds !== undefined && roleIds.length > 0) {
+      const roles = await db.sysRole.findMany({
+        where: { id: { in: roleIds } },
+        select: { id: true, companyId: true, isGlobal: true, roleName: true },
+      });
+
+      for (const role of roles) {
+        const isCompanyRole = role.companyId === existing.companyId;
+        const isGlobalRole = role.isGlobal && role.companyId === 'SYSTEM';
+
+        if (!isCompanyRole && !isGlobalRole) {
+          if (!isSuperAdmin(tokenPayload.roles)) {
+            return NextResponse.json(
+              { error: `Role "${role.roleName}" does not belong to the user's company and is not a global role` },
+              { status: 403 }
+            );
+          }
+        }
+      }
+
+      // Check that all roleIds were found
+      const foundIds = roles.map(r => r.id);
+      const missingIds = roleIds.filter((rid: string) => !foundIds.includes(rid));
+      if (missingIds.length > 0) {
+        return NextResponse.json(
+          { error: `Role IDs not found: ${missingIds.join(', ')}` },
+          { status: 404 }
+        );
       }
     }
 
@@ -223,7 +332,7 @@ export async function PUT(request: NextRequest) {
       // Create new roles
       if (roleIds.length > 0) {
         await db.userRole.createMany({
-          data: roleIds.map((roleId: string) => ({ userId: id, roleId })),
+          data: roleIds.map((roleId: string) => ({ userId: id, roleId, companyId: existing.companyId })),
         });
       }
     }
@@ -265,7 +374,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE /api/admin/users - Deactivate user
+// DELETE /api/admin/users - Deactivate user with tenant-scoped validation
 export async function DELETE(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -273,9 +382,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
-    if (!hasPermission(tokenPayload.roles, 'admin:write')) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
+    // Require admin:write or tenant:users permission
+    if (!hasPermission(tokenPayload.roles, 'admin:write') && !hasPermission(tokenPayload.roles, 'tenant:users')) {
+      return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write or tenant:users' }, { status: 403 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
@@ -302,6 +411,14 @@ export async function DELETE(request: NextRequest) {
     const existing = await db.sysUser.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // ── Tenant-scoped access: Company Admin can only deactivate users in own company ──
+    if (!canManageTenantUsers(existing.companyId, tokenPayload.companyId, tokenPayload.roles)) {
+      return NextResponse.json(
+        { error: 'You can only deactivate users in your own company' },
+        { status: 403 }
+      );
     }
 
     // Don't allow deactivating yourself

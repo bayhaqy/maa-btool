@@ -5,7 +5,7 @@ import { hasPermission } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
-// GET /api/admin/companies - List all companies
+// GET /api/admin/companies - List all companies with full tenant info
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -47,6 +46,12 @@ export async function GET(request: NextRequest) {
       phone: c.phone,
       email: c.email,
       isActive: c.isActive,
+      tenantTier: c.tenantTier,
+      maxUsers: c.maxUsers,
+      maxRecords: c.maxRecords,
+      dataRetentionDays: c.dataRetentionDays,
+      onboardingStatus: c.onboardingStatus,
+      provisionedAt: c.provisionedAt,
       userCount: c._count.users,
       recordCount: c._count.dataRecords,
       createdAt: c.createdAt,
@@ -68,12 +73,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -83,7 +86,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyCode, companyName } = body;
+    const {
+      companyCode, companyName, description, industry,
+      tenantTier, maxUsers, maxRecords, dataRetentionDays,
+    } = body;
 
     if (!companyCode || !companyName) {
       return NextResponse.json(
@@ -99,16 +105,25 @@ export async function POST(request: NextRequest) {
     }
 
     const company = await db.tenantCompany.create({
-      data: { companyCode, companyName },
+      data: {
+        companyCode,
+        companyName,
+        description: description || null,
+        industry: industry || null,
+        tenantTier: tenantTier || 'PROFESSIONAL',
+        maxUsers: maxUsers || 50,
+        maxRecords: maxRecords || 100000,
+        dataRetentionDays: dataRetentionDays || 365,
+        onboardingStatus: 'PENDING',
+      },
     });
 
-    // ── Audit: company create ──────────────────────────────────────────
     await logAudit({
       action: AuditAction.SETTINGS_CHANGE,
       entityType: 'TenantCompany',
       entityId: company.id,
-      description: `Company "${companyName}" (${companyCode}) created`,
-      newValues: { companyCode, companyName },
+      description: `Account "${companyName}" (${companyCode}) created`,
+      newValues: { companyCode, companyName, tenantTier: tenantTier || 'PROFESSIONAL' },
       req: request,
     });
 
@@ -119,7 +134,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT /api/admin/companies - Update company
+// PUT /api/admin/companies - Update company (full field support)
 export async function PUT(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -127,12 +142,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -142,7 +155,11 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, companyName, isActive, description, logoUrl, website, industry, address, phone, email } = body;
+    const {
+      id, companyName, isActive, description, logoUrl, website, industry,
+      address, phone, email, tenantTier, maxUsers, maxRecords,
+      dataRetentionDays, onboardingStatus,
+    } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Company id is required' }, { status: 400 });
@@ -165,17 +182,21 @@ export async function PUT(request: NextRequest) {
         ...(address !== undefined && { address }),
         ...(phone !== undefined && { phone }),
         ...(email !== undefined && { email }),
+        ...(tenantTier !== undefined && { tenantTier }),
+        ...(maxUsers !== undefined && { maxUsers }),
+        ...(maxRecords !== undefined && { maxRecords }),
+        ...(dataRetentionDays !== undefined && { dataRetentionDays }),
+        ...(onboardingStatus !== undefined && { onboardingStatus }),
       },
     });
 
-    // ── Audit: company update ──────────────────────────────────────────
     await logAudit({
       action: AuditAction.SETTINGS_CHANGE,
       entityType: 'TenantCompany',
       entityId: id,
-      description: `Company "${existing.companyName}" updated`,
+      description: `Account "${existing.companyName}" updated`,
       oldValues: { companyName: existing.companyName, isActive: existing.isActive },
-      newValues: { companyName, isActive, description, logoUrl, website, industry, address, phone, email },
+      newValues: { companyName, isActive, tenantTier, maxUsers, maxRecords, dataRetentionDays, onboardingStatus },
       req: request,
     });
 
@@ -194,12 +215,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -230,12 +249,11 @@ export async function DELETE(request: NextRequest) {
       data: { isActive: false },
     });
 
-    // ── Audit: company deactivate ──────────────────────────────────────
     await logAudit({
       action: AuditAction.SETTINGS_CHANGE,
       entityType: 'TenantCompany',
       entityId: id,
-      description: `Company "${existing.companyName}" deactivated`,
+      description: `Account "${existing.companyName}" deactivated`,
       oldValues: { isActive: true },
       newValues: { isActive: false },
       severity: 'warning',

@@ -1,16 +1,29 @@
 /**
- * AI Configuration API
+ * AI Configuration API — Company-Scoped (Multi-Tenant)
  *
- * GET  — Return current AI configuration (API key masked)
- * PUT  — Update AI configuration (superadmin only)
- * POST — Test AI connection with current settings
+ * GET  — Return AI configuration for a specific company (API key masked)
+ * PUT  — Update AI configuration for a specific company
+ * POST — Test AI connection with company-specific settings
+ *
+ * Access Control:
+ *   Super Admin  → can view/edit any company's config
+ *   Company Admin → can view/edit only their own company's config
+ *   Editor/Viewer → no access
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
-import { getAIMaskedConfig, getAIProviderConfig, clearAICache, type AIProvider } from '@/lib/ai';
+import {
+  getTenantAIMaskedConfig,
+  getTenantAIProviderConfig,
+  getAIMaskedConfig,
+  getAIProviderConfig,
+  clearAICache,
+  PROVIDER_DEFAULTS,
+  type AIProvider,
+} from '@/lib/ai';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
@@ -26,6 +39,8 @@ interface AIConfigUpdate {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  customHeaders?: Record<string, string>;
+  companyId?: string; // Super Admin can specify which company to update
 }
 
 interface TestConnectionResult {
@@ -36,27 +51,50 @@ interface TestConnectionResult {
   provider?: string;
 }
 
-// ─── Helper ──────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────
 
-function requireAWriteAccess(headers: Headers): { authorized: boolean; userId?: string; username?: string } {
-  const tokenPayload = getTokenFromHeaders(headers);
-  if (!tokenPayload) return { authorized: false };
-  if (!hasPermission(tokenPayload.roles, 'ai:write')) return { authorized: false };
-  return { authorized: true, userId: tokenPayload.userId, username: tokenPayload.username };
+/**
+ * Determine the target companyId and verify access.
+ * - Super Admin can specify any companyId via query/body param
+ * - Company Admin can only access their own company
+ * - Returns { companyId, authorized, error? }
+ */
+function resolveCompanyAccess(
+  tokenPayload: { companyId: string; roles: string[] },
+  requestedCompanyId?: string,
+): { companyId: string; authorized: boolean; error?: string } {
+  const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+  const isCompanyAdmin = hasPermission(tokenPayload.roles, 'ai:config:view');
+
+  if (!isSuperAdmin && !isCompanyAdmin) {
+    return { companyId: '', authorized: false, error: 'Insufficient permissions. Required: ai:config:view' };
+  }
+
+  // Super Admin can target any company
+  if (isSuperAdmin && requestedCompanyId) {
+    return { companyId: requestedCompanyId, authorized: true };
+  }
+
+  // Default to own company
+  return { companyId: tokenPayload.companyId, authorized: true };
 }
 
 /**
- * Upsert a single AppSettings row.
+ * Check if user can edit AI config for the given company.
  */
-async function upsertSetting(key: string, value: string, updatedById?: string): Promise<void> {
-  await db.appSettings.upsert({
-    where: { settingKey: key },
-    update: { settingValue: value, updatedById: updatedById ?? null },
-    create: { settingKey: key, settingValue: value, updatedById: updatedById ?? null },
-  });
+function canEditCompanyConfig(
+  tokenPayload: { companyId: string; roles: string[] },
+  targetCompanyId: string,
+): boolean {
+  const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+  const hasConfigEdit = hasPermission(tokenPayload.roles, 'ai:config:edit');
+
+  if (!hasConfigEdit) return false;
+  if (isSuperAdmin) return true; // Super Admin can edit any company
+  return tokenPayload.companyId === targetCompanyId; // Company Admin can only edit own
 }
 
-// ─── GET — Current AI config (masked) ────────────────────────────────
+// ─── GET — Company-specific AI config (masked) ───────────────────────
 
 export async function GET(request: NextRequest) {
   try {
@@ -74,25 +112,47 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const config = await getAIMaskedConfig();
-    return NextResponse.json({ config });
+    // ── Resolve company access ────────────────────────────────────────
+    const { searchParams } = new URL(request.url);
+    const requestedCompanyId = searchParams.get('companyId') || undefined;
+    const { companyId, authorized, error } = resolveCompanyAccess(tokenPayload, requestedCompanyId);
+
+    if (!authorized) {
+      return NextResponse.json({ error: error || 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // ── Get company-specific config ───────────────────────────────────
+    const config = await getTenantAIMaskedConfig(companyId);
+
+    // If Super Admin, also return list of companies for the selector
+    const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
+    let companies: Array<{ id: string; name: string; code: string }> | undefined;
+    if (isSuperAdmin) {
+      const allCompanies = await db.tenantCompany.findMany({
+        select: { id: true, companyName: true, companyCode: true },
+        orderBy: { companyName: 'asc' },
+      });
+      companies = allCompanies.map(c => ({ id: c.id, name: c.companyName, code: c.companyCode }));
+    }
+
+    return NextResponse.json({ config, companies, activeCompanyId: companyId });
   } catch (error) {
     console.error('AI Config GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// ─── PUT — Update AI config (superadmin only) ────────────────────────
+// ─── PUT — Update company-specific AI config ─────────────────────────
 
 export async function PUT(request: NextRequest) {
   try {
-    const { authorized, userId, username } = requireAWriteAccess(request.headers);
-    if (!authorized) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // ── Rate limit: admin endpoints ────────────────────────────────────
-    const rl = rateLimitByCategory('admin', userId!);
+    const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
@@ -101,42 +161,68 @@ export async function PUT(request: NextRequest) {
     }
 
     const body: AIConfigUpdate = await request.json();
-    const updates: Array<{ key: string; value: string }> = [];
 
-    if (body.provider) {
-      updates.push({ key: 'AI_PROVIDER', value: body.provider });
-    }
-    if (body.apiKey !== undefined) {
-      // Allow empty string to clear the key
-      updates.push({ key: 'AI_API_KEY', value: body.apiKey });
-    }
-    if (body.baseUrl !== undefined) {
-      updates.push({ key: 'AI_BASE_URL', value: body.baseUrl });
-    }
-    if (body.model !== undefined) {
-      updates.push({ key: 'AI_MODEL', value: body.model });
-    }
-    if (body.maxTokens !== undefined) {
-      updates.push({ key: 'AI_MAX_TOKENS', value: String(body.maxTokens) });
-    }
-    if (body.temperature !== undefined) {
-      updates.push({ key: 'AI_TEMPERATURE', value: String(body.temperature) });
+    // ── Resolve target company ─────────────────────────────────────────
+    const targetCompanyId = body.companyId || tokenPayload.companyId;
+
+    if (!canEditCompanyConfig(tokenPayload, targetCompanyId)) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions. You can only edit AI config for your own company.' },
+        { status: 403 }
+      );
     }
 
-    if (updates.length === 0) {
-      return NextResponse.json({ error: 'No settings provided to update' }, { status: 400 });
+    // ── Validate provider ──────────────────────────────────────────────
+    const provider: AIProvider = body.provider ? (() => {
+      if (['zai', 'gemini', 'openai', 'azure-openai', 'custom'].includes(body.provider!)) {
+        return body.provider as AIProvider;
+      }
+      return 'zai' as AIProvider;
+    })() : 'zai';
+
+    const defaults = PROVIDER_DEFAULTS[provider];
+
+    // ── Build TenantAiConfig upsert data ───────────────────────────────
+    const upsertData: Record<string, unknown> = {
+      provider,
+      baseUrl: body.baseUrl !== undefined ? body.baseUrl : defaults.baseUrl,
+      model: body.model !== undefined ? body.model : defaults.model,
+      maxTokens: body.maxTokens ?? 4096,
+      temperature: body.temperature ?? 0.7,
+      isActive: true,
+      updatedBy: tokenPayload.userId,
+    };
+
+    // Only update API key if a new one is provided (non-empty)
+    if (body.apiKey !== undefined && body.apiKey !== '') {
+      upsertData.apiKey = body.apiKey;
     }
 
-    // Upsert all settings in a transaction
-    await db.$transaction(
-      updates.map((u) =>
-        db.appSettings.upsert({
-          where: { settingKey: u.key },
-          update: { settingValue: u.value, updatedById: userId ?? null },
-          create: { settingKey: u.key, settingValue: u.value, updatedById: userId ?? null },
-        })
-      )
-    );
+    // Custom headers support
+    if (body.customHeaders !== undefined) {
+      upsertData.customHeaders = body.customHeaders;
+    }
+
+    // ── Upsert TenantAiConfig ──────────────────────────────────────────
+    // First check if config exists to decide whether to set createdBy
+    const existingConfig = await db.tenantAiConfig.findUnique({
+      where: { companyId: targetCompanyId },
+    });
+
+    if (existingConfig) {
+      await db.tenantAiConfig.update({
+        where: { companyId: targetCompanyId },
+        data: upsertData,
+      });
+    } else {
+      await db.tenantAiConfig.create({
+        data: {
+          companyId: targetCompanyId,
+          ...upsertData,
+          createdBy: tokenPayload.userId,
+        },
+      });
+    }
 
     // Clear cached config so next read picks up changes
     clearAICache();
@@ -144,15 +230,23 @@ export async function PUT(request: NextRequest) {
     // ── Audit: AI config change ────────────────────────────────────────
     await logAudit({
       action: AuditAction.AI_CONFIG_CHANGE,
-      entityType: 'AppSettings',
-      description: `AI configuration updated by "${username}": ${updates.map(u => u.key).join(', ')}`,
-      newValues: Object.fromEntries(updates.map(u => [u.key, u.key === 'AI_API_KEY' ? '***masked***' : u.value])),
+      entityType: 'TenantAiConfig',
+      entityId: targetCompanyId,
+      description: `Company AI configuration updated by "${tokenPayload.username}" for company ${targetCompanyId}`,
+      newValues: {
+        provider,
+        baseUrl: upsertData.baseUrl,
+        model: upsertData.model,
+        maxTokens: upsertData.maxTokens,
+        temperature: upsertData.temperature,
+        apiKey: body.apiKey ? '***masked***' : undefined,
+      },
       severity: 'warning',
       req: request,
     });
 
     // Return updated (masked) config
-    const config = await getAIMaskedConfig();
+    const config = await getTenantAIMaskedConfig(targetCompanyId);
     return NextResponse.json({ success: true, config });
   } catch (error) {
     console.error('AI Config PUT error:', error);
@@ -160,17 +254,17 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// ─── POST — Test AI connection ───────────────────────────────────────
+// ─── POST — Test AI connection (company-specific) ───────────────────
 
 export async function POST(request: NextRequest) {
   try {
-    const { authorized, userId } = requireAWriteAccess(request.headers);
-    if (!authorized) {
-      return NextResponse.json({ error: 'Insufficient permissions. Required: ai:write' }, { status: 403 });
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // ── Rate limit: AI endpoints ───────────────────────────────────────
-    const rl = rateLimitByCategory('ai', userId!);
+    const rl = rateLimitByCategory('ai', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
@@ -178,7 +272,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const config = await getAIProviderConfig();
+    // ── Resolve target company ─────────────────────────────────────────
+    const body = await request.json().catch(() => ({}));
+    const targetCompanyId = body?.companyId || tokenPayload.companyId;
+
+    if (!canEditCompanyConfig(tokenPayload, targetCompanyId)) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions. You can only test AI config for your own company.' },
+        { status: 403 }
+      );
+    }
+
+    // ── Get company-specific config ────────────────────────────────────
+    const config = await getTenantAIProviderConfig(targetCompanyId);
 
     if (!config.apiKey) {
       const result: TestConnectionResult = {
@@ -195,10 +301,20 @@ export async function POST(request: NextRequest) {
       let model = config.model;
       let message = '';
 
+      // Build headers — merge custom headers for custom provider
+      const buildHeaders = (): Record<string, string> => {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+        };
+        if (config.customHeaders) {
+          Object.assign(headers, config.customHeaders);
+        }
+        return headers;
+      };
+
       switch (config.provider) {
         case 'zai': {
-          // Use the ZAI SDK — type assertion needed because the constructor
-          // is private in d.ts but accessible at runtime.
           const ZAIModule = await import('z-ai-web-dev-sdk');
           const ZAIClass = ZAIModule.default;
           interface ZAIConstructor { new (c: { baseUrl: string; apiKey: string }): { chat: { completions: { create: (opts: Record<string, unknown>) => Promise<{ choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number } }> } } } };
@@ -219,7 +335,6 @@ export async function POST(request: NextRequest) {
         }
 
         case 'gemini': {
-          // Gemini REST API
           const url = `${config.baseUrl}/models/${config.model}:generateContent?key=${config.apiKey}`;
           const res = await fetch(url, {
             method: 'POST',
@@ -232,7 +347,7 @@ export async function POST(request: NextRequest) {
           if (res.ok) {
             const data = await res.json();
             success = !!data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            message = success ? 'Google Gemini connection successful' : `Gemini returned unexpected response`;
+            message = success ? 'Google Gemini connection successful' : 'Gemini returned unexpected response';
           } else {
             const errBody = await res.text().catch(() => '');
             message = `Gemini API error (${res.status}): ${errBody.slice(0, 200)}`;
@@ -241,13 +356,9 @@ export async function POST(request: NextRequest) {
         }
 
         case 'openai': {
-          // OpenAI-compatible REST API (also works for custom providers)
           const res = await fetch(`${config.baseUrl}/chat/completions`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.apiKey}`,
-            },
+            headers: buildHeaders(),
             body: JSON.stringify({
               model: config.model,
               messages: [{ role: 'user', content: 'Hello, respond with just OK.' }],
@@ -267,7 +378,6 @@ export async function POST(request: NextRequest) {
         }
 
         case 'azure-openai': {
-          // Azure OpenAI REST API
           const url = `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-06-01`;
           const res = await fetch(url, {
             method: 'POST',
@@ -293,13 +403,11 @@ export async function POST(request: NextRequest) {
         }
 
         case 'custom': {
-          // Custom provider — OpenAI-compatible API
+          // Custom provider — OpenAI-compatible API with custom headers support
+          const headers = buildHeaders();
           const res = await fetch(`${config.baseUrl}/chat/completions`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.apiKey}`,
-            },
+            headers,
             body: JSON.stringify({
               model: config.model,
               messages: [{ role: 'user', content: 'Hello, respond with just OK.' }],
@@ -310,7 +418,7 @@ export async function POST(request: NextRequest) {
           if (res.ok) {
             const data = await res.json();
             success = !!data?.choices?.[0]?.message?.content;
-            message = success ? 'Custom provider connection successful' : 'Custom provider returned unexpected response';
+            message = success ? `Custom provider (${config.model}) connection successful` : 'Custom provider returned unexpected response';
           } else {
             const errBody = await res.text().catch(() => '');
             message = `Custom API error (${res.status}): ${errBody.slice(0, 200)}`;

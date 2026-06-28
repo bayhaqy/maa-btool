@@ -30,15 +30,21 @@ model TenantCompany {
   maxUsers      Int      @default(50)
   maxRecords    Int      @default(100000)
   dataRetentionDays Int  @default(365)
+  // Tenant provisioning status (Stibo onboarding lifecycle)
+  onboardingStatus     String    @default("PENDING") // PENDING | PROVISIONING | ACTIVE | SUSPENDED
+  provisionedAt        DateTime?
+  defaultRoleTemplateId String?  // reference to a role template used during provisioning
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   users       SysUser[]
+  roles       SysRole[]
   dataRecords DataRecord[]
   apiKeys     ApiKey[]
   sftpConfigs SftpConfig[]
   digitalAssets DigitalAsset[]
   dataExchangeEndpoints DataExchangeEndpoint[]
+  aiConfigs   TenantAiConfig[]
 }
 
 model SysUser {
@@ -75,7 +81,8 @@ model SysUser {
 
 model SysRole {
   id          String  @id @default(cuid())
-  roleName    String  @unique
+  companyId   String  // Tenant scope — roles are company-scoped for multi-tenant isolation
+  roleName    String
   description String?
   // STIBO role types: VIEWER (read-only), EDITOR (create/edit), APPROVER (review/approve),
   // DATA_STEWARD (quality/correction), ADMINISTRATOR (config/manage), SYSTEM_ADMIN (full access)
@@ -84,22 +91,31 @@ model SysRole {
   scope       String  @default("MODULE")
   // Is this a system role (cannot be deleted)?
   isSystem    Boolean @default(false)
+  // Global roles apply across all tenants (e.g. Super Admin); isGlobal roles have companyId pointing to "SYSTEM"
+  isGlobal    Boolean @default(false)
   color       String? // UI color for badges
   icon        String? // UI icon name
 
+  company          TenantCompany  @relation(fields: [companyId], references: [id])
   userRoles        UserRole[]
   rolePermissions  RolePermission[]
+
+  @@unique([companyId, roleName])
+  @@index([companyId])
+  @@index([companyId, roleType])
 }
 
 model UserRole {
-  id     String @id @default(cuid())
-  userId String
-  roleId String
+  id        String @id @default(cuid())
+  userId    String
+  roleId    String
+  companyId String // Tenant context for the role assignment — ensures role assignments are tenant-scoped
 
   user   SysUser @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   SysRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
+  @@index([companyId])
 }
 
 model RolePermission {
@@ -119,7 +135,12 @@ model RolePermission {
   // Row-level filter (JSON condition)
   rowFilter          String?
   // Workflow-state based restrictions (JSON array of allowed states)
+  // Stibo privilege rules: restrict permissions to specific workflow states
+  // e.g. ["DRAFT","REVIEW"] means the role can only act on records in DRAFT or REVIEW state
+  // Combined with WorkflowState/WorkflowTransition models for full Stibo workflow governance
   allowedStates      String?
+  // DEPRECATED: Access companyId via role.companyId instead — kept for backward compat queries
+  companyId          String?
 
   role   SysRole    @relation(fields: [roleId], references: [id], onDelete: Cascade)
   module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -1035,4 +1056,26 @@ model StewardshipTask {
   record      DataRecord? @relation(fields: [recordId], references: [id])
   assignee    SysUser?   @relation("StewardshipAssignee", fields: [assignedTo], references: [id])
   assigner    SysUser?   @relation("StewardshipAssigner", fields: [assignedBy], references: [id])
+}
+
+// ============================================================
+// 18. TENANT AI CONFIGURATION (Per-company AI provider settings)
+// ============================================================
+
+model TenantAiConfig {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  company     TenantCompany @relation(fields: [companyId], references: [id])
+  provider    String   @default("zai")  // zai | gemini | openai | azure | custom
+  apiKey      String?
+  baseUrl     String?
+  model       String?
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(4096)
+  customHeaders String?  // for custom provider headers (SQLite uses String instead of Json)
+  isActive    Boolean  @default(true)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

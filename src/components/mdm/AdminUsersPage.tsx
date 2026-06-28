@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   Users, Plus, MoreVertical, Pencil, Trash2, UserCheck, UserX, UserCog, ShieldAlert, Loader2,
+  Building2, Eye, Crown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,6 +43,9 @@ export default function AdminUsersPage() {
     companyId: '', roleIds: [] as string[], isActive: true,
   });
   const [saving, setSaving] = useState(false);
+
+  // Company filter for multi-tenant isolation
+  const [companyFilter, setCompanyFilter] = useState<string>('ALL');
 
   // Hard-delete confirmation dialog state
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
@@ -77,6 +81,25 @@ export default function AdminUsersPage() {
     loadData();
   }, [loadData]);
 
+  // Auto-set company filter for non-Super-Admin users
+  useEffect(() => {
+    if (!perms.isSuperAdmin && currentUser?.companyId && companyFilter === 'ALL') {
+      setCompanyFilter(currentUser.companyId);
+    }
+  }, [perms.isSuperAdmin, currentUser?.companyId, companyFilter]);
+
+  // ── Filtered data based on company ──────────────────────────────────
+  const filteredUsers = useMemo(() => {
+    if (companyFilter === 'ALL') return users;
+    return users.filter((u) => u.companyId === companyFilter);
+  }, [users, companyFilter]);
+
+  const filteredRoles = useMemo(() => {
+    if (companyFilter === 'ALL') return roles;
+    // Show roles that belong to the selected company + global roles
+    return roles.filter((r) => r.isGlobal || r.companyId === companyFilter);
+  }, [roles, companyFilter]);
+
   const handleSave = async () => {
     if (!token) return;
     setSaving(true);
@@ -97,10 +120,12 @@ export default function AdminUsersPage() {
         if (!res.ok) { toast.error(data.error || 'Failed'); return; }
         toast.success('User updated');
       } else {
+        // Auto-set companyId based on filter
+        const companyIdToUse = form.companyId || (companyFilter !== 'ALL' ? companyFilter : '');
         const res = await fetch('/api/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(form),
+          body: JSON.stringify({ ...form, companyId: companyIdToUse }),
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || 'Failed'); return; }
@@ -135,7 +160,6 @@ export default function AdminUsersPage() {
 
   const handleHardDelete = async () => {
     if (!token || !deleteTarget) return;
-    // Require the user to type the exact username to confirm.
     if (deleteConfirmText !== deleteTarget.username) {
       toast.error('Username confirmation does not match');
       return;
@@ -164,6 +188,10 @@ export default function AdminUsersPage() {
     if (!token) return;
     if (u.id === currentUser?.userId) {
       toast.error('Cannot impersonate yourself');
+      return;
+    }
+    if (!perms.isSuperAdmin) {
+      toast.error('Only Super Admins can impersonate users');
       return;
     }
     setImpersonatingId(u.id);
@@ -200,12 +228,17 @@ export default function AdminUsersPage() {
 
   const openCreate = () => {
     setEditUser(null);
+    const defaultCompanyId = companyFilter !== 'ALL' ? companyFilter : (companies[0]?.id || '');
     setForm({
       username: '', email: '', password: '', displayName: '',
-      companyId: companies[0]?.id || '',
+      companyId: defaultCompanyId,
       roleIds: [], isActive: true,
     });
     setDialogOpen(true);
+  };
+
+  const isCompanyAdmin = (u: any) => {
+    return u.roles?.some((r: any) => r.roleName === 'Company Admin');
   };
 
   if (!perms.canAdmin) {
@@ -229,43 +262,89 @@ export default function AdminUsersPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">User Management</h2>
-          <p className="text-muted-foreground text-sm mt-1">Manage system users and their access</p>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">User & Group Management</h2>
+            <p className="text-muted-foreground text-sm mt-1">Manage users and their group assignments (Stibo User Groups)</p>
+          </div>
+          {perms.isReadOnly && (
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+              <Eye className="w-3 h-3 mr-1" /> Read Only
+            </Badge>
+          )}
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Add User
         </Button>
       </div>
 
+      {/* Company Filter */}
+      <div className="flex items-center gap-3">
+        <Building2 className="w-4 h-4 text-muted-foreground" />
+        <Label className="text-sm font-medium whitespace-nowrap">Filter by Account:</Label>
+        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="All Accounts" />
+          </SelectTrigger>
+          <SelectContent>
+            {perms.isSuperAdmin && (
+              <SelectItem value="ALL">All Accounts</SelectItem>
+            )}
+            {companies.filter((c) => c.isActive).map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.companyName} ({c.companyCode})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {companyFilter !== 'ALL' && (
+          <Badge variant="outline" className="text-xs">
+            Showing {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}
+          </Badge>
+        )}
+      </div>
+
       <Card className="shadow-sm">
         <CardContent className="p-0">
-          <div className="max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
+          <div className="max-h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Username</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Display Name</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Roles</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>User Groups</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((u) => {
+                {filteredUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      No users found for the selected account
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filteredUsers.map((u) => {
                   const isSelf = u.id === currentUser?.userId;
+                  const isAdmin = isCompanyAdmin(u);
                   return (
-                    <TableRow key={u.id}>
+                    <TableRow key={u.id} className={!u.isActive ? 'opacity-60' : undefined}>
                       <TableCell className="font-medium">
-                        {u.username}
-                        {isSelf && (
-                          <Badge variant="outline" className="ml-2 text-[10px] border-red-200 bg-red-50 text-red-700">
-                            you
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {u.username}
+                          {isSelf && (
+                            <Badge variant="outline" className="text-[10px] border-red-200 bg-red-50 text-red-700">
+                              you
+                            </Badge>
+                          )}
+                          {isAdmin && (
+                            <Badge className="text-[10px] bg-sky-50 text-sky-700 border border-sky-200">
+                              <Crown className="w-3 h-3 mr-0.5" /> Account Admin
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm">{u.email}</TableCell>
                       <TableCell className="text-sm">{u.displayName || '-'}</TableCell>
@@ -278,12 +357,21 @@ export default function AdminUsersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge className={cn(
-                          'text-xs border',
-                          u.isActive ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
-                        )}>
-                          {u.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={cn(
+                            'text-xs border',
+                            u.isActive ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
+                          )}>
+                            {u.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                          {editUser?.id === u.id ? null : (
+                            <Switch
+                              checked={u.isActive}
+                              onCheckedChange={() => handleSoftDelete(u.id)}
+                              className="scale-75"
+                            />
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -296,17 +384,19 @@ export default function AdminUsersPage() {
                             <DropdownMenuItem onClick={() => openEdit(u)}>
                               <Pencil className="w-4 h-4 mr-2" /> Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleImpersonate(u)}
-                              disabled={isSelf || impersonatingId === u.id}
-                            >
-                              {impersonatingId === u.id ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              ) : (
-                                <UserCog className="w-4 h-4 mr-2" />
-                              )}
-                              Impersonate
-                            </DropdownMenuItem>
+                            {perms.isSuperAdmin && (
+                              <DropdownMenuItem
+                                onClick={() => handleImpersonate(u)}
+                                disabled={isSelf || impersonatingId === u.id}
+                              >
+                                {impersonatingId === u.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <UserCog className="w-4 h-4 mr-2" />
+                                )}
+                                Impersonate
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem className="text-amber-700" onClick={() => handleSoftDelete(u.id)}>
                               {u.isActive ? <UserX className="w-4 h-4 mr-2" /> : <UserCheck className="w-4 h-4 mr-2" />}
                               {u.isActive ? 'Deactivate' : 'Reactivate'}
@@ -338,7 +428,9 @@ export default function AdminUsersPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editUser ? 'Edit User' : 'Create User'}</DialogTitle>
-            <DialogDescription>{editUser ? 'Update user information' : 'Add a new system user'}</DialogDescription>
+            <DialogDescription>
+              {editUser ? 'Update user information and group assignments' : 'Add a new user to the system'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
             <div className="grid grid-cols-2 gap-4">
@@ -364,18 +456,20 @@ export default function AdminUsersPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Company</Label>
+              <Label>Account</Label>
               <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })} disabled={!!editUser}>
-                <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
                 <SelectContent>
-                  {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                  {companies.filter((c) => c.isActive).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.companyName} ({c.companyCode})</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Roles</Label>
+              <Label>User Groups (Group Assignment)</Label>
               <div className="flex flex-wrap gap-2">
-                {roles.map((r) => (
+                {filteredRoles.map((r) => (
                   <label key={r.id} className="flex items-center gap-2 p-2 border rounded-lg cursor-pointer hover:bg-accent">
                     <input
                       type="checkbox"
@@ -390,6 +484,9 @@ export default function AdminUsersPage() {
                       className="rounded"
                     />
                     <span className="text-sm">{r.roleName}</span>
+                    {r.isGlobal && (
+                      <Badge variant="outline" className="text-[10px]">Global</Badge>
+                    )}
                   </label>
                 ))}
               </div>
@@ -420,9 +517,7 @@ export default function AdminUsersPage() {
             </DialogTitle>
             <DialogDescription>
               This action is <span className="font-semibold text-destructive">irreversible</span>.
-              The user and all their session data will be removed. Related records
-              (approvals, audit logs, documentation authorship) will be reassigned
-              to you or anonymized.
+              The user and all their session data will be removed.
             </DialogDescription>
           </DialogHeader>
           {deleteTarget && (
@@ -433,7 +528,7 @@ export default function AdminUsersPage() {
                   <span className="font-mono font-medium">{deleteTarget.username}</span>
                   <span className="text-muted-foreground">Email:</span>
                   <span className="font-mono text-xs">{deleteTarget.email}</span>
-                  <span className="text-muted-foreground">Roles:</span>
+                  <span className="text-muted-foreground">User Groups:</span>
                   <span className="text-xs">{deleteTarget.roles?.map((r: any) => r.roleName).join(', ') || '—'}</span>
                 </div>
               </div>

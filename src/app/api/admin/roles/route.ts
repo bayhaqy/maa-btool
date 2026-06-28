@@ -5,7 +5,7 @@ import { ROLE_TYPE_INFO, hasPermission } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 
-// GET /api/admin/roles - List all roles with permission counts
+// GET /api/admin/roles - List all roles with permission counts, company info, and assigned users
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -13,12 +13,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -30,10 +28,16 @@ export async function GET(request: NextRequest) {
     const roles = await db.sysRole.findMany({
       orderBy: { roleName: 'asc' },
       include: {
+        company: { select: { id: true, companyCode: true, companyName: true } },
         _count: { select: { rolePermissions: true, userRoles: true } },
         rolePermissions: {
           include: {
             module: { select: { id: true, moduleCode: true, moduleName: true } },
+          },
+        },
+        userRoles: {
+          include: {
+            user: { select: { id: true, username: true, displayName: true } },
           },
         },
       },
@@ -46,10 +50,18 @@ export async function GET(request: NextRequest) {
       roleType: r.roleType,
       scope: r.scope,
       isSystem: r.isSystem,
+      isGlobal: r.isGlobal,
+      companyId: r.companyId,
+      company: r.company,
       color: r.color,
       icon: r.icon,
       permissionCount: r._count.rolePermissions,
       userCount: r._count.userRoles,
+      assignedUsers: r.userRoles.map((ur) => ({
+        id: ur.user.id,
+        username: ur.user.username,
+        displayName: ur.user.displayName,
+      })),
       permissions: r.rolePermissions.map((p) => ({
         id: p.id,
         moduleId: p.moduleId,
@@ -74,7 +86,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/admin/roles - Create role
+// POST /api/admin/roles - Create role (supports companyId for multi-tenant)
 export async function POST(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -82,12 +94,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -97,24 +107,26 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { roleName, description, roleType, scope, permissions } = body;
+    const { roleName, description, roleType, scope, permissions, companyId } = body;
 
     if (!roleName) {
       return NextResponse.json({ error: 'roleName is required' }, { status: 400 });
     }
 
-    // Check for duplicate
-    const existing = await db.sysRole.findUnique({ where: { roleName } });
+    // Resolve companyId — default to SYSTEM for global roles, otherwise required
+    const resolvedCompanyId = companyId || 'SYSTEM';
+
+    // Check for duplicate (scoped to companyId)
+    const existing = await db.sysRole.findUnique({
+      where: { companyId_roleName: { companyId: resolvedCompanyId, roleName } },
+    });
     if (existing) {
-      return NextResponse.json({ error: 'Role name already exists' }, { status: 409 });
+      return NextResponse.json({ error: 'User Group name already exists for this account' }, { status: 409 });
     }
 
-    // Resolve color/icon from ROLE_TYPE_INFO
     const typeInfo = ROLE_TYPE_INFO[roleType || 'VIEWER'];
     const resolvedColor = typeInfo?.color || '#6b7280';
     const resolvedIcon = typeInfo?.icon || 'Shield';
-
-    // For VIEWER type, force all write permissions off
     const isViewer = (roleType || 'VIEWER') === 'VIEWER';
 
     const role = await db.sysRole.create({
@@ -124,21 +136,17 @@ export async function POST(request: NextRequest) {
         roleType: roleType || 'VIEWER',
         scope: scope || 'MODULE',
         isSystem: false,
+        isGlobal: resolvedCompanyId === 'SYSTEM',
+        companyId: resolvedCompanyId,
         color: resolvedColor,
         icon: resolvedIcon,
         rolePermissions: {
           create: (permissions || []).map((p: {
             moduleId: string;
-            canRead?: boolean;
-            canCreate?: boolean;
-            canEdit?: boolean;
-            canDelete?: boolean;
-            canApprove?: boolean;
-            canExport?: boolean;
-            canImport?: boolean;
-            canBulkUpdate?: boolean;
-            columnRestrictions?: string;
-            rowFilter?: string;
+            canRead?: boolean; canCreate?: boolean; canEdit?: boolean;
+            canDelete?: boolean; canApprove?: boolean; canExport?: boolean;
+            canImport?: boolean; canBulkUpdate?: boolean;
+            columnRestrictions?: string; rowFilter?: string;
           }) => ({
             moduleId: p.moduleId,
             canRead: p.canRead ?? false,
@@ -163,13 +171,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // ── Audit: role create ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.ROLE_ASSIGN,
       entityType: 'SysRole',
       entityId: role.id,
-      description: `Role "${roleName}" created with type ${roleType || 'VIEWER'}`,
-      newValues: { roleName, description, roleType, permissionCount: (permissions || []).length },
+      description: `User Group "${roleName}" created with type ${roleType || 'VIEWER'}`,
+      newValues: { roleName, description, roleType, companyId: resolvedCompanyId, permissionCount: (permissions || []).length },
       req: request,
     });
 
@@ -188,12 +195,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -211,24 +216,24 @@ export async function PUT(request: NextRequest) {
 
     const existing = await db.sysRole.findUnique({ where: { id } });
     if (!existing) {
-      return NextResponse.json({ error: 'Role not found' }, { status: 404 });
+      return NextResponse.json({ error: 'User Group not found' }, { status: 404 });
     }
 
     // Check for duplicate name if changing
     if (roleName && roleName !== existing.roleName) {
-      const duplicate = await db.sysRole.findUnique({ where: { roleName } });
+      const duplicate = await db.sysRole.findUnique({
+        where: { companyId_roleName: { companyId: existing.companyId, roleName } },
+      });
       if (duplicate) {
-        return NextResponse.json({ error: 'Role name already exists' }, { status: 409 });
+        return NextResponse.json({ error: 'User Group name already exists for this account' }, { status: 409 });
       }
     }
 
-    // Resolve color/icon from ROLE_TYPE_INFO
     const resolvedRoleType = roleType || existing.roleType || 'VIEWER';
     const typeInfo = ROLE_TYPE_INFO[resolvedRoleType];
     const resolvedColor = typeInfo?.color || existing.color || '#6b7280';
     const resolvedIcon = typeInfo?.icon || existing.icon || 'Shield';
 
-    // Update role basic info
     const role = await db.sysRole.update({
       where: { id },
       data: {
@@ -239,29 +244,19 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // Update permissions if provided
     if (permissions !== undefined) {
-      // For VIEWER type, force all write permissions off
       const isViewer = role.roleType === 'VIEWER';
 
-      // Delete existing permissions
       await db.rolePermission.deleteMany({ where: { roleId: id } });
 
-      // Create new permissions
       if (permissions.length > 0) {
         await db.rolePermission.createMany({
           data: permissions.map((p: {
             moduleId: string;
-            canRead?: boolean;
-            canCreate?: boolean;
-            canEdit?: boolean;
-            canDelete?: boolean;
-            canApprove?: boolean;
-            canExport?: boolean;
-            canImport?: boolean;
-            canBulkUpdate?: boolean;
-            columnRestrictions?: string;
-            rowFilter?: string;
+            canRead?: boolean; canCreate?: boolean; canEdit?: boolean;
+            canDelete?: boolean; canApprove?: boolean; canExport?: boolean;
+            canImport?: boolean; canBulkUpdate?: boolean;
+            columnRestrictions?: string; rowFilter?: string;
           }) => ({
             roleId: id,
             moduleId: p.moduleId,
@@ -280,7 +275,6 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Fetch updated role with relations
     const updatedRole = await db.sysRole.findUnique({
       where: { id },
       include: {
@@ -292,12 +286,11 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // ── Audit: role update ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.ROLE_ASSIGN,
       entityType: 'SysRole',
       entityId: id,
-      description: `Role "${existing.roleName}" updated`,
+      description: `User Group "${existing.roleName}" updated`,
       oldValues: { roleName: existing.roleName, description: existing.description, roleType: existing.roleType },
       newValues: { roleName, description, roleType, permissionCount: permissions?.length },
       severity: 'warning',
@@ -319,12 +312,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Require admin:write permission
     if (!hasPermission(tokenPayload.roles, 'admin:write')) {
       return NextResponse.json({ error: 'Insufficient permissions. Required: admin:write' }, { status: 403 });
     }
 
-    // ── Rate limit: admin endpoints ────────────────────────────────────
     const rl = rateLimitByCategory('admin', tokenPayload.userId);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -347,28 +338,26 @@ export async function DELETE(request: NextRequest) {
 
     const existing = await db.sysRole.findUnique({ where: { id } });
     if (!existing) {
-      return NextResponse.json({ error: 'Role not found' }, { status: 404 });
+      return NextResponse.json({ error: 'User Group not found' }, { status: 404 });
     }
 
-    // Prevent deletion of system roles
     if (existing.isSystem) {
-      return NextResponse.json({ error: 'Cannot delete system role' }, { status: 403 });
+      return NextResponse.json({ error: 'Cannot delete system user group' }, { status: 403 });
     }
 
     await db.sysRole.delete({ where: { id } });
 
-    // ── Audit: role delete ────────────────────────────────────────────
     await logAudit({
       action: AuditAction.ROLE_REMOVE,
       entityType: 'SysRole',
       entityId: id,
-      description: `Role "${existing.roleName}" deleted`,
+      description: `User Group "${existing.roleName}" deleted`,
       severity: 'critical',
       oldValues: { roleName: existing.roleName, roleType: existing.roleType },
       req: request,
     });
 
-    return NextResponse.json({ message: 'Role deleted' });
+    return NextResponse.json({ message: 'User Group deleted' });
   } catch (error) {
     console.error('Admin Roles DELETE error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

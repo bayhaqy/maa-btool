@@ -533,3 +533,400 @@ Vercel deployment at https://maa-btool.bayhaqy.my.id was failing with multiple e
 2. Use `directUrl` for Supabase DDL operations
 3. `--accept-data-loss` won't work when schema drift is too large — need `--force-reset`
 4. Build script should be smart: try incremental push first, force-reset as fallback
+
+---
+Task ID: 3
+Agent: Sub Agent (general-purpose)
+Task: Rework Prisma schema for proper Stibo-style multi-tenant isolation
+
+## Changes Made
+
+### 1. SysRole — Tenant-Scoped Roles
+- Added `companyId String` field with relation to `TenantCompany`
+- Added `isGlobal Boolean @default(false)` for system-wide roles (e.g. Super Admin with companyId="SYSTEM")
+- Changed unique constraint from `@@unique([roleName])` to `@@unique([companyId, roleName])`
+- Added `company TenantCompany @relation(fields: [companyId], references: [id])`
+- Added `@@index([companyId])` and `@@index([companyId, roleType])` for query performance
+- Added `roles SysRole[]` relation to TenantCompany
+
+### 2. TenantAiConfig — New Model (Section 18)
+- Created `TenantAiConfig` model with per-company AI provider configuration
+- Fields: provider (zai|gemini|openai|azure|custom), apiKey, baseUrl, model, temperature, maxTokens, customHeaders, isActive, audit fields
+- `@unique` on companyId (one config per tenant)
+- Added `aiConfigs TenantAiConfig[]` relation to TenantCompany
+- SQLite variant uses `String?` instead of `Json?` for customHeaders
+
+### 3. RolePermission — Enhanced Workflow-State Scoping
+- Enhanced `allowedStates` comments with Stibo privilege rule documentation
+- Added `companyId String?` denormalized field (deprecated, use `role.companyId` instead)
+- Documents how allowedStates interacts with WorkflowState/WorkflowTransition models
+
+### 4. UserRole — Tenant Context for Role Assignments
+- Added `companyId String` field for tenant-scoped role assignments
+- Added `@@index([companyId])` for query performance
+
+### 5. TenantCompany — Provisioning Fields
+- Added `onboardingStatus String @default("PENDING")` (PENDING | PROVISIONING | ACTIVE | SUSPENDED)
+- Added `provisionedAt DateTime?`
+- Added `defaultRoleTemplateId String?`
+
+### Files Modified
+- `/home/z/my-project/prisma/schema.prisma` — PostgreSQL schema (validated ✓)
+- `/home/z/my-project/prisma/schema.sqlite.prisma` — SQLite schema (validated ✓)
+
+### Validation
+- Both schemas pass `npx prisma validate` successfully
+- PostgreSQL schema retains `directUrl = env("DIRECT_DATABASE_URL")`
+- SQLite schema retains `provider = "sqlite"` with no directUrl
+- No existing models or fields were removed
+
+---
+Task ID: 4
+Agent: Sub Agent
+Task: Rework RBAC system for Stibo-style multi-tenant isolation
+
+## Changes Completed
+
+### 1. `/home/z/my-project/src/lib/rbac.ts` — Major overhaul
+
+**New Permissions (Action Set: Tenant/Account):**
+- `TENANT_READ` (`tenant:read`) — View company settings, branding, onboarding status
+- `TENANT_MANAGE` (`tenant:manage`) — Manage company settings, branding, onboarding
+- `TENANT_USERS` (`tenant:users`) — Manage users within own company
+- `TENANT_ROLES` (`tenant:roles`) — Manage roles within own company
+
+**New Role: "Company Admin"**
+- Can manage users/roles/AI config within their own company only
+- Has `tenant:read`, `tenant:manage`, `tenant:users`, `tenant:roles` permissions
+- Does NOT have: `admin:write`, `schema:write`, `integration:write` (system-wide settings)
+- Cannot manage other companies, access system-wide settings, or create/delete companies
+- Company boundary enforced via `hasPermission()` context parameter
+
+**Company-Aware `hasPermission()`:**
+- Added optional `PermissionContext` parameter: `{ userCompanyId?, targetCompanyId? }`
+- When tenant-scoped permissions (`tenant:*`) are checked, Company Admin roles only grant access when `userCompanyId === targetCompanyId`
+- Super Admin still bypasses all checks via `*` wildcard
+- `hasAnyPermission()`, `requirePermission()`, `checkPermission()` also accept context
+
+**New Functions:**
+- `getTenantRoles(companyId)` — Returns company-scoped roles + global roles (companyId='SYSTEM', isGlobal=true)
+- `isCompanyAdmin(roles)` — Check if user has Company Admin role
+- `canManageTenant(companyId, userCompanyId, roles)` — Check if user can manage a specific tenant
+- `canManageTenantUsers(companyId, userCompanyId, roles)` — Check if user can manage users in a tenant
+- `canManageTenantRoles(companyId, userCompanyId, roles)` — Check if user can manage roles in a tenant
+
+**New Constants:**
+- `ROLE_TYPE_INFO['COMPANY_ADMIN']` — { label: 'Company Admin', color: '#0ea5e9', icon: 'Building2' }
+- `STIBO_TERMS` — Terminology mapping: ROLE→'User Group', PERMISSION→'Privilege Rule', COMPANY→'Account', PERMISSION_CATEGORY→'Action Set'
+
+**Backward Compatibility:**
+- Super Admin `*` wildcard unchanged
+- All existing role definitions preserved
+- `isSuperAdmin()` unchanged
+- `isViewerOnly()` unchanged
+- `canWrite()` updated to include new tenant write permissions
+
+### 2. `/home/z/my-project/src/hooks/usePermissions.ts` — Extended permission set
+
+**New Properties on `PermissionSet` interface:**
+- `canManageTenant: boolean` — Can manage own company settings/branding/onboarding
+- `isCompanyAdmin: boolean` — Is Company Admin (NOT necessarily Super Admin)
+- `canViewCompanyAiConfig: boolean` — Can view AI config for their company (Super Admin or Company Admin)
+- `canEditCompanyAiConfig: boolean` — Can edit AI config for their company (Super Admin or Company Admin)
+- `companyId: string | null` — User's company ID for tenant context
+
+**Implementation:**
+- Builds `tenantContext` from user's companyId for company-aware permission checks
+- `canViewCompanyAiConfig` uses `hasPermission(roles, PERMISSIONS.AI_CONFIG_VIEW, tenantContext)`
+- `canEditCompanyAiConfig` uses `hasPermission(roles, PERMISSIONS.AI_CONFIG_EDIT, tenantContext)`
+- `canManageTenant` uses `canManageTenant(companyId, companyId, roles)` from rbac.ts
+- Memoization now depends on `user?.companyId` in addition to `user?.roles`
+
+### 3. `/home/z/my-project/src/lib/auth.ts` — Fixed legacy roles + company-scoped queries
+
+**Legacy Role Mapping:**
+- Added `LEGACY_ROLE_MAP` that maps old role names to Stibo equivalents:
+  - 'Manager' → 'Administrator'
+  - 'Data Entry' → 'Editor'
+  - 'Doc Writer' → 'Data Steward'
+  - 'AI User' → 'Editor'
+  - 'Viewer' → 'Viewer'
+- `normalizeRoleName()` function applies this mapping
+
+**`getUserPermissions()` overhaul:**
+- Role names are now normalized via `normalizeRoleName()` before any checks
+- Returns `isCompanyAdmin` in addition to `isSuperAdmin`
+- Module queries no longer filter by `companyId` (MetaModule is global/shared)
+- RolePermission queries now filter by `userCompanyId` for company-scoped isolation
+- Fixed `canWrite` derivation: uses `p.canCreate || p.canEdit` instead of non-existent `p.canWrite`
+- `allowedPages` logic completely rewritten to use `hasPermission()` instead of hardcoded role name arrays:
+  - `data:read` → modules, records, workflow, hierarchy, audit, bulk-import
+  - `doc:read` or `data:read` → documentation
+  - `api:manage` or `integration:write` → api-management
+  - `ai:read` → ai-assistant
+  - Super Admin → admin, settings, about
+  - Company Admin → company-settings, tenant-management
+- Deduplicates allowed pages with `new Set()`
+
+### 4. Prisma Client Regeneration
+- Regenerated from `schema.sqlite.prisma` to pick up `SysRole.companyId`, `SysRole.isGlobal`, and `RolePermission.companyId` fields
+- All TypeScript compilation passes with zero errors in modified files
+
+---
+Task ID: 5
+Agent: General Purpose Agent
+Task: Add Custom AI provider (GLM-5.1/DashScope) with company-scoped access
+
+## Summary
+
+Reworked AI configuration system from global-only to multi-tenant, company-scoped architecture. Added "Custom" provider with DashScope/GLM-5.1 as pre-configured option. Implemented per-company AI config with role-based access control.
+
+## Files Modified
+
+### 1. `src/lib/rbac.ts`
+- Added new permissions: `AI_CONFIG_VIEW` (`ai:config:view`) and `AI_CONFIG_EDIT` (`ai:config:edit`)
+- Updated `Administrator` role to include both new permissions (Company Admin access)
+- Super Admin gets `*` wildcard so automatically has both
+
+### 2. `src/hooks/usePermissions.ts`
+- Added `canViewCompanyAiConfig` and `canEditCompanyAiConfig` to `PermissionSet` interface
+- Wired to new `AI_CONFIG_VIEW` and `AI_CONFIG_EDIT` permissions
+
+### 3. `src/lib/ai.ts`
+- Added `customHeaders` to `AIProviderConfig` and `AIMaskedConfig` interfaces
+- Added `source` and `companyId` fields to `AIMaskedConfig` for multi-tenant awareness
+- Updated `PROVIDER_DEFAULTS.custom` to pre-fill DashScope/GLM-5.1 defaults:
+  - Base URL: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`
+  - Model: `glm-5.1`
+- Added `getTenantAIProviderConfig(companyId)` — reads from TenantAiConfig first, falls back to global AppSettings
+- Added `getTenantAIMaskedConfig(companyId)` — masked version for API responses
+
+### 4. `src/app/api/ai/config/route.ts` (Full Rewrite)
+- **GET**: Company-scoped config lookup via `getTenantAIMaskedConfig(companyId)`
+  - Super Admin can specify `?companyId=xxx` to view any company's config
+  - Company Admin auto-uses their own companyId
+  - Returns company list for Super Admin company selector
+- **PUT**: Saves to `TenantAiConfig` table (company-scoped upsert)
+  - Super Admin can edit any company's config via `companyId` in body
+  - Company Admin can only edit their own company
+  - Supports `customHeaders` for Custom provider
+- **POST**: Tests connection with company-specific config
+  - Custom provider includes custom headers in test requests
+- Access control: `ai:config:view` for GET, `ai:config:edit` for PUT/POST
+- Backward compatible: falls back to global AppSettings if no TenantAiConfig exists
+
+### 5. `src/app/api/ai/chat/route.ts`
+- Changed import from `getAIProviderConfig` to `getTenantAIProviderConfig`
+- Uses `tokenPayload.companyId` to load company-specific AI config
+- Split `openai` and `custom` cases in `callAIProvider()` — custom now supports `customHeaders`
+- Custom provider merges custom headers into API requests
+
+### 6. `src/components/mdm/AiSettingsPage.tsx` (Full Rewrite)
+- Added "Custom (DashScope/GLM)" as 5th provider with pre-filled defaults
+- Added company selector dropdown for Super Admin (fetches company list from API)
+- Added custom headers UI (add/remove/edit key-value pairs) for Custom provider
+- Added "Pre-fill DashScope/GLM-5.1 Config" quick action button
+- Added config source badges: "Company Config" vs "Global Default"
+- Access control:
+  - `canViewCompanyAiConfig` controls page visibility
+  - `canEditCompanyAiConfig` controls edit capability
+  - Super Admin: view/edit all companies + company selector
+  - Company Admin: view/edit own company only
+  - Editor/Viewer: access denied
+- Read-only notice shown when user can view but not edit
+
+## Access Control Matrix (Implemented)
+
+| Role | View AI Config | Edit AI Config | See Other Companies' Config |
+|------|---------------|----------------|----------------------------|
+| Super Admin | ✅ Own + All | ✅ Own + All | ✅ (company selector) |
+| Administrator | ✅ Own | ✅ Own | ❌ |
+| Data Steward | ❌ | ❌ | ❌ |
+| Approver | ❌ | ❌ | ❌ |
+| Editor | ❌ | ❌ | ❌ |
+| Viewer | ❌ | ❌ | ❌ |
+
+## Provider List
+
+1. **Z.AI** — Default provider (GLM models)
+2. **Google Gemini** — Multimodal AI
+3. **OpenAI** — GPT models
+4. **Azure OpenAI** — Enterprise OpenAI
+5. **Custom (DashScope/GLM)** — OpenAI-compatible, pre-configured with DashScope/GLM-5.1
+
+---
+Task ID: 7
+Agent: General-Purpose Agent
+Task: Fix API routes for tenant-scoped filtering and company admin access
+
+## Summary
+
+Implemented comprehensive tenant isolation across all admin API routes, ensuring Company Admins can only access/modify data within their own company while Super Admins retain full access.
+
+## Files Modified
+
+### 1. `/src/app/api/admin/users/route.ts`
+- **GET**: Added `companyId` filter. Non-Super-Admin users only see users from their own company. Super Admin can filter by `?companyId=xxx`. Accepts `tenant:users` permission in addition to `admin:write`.
+- **POST**: Added tenant-scoped validation using `canManageTenantUsers()`. Company Admin can only create users in own company. Role IDs validated to belong to the target company or be global. `UserRole` records now include `companyId`.
+- **PUT**: Same tenant-scoped access validation. Role assignment validated against company scope.
+- **DELETE**: Company Admin can only deactivate users in their own company.
+
+### 2. `/src/app/api/admin/roles/route.ts`
+- **GET**: Added `companyId` filter. Company Admin sees `companyId = own company` OR `isGlobal = true`. Super Admin can filter by `?companyId=xxx`. Accepts `tenant:roles` permission. Response includes `isGlobal` and `companyId` fields.
+- **POST**: Company Admin can only create roles in own company. `companyId` set from request body or user's company. Duplicate check uses `companyId_roleName` compound unique key. Roles are created as `isGlobal: false`.
+- **PUT**: Company Admin cannot edit global roles or roles from other companies. Duplicate name check scoped by `companyId`.
+- **DELETE**: Company Admin cannot delete global roles or roles from other companies.
+
+### 3. `/src/app/api/admin/companies/route.ts`
+- **GET**: Super Admin sees all companies. Company Admin sees only their own company. Response includes `onboardingStatus`, `tenantTier`, `provisionedAt`.
+- **POST**: Only Super Admin can create companies. New companies default to `onboardingStatus: PENDING`.
+- **PUT**: Company Admin can edit own company settings but cannot change `isActive` or `tenantTier` (Super Admin only). Uses `canManageTenant()` for access control.
+- **DELETE**: Only Super Admin can deactivate companies.
+
+### 4. `/src/app/api/admin/companies/provision/route.ts` (NEW)
+- POST endpoint that provisions a PENDING company:
+  1. Validates company exists and is in PENDING status
+  2. Creates 4 default roles: "Viewer" (VIEWER), "Editor" (EDITOR), "Approver" (APPROVER), "Company Admin" (COMPANY_ADMIN)
+  3. Each role gets module-scoped permissions based on Stibo RBAC privilege rules across all active modules
+  4. Viewer is marked `isSystem: true`; Company Admin gets `scope: GLOBAL`
+  5. Updates company `onboardingStatus` to `ACTIVE` and sets `provisionedAt`
+  6. Uses a Prisma transaction for atomicity; idempotent (skips existing roles)
+  7. Only Super Admin can provision companies
+- Returns created roles list on success
+
+### 5. `/src/app/api/ai/config/route.ts` (VERIFIED)
+- Already properly uses `TenantAiConfig` model with company-scoped access
+- `resolveCompanyAccess()` and `canEditCompanyConfig()` correctly enforce tenant boundaries
+- Super Admin can view/edit any company's AI config; Company Admin limited to own company
+- No changes needed
+
+## Access Control Rules Implemented
+
+| Action | Super Admin | Company Admin | Other Roles |
+|--------|-------------|---------------|-------------|
+| List all companies | ✅ | Own only | ❌ |
+| Create company | ✅ | ❌ | ❌ |
+| Edit any company | ✅ | ❌ | ❌ |
+| Edit own company | ✅ | ✅ | ❌ |
+| Provision company | ✅ | ❌ | ❌ |
+| List all users | ✅ | Own company only | ❌ |
+| Create user in own company | ✅ | ✅ | ❌ |
+| Create user in other company | ✅ | ❌ | ❌ |
+| List all roles | ✅ | Own company + global | ❌ |
+| Create role in own company | ✅ | ✅ | ❌ |
+| Delete role in own company | ✅ | ✅ (non-global) | ❌ |
+
+## Key Implementation Details
+- Used `canManageTenantUsers()`, `canManageTenantRoles()`, `canManageTenant()` from `@/lib/rbac` for tenant-scoped access control
+- Used `isSuperAdmin()` and `isCompanyAdmin()` from `@/lib/rbac` for role-based checks
+- All routes accept `tenant:*` permissions in addition to `admin:write` to support Company Admin access
+- Role assignment validation ensures role IDs belong to the target company or are global (`isGlobal: true, companyId: 'SYSTEM'`)
+- Company provisioning uses Prisma `$transaction` for atomic multi-step operations
+- Type-check verified: no new TypeScript errors introduced
+
+---
+Task ID: 6
+Agent: Admin UI Rework Agent
+Task: Rework Admin UI Pages with Stibo-style Multi-Tenant Terminology and Features
+
+## Changes Summary
+
+### 1. AdminCompaniesPage.tsx — "Account Management"
+**Stibo Terminology:**
+- Title changed from "Company Management" → "Account Management"
+- Subtitle: "Manage tenant accounts (Stibo STEP Instances)"
+- Column "Company Code" → "Account Code", "Company Name" → "Account Name"
+- "Account" badge displayed next to account codes
+- Dialog titles/labels updated to "Account" terminology
+
+**New Features:**
+- `tenantTier` badge with colors: STARTER=gray, PROFESSIONAL=blue, ENTERPRISE=gold
+- `onboardingStatus` badge with colors: PENDING=yellow, PROVISIONING=blue, ACTIVE=green, SUSPENDED=red
+- `maxUsers` and `maxRecords` limits shown in table
+- Expanded edit dialog with ALL TenantCompany fields: description, industry, logoUrl, website, address, phone, email, tenantTier, maxUsers, maxRecords, dataRetentionDays, onboardingStatus
+- "Provision" button for PENDING companies (calls POST /api/admin/companies/provision)
+- "Suspend" quick action for ACTIVE companies
+- "Activate" quick action for SUSPENDED companies
+- "Read Only" badge when perms.isReadOnly is true
+- Record count and user count per company (with icons)
+
+### 2. AdminUsersPage.tsx — "User & Group Management"
+**Stibo Terminology:**
+- Title changed from "User Management" → "User & Group Management"
+- Subtitle: "Manage users and their group assignments (Stibo User Groups)"
+- "Roles" → "User Groups" throughout
+- "Role Assignment" → "Group Assignment"
+
+**Multi-Tenant Isolation:**
+- Company filter dropdown added at top of page
+- Super Admin sees all companies + "All Accounts" option
+- Non-Super-Admin defaults to their own company only
+- Only shows users from the selected/filtered company
+- Only shows roles (User Groups) that belong to the selected company + global roles
+- When creating a user, auto-sets companyId based on the filter
+
+**New Features:**
+- User's company name shown in table
+- "Account Admin" badge for users with Company Admin role (with Crown icon)
+- Active/inactive status with toggle switch
+- Impersonation restricted to Super Admins only
+- "Read Only" badge when perms.isReadOnly is true
+- Filtered user count badge shown when company filter is active
+
+### 3. AdminRolesPage.tsx — "User Groups & Privilege Rules"
+**Stibo Terminology:**
+- Title changed from "Role Management" → "User Groups & Privilege Rules"
+- Subtitle: "Configure user groups and their privilege rules (Stibo RBAC)"
+- "Role" → "User Group" throughout
+- "Permission" → "Privilege Rule" throughout
+- "Role Type" → "Group Type"
+- "Permission Matrix" → "Privilege Rule Matrix"
+
+**Multi-Tenant Isolation:**
+- Company filter dropdown added (same pattern as Users page)
+- Only shows roles that belong to the selected company + global roles (isGlobal=true)
+- When creating a role, auto-assigns companyId based on the filter
+- Shows auto-assigned account info banner during creation
+
+**New Features:**
+- "Global" badge for system roles (isGlobal=true) with Globe icon
+- Company name shown for each role (with Building2 icon)
+- "Duplicate to Account" action — opens dialog to copy a role to another company
+- "Company Admin" (COMPANY_ADMIN) group type included in type selector
+- Assigned users shown per group (count + expandable list with username/displayName badges)
+- "Read Only" badge when perms.isReadOnly is true
+- 7-column type summary cards (added COMPANY_ADMIN)
+
+### 4. API Route Updates
+
+**Companies API** (`/api/admin/companies/route.ts`):
+- GET now returns: tenantTier, maxUsers, maxRecords, dataRetentionDays, onboardingStatus, provisionedAt
+- POST now accepts: description, industry, tenantTier, maxUsers, maxRecords, dataRetentionDays
+- PUT now accepts all TenantCompany fields including: tenantTier, maxUsers, maxRecords, dataRetentionDays, onboardingStatus
+
+**Companies Provision API** (`/api/admin/companies/provision/route.ts`):
+- Extended to support 3 actions: `provision`, `suspend`, `activate`
+- Provision: PENDING → PROVISIONING → creates default roles → ACTIVE
+- Suspend: ACTIVE → SUSPENDED (+ sets isActive=false)
+- Activate: SUSPENDED → ACTIVE (+ sets isActive=true)
+
+**Roles API** (`/api/admin/roles/route.ts`):
+- GET now includes: company relation, isGlobal, companyId, assignedUsers (user list)
+- POST now accepts: companyId for multi-tenant role creation
+- Duplicate name check scoped to companyId (companyId_roleName unique constraint)
+
+**Roles Duplicate API** (`/api/admin/roles/duplicate/route.ts`):
+- New endpoint: POST /api/admin/roles/duplicate
+- Accepts: sourceRoleId, targetCompanyId
+- Copies role name, type, scope, description, and all privilege rules
+- Users are NOT copied
+- Validates target company exists and role name doesn't conflict
+
+### Files Modified:
+- `src/components/mdm/AdminCompaniesPage.tsx`
+- `src/components/mdm/AdminUsersPage.tsx`
+- `src/components/mdm/AdminRolesPage.tsx`
+- `src/app/api/admin/companies/route.ts`
+- `src/app/api/admin/companies/provision/route.ts`
+- `src/app/api/admin/roles/route.ts`
+- `src/app/api/admin/roles/duplicate/route.ts` (new file)
