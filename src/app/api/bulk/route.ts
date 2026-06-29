@@ -4,6 +4,7 @@ import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_DRAFT } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -270,7 +271,7 @@ export async function GET(request: NextRequest) {
       );
 
       const data = records.map((r) => {
-        const payload = JSON.parse(r.currentPayload);
+        const payload = jsonParse<Record<string, unknown>>(r.currentPayload);
 
         // For IMAGE fields in the payload, ensure URLs are included
         // Also build image URL entries from the ImageAsset records
@@ -416,7 +417,7 @@ export async function POST(request: NextRequest) {
               moduleId,
               companyId: tokenPayload.companyId,
               status: STATUS_DRAFT,
-              currentPayload: JSON.stringify(data[i]),
+              currentPayload: jsonVal(data[i]),
               createdById: tokenPayload.userId,
               updatedById: tokenPayload.userId,
             },
@@ -442,7 +443,7 @@ export async function POST(request: NextRequest) {
             await db.dataRecord.update({
               where: { id: record.id },
               data: {
-                currentPayload: JSON.stringify(updatedPayload),
+                currentPayload: jsonVal(updatedPayload),
                 updatedById: tokenPayload.userId,
               },
             });
@@ -508,7 +509,7 @@ export async function POST(request: NextRequest) {
       });
 
       const data = records.map((r) => {
-        const payload = JSON.parse(r.currentPayload);
+        const payload = jsonParse<Record<string, unknown>>(r.currentPayload);
 
         // Build image URLs from ImageAsset records
         const imageUrls: Record<string, string> = {};

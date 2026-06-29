@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
+import { jsonVal } from '@/lib/db-json';
 
 // ============================================================
 // POST /api/admin/reseed-map-data
@@ -851,7 +852,7 @@ export async function POST(request: NextRequest) {
     // ── 4a. ARTICLE_MASTER records (55) ────────────────────────
     interface ArticleRow {
       seed: typeof ARTICLE_SEEDS[0];
-      payloadStr: string;
+      payload: Record<string, unknown>;
       recordId: string;
     }
     const articleRows: ArticleRow[] = [];
@@ -869,20 +870,19 @@ export async function POST(request: NextRequest) {
         description: seed.description,
         is_active: true,
       };
-      const payloadStr = JSON.stringify(payload);
       const record = await db.dataRecord.create({
         data: {
           moduleId: moduleMap['ARTICLE_MASTER'],
           companyId: companyMAPI.id,
           status: seed.status,
-          currentPayload: payloadStr,
+          currentPayload: jsonVal(payload),
           version: 1,
           createdById: superAdmin.id,
           updatedById: superAdmin.id,
         },
       });
       articleRecordByCode[seed.code] = { id: record.id };
-      articleRows.push({ seed, payloadStr, recordId: record.id });
+      articleRows.push({ seed, payload, recordId: record.id });
       articlesCreated++;
     });
 
@@ -891,7 +891,7 @@ export async function POST(request: NextRequest) {
       .filter((r) => r.seed.status === 'ACTIVE' || r.seed.status === 'REVISION_PENDING')
       .map((r) => ({
         recordId: r.recordId,
-        payloadSnapshot: r.payloadStr,
+        payloadSnapshot: jsonVal(r.payload),
         versionNumber: 1,
         changedById: superAdmin.id,
         changeReason: 'Initial creation (auto-approved)',
@@ -908,7 +908,7 @@ export async function POST(request: NextRequest) {
         recordId: r.recordId,
         requestedById: superAdmin.id,
         status: 'PENDING' as const,
-        deltaPayload: r.payloadStr,
+        deltaPayload: jsonVal(r.payload),
       }));
     if (articleTicketData.length > 0) {
       await db.approvalTicket.createMany({ data: articleTicketData });
@@ -925,7 +925,7 @@ export async function POST(request: NextRequest) {
     // ── 4b. STORE_MASTER records (20) ──────────────
     interface StoreRow {
       seed: typeof STORE_SEEDS[0];
-      payloadStr: string;
+      payload: Record<string, unknown>;
       recordId: string;
     }
     const storeRows: StoreRow[] = [];
@@ -941,20 +941,19 @@ export async function POST(request: NextRequest) {
         opening_date: seed.openingDate,
         is_active: true,
       };
-      const payloadStr = JSON.stringify(payload);
       const record = await db.dataRecord.create({
         data: {
           moduleId: moduleMap['STORE_MASTER'],
           companyId: companyMAPI.id,
           status: seed.status,
-          currentPayload: payloadStr,
+          currentPayload: jsonVal(payload),
           version: 1,
           createdById: superAdmin.id,
           updatedById: superAdmin.id,
         },
       });
       storeRecordByCode[seed.code] = { id: record.id };
-      storeRows.push({ seed, payloadStr, recordId: record.id });
+      storeRows.push({ seed, payload, recordId: record.id });
       storesCreated++;
     });
     // DataVersions for ACTIVE stores
@@ -962,7 +961,7 @@ export async function POST(request: NextRequest) {
       .filter((r) => r.seed.status === 'ACTIVE')
       .map((r) => ({
         recordId: r.recordId,
-        payloadSnapshot: r.payloadStr,
+        payloadSnapshot: jsonVal(r.payload),
         versionNumber: 1,
         changedById: superAdmin.id,
         changeReason: 'Initial creation (auto-approved)',
@@ -978,7 +977,7 @@ export async function POST(request: NextRequest) {
         recordId: r.recordId,
         requestedById: superAdmin.id,
         status: 'PENDING' as const,
-        deltaPayload: r.payloadStr,
+        deltaPayload: jsonVal(r.payload),
       }));
     if (storeTicketData.length > 0) {
       await db.approvalTicket.createMany({ data: storeTicketData });
@@ -994,7 +993,7 @@ export async function POST(request: NextRequest) {
     // ── 4c. SUPPLIER_MASTER records (12) ──
     interface SupplierRow {
       seed: typeof SUPPLIER_SEEDS[0];
-      payloadStr: string;
+      payload: Record<string, unknown>;
       recordId: string;
     }
     const supplierRows: SupplierRow[] = [];
@@ -1012,26 +1011,26 @@ export async function POST(request: NextRequest) {
         is_active: true,
         payment_terms: seed.paymentTerms,
       };
-      const payloadStr = JSON.stringify(payload);
+      
       const record = await db.dataRecord.create({
         data: {
           moduleId: moduleMap['SUPPLIER_MASTER'],
           companyId: companyMAPI.id,
           status: seed.status,
-          currentPayload: payloadStr,
+          currentPayload: jsonVal(payload),
           version: 1,
           createdById: superAdmin.id,
           updatedById: superAdmin.id,
         },
       });
-      supplierRows.push({ seed, payloadStr, recordId: record.id });
+      supplierRows.push({ seed, payload, recordId: record.id });
       suppliersCreated++;
     });
     const supplierVersionData = supplierRows
       .filter((r) => r.seed.status === 'ACTIVE')
       .map((r) => ({
         recordId: r.recordId,
-        payloadSnapshot: r.payloadStr,
+        payloadSnapshot: jsonVal(r.payload),
         versionNumber: 1,
         changedById: superAdmin.id,
         changeReason: 'Initial creation (auto-approved)',
@@ -1046,7 +1045,7 @@ export async function POST(request: NextRequest) {
         recordId: r.recordId,
         requestedById: superAdmin.id,
         status: 'PENDING' as const,
-        deltaPayload: r.payloadStr,
+        deltaPayload: jsonVal(r.payload),
       }));
     if (supplierTicketData.length > 0) {
       await db.approvalTicket.createMany({ data: supplierTicketData });
@@ -1061,7 +1060,7 @@ export async function POST(request: NextRequest) {
 
     // ── 4d. PRICING_MASTER records (20, all ACTIVE) ────────────
     interface PricingRow {
-      payloadStr: string;
+      payload: Record<string, unknown>;
       recordId: string;
     }
     const pricingRows: PricingRow[] = [];
@@ -1078,26 +1077,26 @@ export async function POST(request: NextRequest) {
         region: seed.region,
         is_active: true,
       };
-      const payloadStr = JSON.stringify(payload);
+      
       const record = await db.dataRecord.create({
         data: {
           moduleId: moduleMap['PRICING_MASTER'],
           companyId: companyMAPI.id,
           status: 'ACTIVE',
-          currentPayload: payloadStr,
+          currentPayload: jsonVal(payload),
           version: 1,
           createdById: superAdmin.id,
           updatedById: superAdmin.id,
         },
       });
-      pricingRows.push({ payloadStr, recordId: record.id });
+      pricingRows.push({ payload, recordId: record.id });
       pricingsCreated++;
     });
     if (pricingRows.length > 0) {
       await db.dataVersion.createMany({
         data: pricingRows.map((r) => ({
           recordId: r.recordId,
-          payloadSnapshot: r.payloadStr,
+          payloadSnapshot: jsonVal(r.payload),
           versionNumber: 1,
           changedById: superAdmin.id,
           changeReason: 'Initial creation (auto-approved)',
@@ -1110,7 +1109,7 @@ export async function POST(request: NextRequest) {
     // ── 4e. PROMOTION_MASTER records (12) ──
     interface PromoRow {
       seed: typeof PROMOTION_SEEDS[0];
-      payloadStr: string;
+      payload: Record<string, unknown>;
       recordId: string;
     }
     const promoRows: PromoRow[] = [];
@@ -1129,26 +1128,26 @@ export async function POST(request: NextRequest) {
         store_type: seed.storeType,
         is_active: true,
       };
-      const payloadStr = JSON.stringify(payload);
+      
       const record = await db.dataRecord.create({
         data: {
           moduleId: moduleMap['PROMOTION_MASTER'],
           companyId: companyMAPI.id,
           status: seed.status,
-          currentPayload: payloadStr,
+          currentPayload: jsonVal(payload),
           version: 1,
           createdById: superAdmin.id,
           updatedById: superAdmin.id,
         },
       });
-      promoRows.push({ seed, payloadStr, recordId: record.id });
+      promoRows.push({ seed, payload, recordId: record.id });
       promotionsCreated++;
     });
     const promoVersionData = promoRows
       .filter((r) => r.seed.status === 'ACTIVE')
       .map((r) => ({
         recordId: r.recordId,
-        payloadSnapshot: r.payloadStr,
+        payloadSnapshot: jsonVal(r.payload),
         versionNumber: 1,
         changedById: superAdmin.id,
         changeReason: 'Initial creation (auto-approved)',
@@ -1163,7 +1162,7 @@ export async function POST(request: NextRequest) {
         recordId: r.recordId,
         requestedById: superAdmin.id,
         status: 'PENDING' as const,
-        deltaPayload: r.payloadStr,
+        deltaPayload: jsonVal(r.payload),
       }));
     if (promoTicketData.length > 0) {
       await db.approvalTicket.createMany({ data: promoTicketData });

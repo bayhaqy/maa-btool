@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { isSuperAdmin } from '@/lib/rbac';
+import { jsonVal } from '@/lib/db-json';
 
 export async function POST(request: NextRequest) {
   try {
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
         const record = await db.dataRecord.create({
           data: {
             moduleId: mod.id, companyId: compId, status: item.status,
-            currentPayload: JSON.stringify(item.payload),
+            currentPayload: jsonVal(item.payload),
             createdById: creatorId, updatedById: creatorId,
           },
         });
@@ -403,85 +404,85 @@ export async function POST(request: NextRequest) {
         {
           name: 'Article Name Required',
           description: 'Article name is mandatory for all product records.',
-          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: JSON.stringify({ field: 'article_name', operator: 'IS_REQUIRED', when: { status: 'ACTIVE' } }),
+          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: jsonVal({ field: 'article_name', operator: 'IS_REQUIRED', when: { status: 'ACTIVE' } }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Article name is required for active records.', severity: 'ERROR', trigger: 'SAVE', scope: 'RECORD',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 1,
         },
         {
           name: 'Article Code Uniqueness',
           description: 'Article codes must be unique across the entire catalog.',
-          ruleType: 'CONDITION', conditionType: 'UNIQUENESS', conditionJson: JSON.stringify({ field: 'article_code', scope: 'module' }),
+          ruleType: 'CONDITION', conditionType: 'UNIQUENESS', conditionJson: jsonVal({ field: 'article_code', scope: 'module' }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Article code must be unique.', severity: 'ERROR', trigger: 'IMPORT', scope: 'BULK',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 2,
         },
         {
           name: 'Selling Price Range Validation',
           description: 'Selling price must be between IDR 10,000 and IDR 100,000,000.',
-          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: JSON.stringify({ field: 'selling_price', min: 10000, max: 100000000 }),
+          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: jsonVal({ field: 'selling_price', min: 10000, max: 100000000 }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Selling price must be between IDR 10,000 and IDR 100,000,000.', severity: 'ERROR', trigger: 'SAVE', scope: 'RECORD',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 3,
         },
         {
           name: 'Promotion End Date After Start Date',
           description: 'Promotion end date must be after start date.',
-          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: JSON.stringify({ field1: 'end_date', operator: 'GREATER_THAN', field2: 'start_date' }),
+          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: jsonVal({ field1: 'end_date', operator: 'GREATER_THAN', field2: 'start_date' }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'End date must be after start date.', severity: 'ERROR', trigger: 'SAVE', scope: 'RECORD',
           moduleId: promotionModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 4,
         },
         {
           name: 'Article Completeness Check',
           description: 'Articles must have brand AND category to be approved.',
-          ruleType: 'CONDITION', conditionType: 'COMPLETENESS', conditionJson: JSON.stringify({ requiredFields: ['article_name', 'article_code', 'brand', 'category'], when: { status: 'ACTIVE' } }),
+          ruleType: 'CONDITION', conditionType: 'COMPLETENESS', conditionJson: jsonVal({ requiredFields: ['article_name', 'article_code', 'brand', 'category'], when: { status: 'ACTIVE' } }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Article must have name, code, brand, and category to be active.', severity: 'ERROR', trigger: 'APPROVE', scope: 'RECORD',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 5,
         },
         {
           name: 'Auto-Set Draft Status on Create',
           description: 'When a new article is created, automatically set status to DRAFT.',
-          ruleType: 'ACTION', conditionType: 'CROSS_FIELD', conditionJson: JSON.stringify({ on: 'CREATE' }),
-          actionType: 'SET_STATUS', actionJson: JSON.stringify({ status: 'DRAFT' }), errorMessage: 'Auto-set draft status on create', severity: 'INFO', trigger: 'SAVE', scope: 'RECORD',
+          ruleType: 'ACTION', conditionType: 'CROSS_FIELD', conditionJson: jsonVal({ on: 'CREATE' }),
+          actionType: 'SET_STATUS', actionJson: jsonVal({ status: 'DRAFT' }), errorMessage: 'Auto-set draft status on create', severity: 'INFO', trigger: 'SAVE', scope: 'RECORD',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 6,
         },
         {
           name: 'Email Format Validation',
           description: 'Email must follow standard format pattern.',
-          ruleType: 'CONDITION', conditionType: 'PATTERN', conditionJson: JSON.stringify({ field: 'email', pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$' }),
+          ruleType: 'CONDITION', conditionType: 'PATTERN', conditionJson: jsonVal({ field: 'email', pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$' }),
           actionType: 'WARN', actionJson: undefined, errorMessage: 'Please enter a valid email address.', severity: 'WARNING', trigger: 'SAVE', scope: 'RECORD',
           moduleId: supplierModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 7,
         },
         {
           name: 'Price Must Be Positive',
           description: 'All pricing records must have a positive price value.',
-          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: JSON.stringify({ field: 'price', min: 0, max: null }),
+          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: jsonVal({ field: 'price', min: 0, max: null }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Price must be greater than 0.', severity: 'ERROR', trigger: 'SAVE', scope: 'RECORD',
           moduleId: pricingModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 8,
         },
         {
           name: 'Store Phone Format',
           description: 'Store phone numbers must start with +62.',
-          ruleType: 'CONDITION', conditionType: 'PATTERN', conditionJson: JSON.stringify({ field: 'phone', pattern: '^\\+62' }),
+          ruleType: 'CONDITION', conditionType: 'PATTERN', conditionJson: jsonVal({ field: 'phone', pattern: '^\\+62' }),
           actionType: 'WARN', actionJson: undefined, errorMessage: 'Phone number should start with +62 (Indonesia).', severity: 'WARNING', trigger: 'SAVE', scope: 'RECORD',
           moduleId: storeModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 9,
         },
         {
           name: 'Customer Loyalty Tier Points',
           description: 'Gold members must have at least 10,000 points.',
-          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: JSON.stringify({ field1: 'membership_tier', operator: 'EQUALS', value1: 'GOLD', field2: 'total_points', operator2: 'GREATER_THAN_OR_EQUAL', value2: 10000 }),
+          ruleType: 'CONDITION', conditionType: 'CROSS_FIELD', conditionJson: jsonVal({ field1: 'membership_tier', operator: 'EQUALS', value1: 'GOLD', field2: 'total_points', operator2: 'GREATER_THAN_OR_EQUAL', value2: 10000 }),
           actionType: 'WARN', actionJson: undefined, errorMessage: 'Gold tier customers should have at least 10,000 points.', severity: 'WARNING', trigger: 'SAVE', scope: 'RECORD',
           moduleId: customerModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 10,
         },
         {
           name: 'Discount Value Positive',
           description: 'Discount value in promotions must be positive.',
-          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: JSON.stringify({ field: 'discount_value', min: 0 }),
+          ruleType: 'CONDITION', conditionType: 'RANGE', conditionJson: jsonVal({ field: 'discount_value', min: 0 }),
           actionType: 'BLOCK', actionJson: undefined, errorMessage: 'Discount value must be positive.', severity: 'ERROR', trigger: 'SAVE', scope: 'RECORD',
           moduleId: promotionModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 11,
         },
         {
           name: 'Data Completeness Score Calculator',
           description: 'Calculate a completeness score (0-100) for each record based on filled vs total fields.',
-          ruleType: 'FUNCTION', conditionType: 'COMPLETENESS', conditionJson: JSON.stringify({ formula: '(filled_fields / total_fields) * 100' }),
-          actionType: 'SET_VALUE', actionJson: JSON.stringify({ targetField: 'completeness_score' }), errorMessage: undefined, severity: 'INFO', trigger: 'SAVE', scope: 'RECORD',
+          ruleType: 'FUNCTION', conditionType: 'COMPLETENESS', conditionJson: jsonVal({ formula: '(filled_fields / total_fields) * 100' }),
+          actionType: 'SET_VALUE', actionJson: jsonVal({ targetField: 'completeness_score' }), errorMessage: undefined, severity: 'INFO', trigger: 'SAVE', scope: 'RECORD',
           moduleId: articleModule?.id || modules[0]?.id || '', isActive: true, sortOrder: 12,
         },
       ];
@@ -504,22 +505,22 @@ export async function POST(request: NextRequest) {
     const existingAssets = await db.digitalAsset.count();
     if (existingAssets === 0) {
       const digitalAssetsData = [
-        { assetType: 'IMAGE', fileName: 'nike_air_max_90.jpg', originalFileName: 'nike_air_max_90_hero.jpg', filePath: 'https://placehold.co/800x800/f97316/white?text=Nike+Air+Max+90', fileSize: 245000, mimeType: 'image/jpeg', title: 'Nike Air Max 90 Hero', description: 'Product hero image for Nike Air Max 90', altText: 'Nike Air Max 90 - Orange colorway', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'nike', 'footwear']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'jordan_1_retro.jpg', originalFileName: 'jordan_1_retro_high.jpg', filePath: 'https://placehold.co/800x800/dc2626/white?text=Jordan+1+Retro', fileSize: 198000, mimeType: 'image/jpeg', title: 'Jordan 1 Retro High OG', description: 'Product image for Air Jordan 1 Retro High OG', altText: 'Air Jordan 1 Retro High OG', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'jordan', 'basketball']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'nike_dunk_low.jpg', originalFileName: 'nike_dunk_low_retro.jpg', filePath: 'https://placehold.co/800x800/16a34a/white?text=Nike+Dunk+Low', fileSize: 210000, mimeType: 'image/jpeg', title: 'Nike Dunk Low Retro', description: 'Product image for Nike Dunk Low Retro', altText: 'Nike Dunk Low Retro', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'nike', 'sneakers']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'adidas_ultraboost.jpg', originalFileName: 'adidas_ultraboost_light.jpg', filePath: 'https://placehold.co/800x800/2563eb/white?text=Ultraboost+Light', fileSize: 220000, mimeType: 'image/jpeg', title: 'Adidas Ultraboost Light', description: 'Product image for Adidas Ultraboost Light', altText: 'Adidas Ultraboost Light', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'adidas', 'running']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'puma_rsx.jpg', originalFileName: 'puma_rsx_reinvention.jpg', filePath: 'https://placehold.co/800x800/7c3aed/white?text=Puma+RS-X', fileSize: 185000, mimeType: 'image/jpeg', title: 'Puma RS-X Reinvention', description: 'Product image for Puma RS-X', altText: 'Puma RS-X Reinvention', category: 'Product', status: 'APPROVED', tags: JSON.stringify(['hero', 'puma', 'sneakers']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'converse_chuck_taylor.jpg', originalFileName: 'converse_chuck_taylor_high.jpg', filePath: 'https://placehold.co/800x800/1f2937/white?text=Converse+Chuck+70', fileSize: 175000, mimeType: 'image/jpeg', title: 'Converse Chuck 70 High', description: 'Product image for Converse Chuck Taylor', altText: 'Converse Chuck 70 High', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'converse', 'classic']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'vans_old_skool.jpg', originalFileName: 'vans_old_skool_classic.jpg', filePath: 'https://placehold.co/800x800/1e293b/white?text=Vans+Old+Skool', fileSize: 165000, mimeType: 'image/jpeg', title: 'Vans Old Skool', description: 'Product image for Vans Old Skool', altText: 'Vans Old Skool Classic', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'vans', 'skate']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'tnf_thermoball.jpg', originalFileName: 'tnf_thermoball_jacket.jpg', filePath: 'https://placehold.co/800x800/059669/white?text=TNF+ThermoBall', fileSize: 230000, mimeType: 'image/jpeg', title: 'The North Face ThermoBall Jacket', description: 'Product image for TNF ThermoBall Eco Jacket', altText: 'TNF ThermoBall Eco Jacket', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'tnf', 'outdoor', 'jacket']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'timberland_6inch.jpg', originalFileName: 'timberland_6inch_boot.jpg', filePath: 'https://placehold.co/800x800/92400e/white?text=Timberland+6+Inch', fileSize: 215000, mimeType: 'image/jpeg', title: 'Timberland 6-Inch Premium Boot', description: 'Product image for Timberland 6-Inch Boot', altText: 'Timberland 6-Inch Premium Boot', category: 'Product', status: 'APPROVED', tags: JSON.stringify(['hero', 'timberland', 'boots']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'starbucks_tumbler.jpg', originalFileName: 'starbucks_tumbler_matte.jpg', filePath: 'https://placehold.co/800x800/064e3b/white?text=Starbucks+Tumbler', fileSize: 145000, mimeType: 'image/jpeg', title: 'Starbucks Matte Black Tumbler', description: 'Product image for Starbucks tumbler', altText: 'Starbucks Matte Black Tumbler 473ml', category: 'Product', status: 'PUBLISHED', tags: JSON.stringify(['hero', 'starbucks', 'tumbler']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMBA.id },
-        { assetType: 'IMAGE', fileName: 'nike_logo.png', originalFileName: 'nike_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=NIKE', fileSize: 52000, mimeType: 'image/png', title: 'Nike Logo', description: 'Official Nike swoosh logo', altText: 'Nike Logo', category: 'Brand', status: 'PUBLISHED', tags: JSON.stringify(['logo', 'brand', 'nike']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'adidas_logo.png', originalFileName: 'adidas_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=ADIDAS', fileSize: 48000, mimeType: 'image/png', title: 'Adidas Logo', description: 'Official Adidas three stripes logo', altText: 'Adidas Logo', category: 'Brand', status: 'PUBLISHED', tags: JSON.stringify(['logo', 'brand', 'adidas']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPA.id },
-        { assetType: 'IMAGE', fileName: 'puma_logo.png', originalFileName: 'puma_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=PUMA', fileSize: 45000, mimeType: 'image/png', title: 'Puma Logo', description: 'Official Puma leaping cat logo', altText: 'Puma Logo', category: 'Brand', status: 'APPROVED', tags: JSON.stringify(['logo', 'brand', 'puma']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'store_grand_indonesia.jpg', originalFileName: 'map_active_grand_indonesia.jpg', filePath: 'https://placehold.co/1920x1080/64748b/white?text=Grand+Indonesia+Store', fileSize: 380000, mimeType: 'image/jpeg', title: 'Grand Indonesia Store Front', description: 'Store front photo of MAP Active Grand Indonesia', altText: 'MAP Active Grand Indonesia Store', category: 'Store', status: 'PUBLISHED', tags: JSON.stringify(['store', 'flagship', 'jakarta']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'store_pacific_place.jpg', originalFileName: 'map_active_pacific_place.jpg', filePath: 'https://placehold.co/1920x1080/64748b/white?text=Pacific+Place+Store', fileSize: 350000, mimeType: 'image/jpeg', title: 'Pacific Place Store Front', description: 'Store front photo of MAP Active Pacific Place', altText: 'MAP Active Pacific Place Store', category: 'Store', status: 'APPROVED', tags: JSON.stringify(['store', 'flagship', 'jakarta']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
-        { assetType: 'IMAGE', fileName: 'starbucks_beachwalk.jpg', originalFileName: 'starbucks_beachwalk_bali.jpg', filePath: 'https://placehold.co/1920x1080/064e3b/white?text=Starbucks+Beachwalk', fileSize: 320000, mimeType: 'image/jpeg', title: 'Starbucks Beachwalk Bali', description: 'Store photo of Starbucks Beachwalk Bali', altText: 'Starbucks Beachwalk Bali Store', category: 'Store', status: 'PUBLISHED', tags: JSON.stringify(['store', 'starbucks', 'bali']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMBA.id },
+        { assetType: 'IMAGE', fileName: 'nike_air_max_90.jpg', originalFileName: 'nike_air_max_90_hero.jpg', filePath: 'https://placehold.co/800x800/f97316/white?text=Nike+Air+Max+90', fileSize: 245000, mimeType: 'image/jpeg', title: 'Nike Air Max 90 Hero', description: 'Product hero image for Nike Air Max 90', altText: 'Nike Air Max 90 - Orange colorway', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'nike', 'footwear']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'jordan_1_retro.jpg', originalFileName: 'jordan_1_retro_high.jpg', filePath: 'https://placehold.co/800x800/dc2626/white?text=Jordan+1+Retro', fileSize: 198000, mimeType: 'image/jpeg', title: 'Jordan 1 Retro High OG', description: 'Product image for Air Jordan 1 Retro High OG', altText: 'Air Jordan 1 Retro High OG', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'jordan', 'basketball']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'nike_dunk_low.jpg', originalFileName: 'nike_dunk_low_retro.jpg', filePath: 'https://placehold.co/800x800/16a34a/white?text=Nike+Dunk+Low', fileSize: 210000, mimeType: 'image/jpeg', title: 'Nike Dunk Low Retro', description: 'Product image for Nike Dunk Low Retro', altText: 'Nike Dunk Low Retro', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'nike', 'sneakers']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'adidas_ultraboost.jpg', originalFileName: 'adidas_ultraboost_light.jpg', filePath: 'https://placehold.co/800x800/2563eb/white?text=Ultraboost+Light', fileSize: 220000, mimeType: 'image/jpeg', title: 'Adidas Ultraboost Light', description: 'Product image for Adidas Ultraboost Light', altText: 'Adidas Ultraboost Light', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'adidas', 'running']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'puma_rsx.jpg', originalFileName: 'puma_rsx_reinvention.jpg', filePath: 'https://placehold.co/800x800/7c3aed/white?text=Puma+RS-X', fileSize: 185000, mimeType: 'image/jpeg', title: 'Puma RS-X Reinvention', description: 'Product image for Puma RS-X', altText: 'Puma RS-X Reinvention', category: 'Product', status: 'APPROVED', tags: jsonVal(['hero', 'puma', 'sneakers']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'converse_chuck_taylor.jpg', originalFileName: 'converse_chuck_taylor_high.jpg', filePath: 'https://placehold.co/800x800/1f2937/white?text=Converse+Chuck+70', fileSize: 175000, mimeType: 'image/jpeg', title: 'Converse Chuck 70 High', description: 'Product image for Converse Chuck Taylor', altText: 'Converse Chuck 70 High', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'converse', 'classic']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'vans_old_skool.jpg', originalFileName: 'vans_old_skool_classic.jpg', filePath: 'https://placehold.co/800x800/1e293b/white?text=Vans+Old+Skool', fileSize: 165000, mimeType: 'image/jpeg', title: 'Vans Old Skool', description: 'Product image for Vans Old Skool', altText: 'Vans Old Skool Classic', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'vans', 'skate']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'tnf_thermoball.jpg', originalFileName: 'tnf_thermoball_jacket.jpg', filePath: 'https://placehold.co/800x800/059669/white?text=TNF+ThermoBall', fileSize: 230000, mimeType: 'image/jpeg', title: 'The North Face ThermoBall Jacket', description: 'Product image for TNF ThermoBall Eco Jacket', altText: 'TNF ThermoBall Eco Jacket', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'tnf', 'outdoor', 'jacket']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'timberland_6inch.jpg', originalFileName: 'timberland_6inch_boot.jpg', filePath: 'https://placehold.co/800x800/92400e/white?text=Timberland+6+Inch', fileSize: 215000, mimeType: 'image/jpeg', title: 'Timberland 6-Inch Premium Boot', description: 'Product image for Timberland 6-Inch Boot', altText: 'Timberland 6-Inch Premium Boot', category: 'Product', status: 'APPROVED', tags: jsonVal(['hero', 'timberland', 'boots']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'starbucks_tumbler.jpg', originalFileName: 'starbucks_tumbler_matte.jpg', filePath: 'https://placehold.co/800x800/064e3b/white?text=Starbucks+Tumbler', fileSize: 145000, mimeType: 'image/jpeg', title: 'Starbucks Matte Black Tumbler', description: 'Product image for Starbucks tumbler', altText: 'Starbucks Matte Black Tumbler 473ml', category: 'Product', status: 'PUBLISHED', tags: jsonVal(['hero', 'starbucks', 'tumbler']), width: 800, height: 800, dpi: 72, colorSpace: 'sRGB', companyId: companyMBA.id },
+        { assetType: 'IMAGE', fileName: 'nike_logo.png', originalFileName: 'nike_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=NIKE', fileSize: 52000, mimeType: 'image/png', title: 'Nike Logo', description: 'Official Nike swoosh logo', altText: 'Nike Logo', category: 'Brand', status: 'PUBLISHED', tags: jsonVal(['logo', 'brand', 'nike']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'adidas_logo.png', originalFileName: 'adidas_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=ADIDAS', fileSize: 48000, mimeType: 'image/png', title: 'Adidas Logo', description: 'Official Adidas three stripes logo', altText: 'Adidas Logo', category: 'Brand', status: 'PUBLISHED', tags: jsonVal(['logo', 'brand', 'adidas']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPA.id },
+        { assetType: 'IMAGE', fileName: 'puma_logo.png', originalFileName: 'puma_logo_official.png', filePath: 'https://placehold.co/400x200/111111/white?text=PUMA', fileSize: 45000, mimeType: 'image/png', title: 'Puma Logo', description: 'Official Puma leaping cat logo', altText: 'Puma Logo', category: 'Brand', status: 'APPROVED', tags: jsonVal(['logo', 'brand', 'puma']), width: 400, height: 200, dpi: 150, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'store_grand_indonesia.jpg', originalFileName: 'map_active_grand_indonesia.jpg', filePath: 'https://placehold.co/1920x1080/64748b/white?text=Grand+Indonesia+Store', fileSize: 380000, mimeType: 'image/jpeg', title: 'Grand Indonesia Store Front', description: 'Store front photo of MAP Active Grand Indonesia', altText: 'MAP Active Grand Indonesia Store', category: 'Store', status: 'PUBLISHED', tags: jsonVal(['store', 'flagship', 'jakarta']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'store_pacific_place.jpg', originalFileName: 'map_active_pacific_place.jpg', filePath: 'https://placehold.co/1920x1080/64748b/white?text=Pacific+Place+Store', fileSize: 350000, mimeType: 'image/jpeg', title: 'Pacific Place Store Front', description: 'Store front photo of MAP Active Pacific Place', altText: 'MAP Active Pacific Place Store', category: 'Store', status: 'APPROVED', tags: jsonVal(['store', 'flagship', 'jakarta']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMAPI.id },
+        { assetType: 'IMAGE', fileName: 'starbucks_beachwalk.jpg', originalFileName: 'starbucks_beachwalk_bali.jpg', filePath: 'https://placehold.co/1920x1080/064e3b/white?text=Starbucks+Beachwalk', fileSize: 320000, mimeType: 'image/jpeg', title: 'Starbucks Beachwalk Bali', description: 'Store photo of Starbucks Beachwalk Bali', altText: 'Starbucks Beachwalk Bali Store', category: 'Store', status: 'PUBLISHED', tags: jsonVal(['store', 'starbucks', 'bali']), width: 1920, height: 1080, dpi: 72, colorSpace: 'sRGB', companyId: companyMBA.id },
       ];
 
       for (const asset of digitalAssetsData) {
@@ -543,11 +544,11 @@ export async function POST(request: NextRequest) {
 
       if (articleMod || storeMod) {
         const tasks = [
-          { moduleId: articleMod?.id || '', taskType: 'QUALITY_REVIEW', title: 'Review Article ART-025 Data Quality', description: 'Puma x AMI Suede XL is in DRAFT status — check completeness before approval', priority: 'HIGH', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000), context: JSON.stringify({ article_code: 'ART-025', reason: 'DRAFT record needs quality review' }) },
-          { moduleId: articleMod?.id || '', taskType: 'DATA_ENRICHMENT', title: 'Add missing product images for ART-007', description: 'Adidas NMD R1 missing product images — upload hero and lifestyle shots', priority: 'NORMAL', status: 'IN_PROGRESS', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), context: JSON.stringify({ article_code: 'ART-007', missingFields: ['images'] }) },
-          { moduleId: storeMod?.id || '', taskType: 'DATA_CORRECTION', title: 'Fix store phone format STR-008', description: 'Phone number for MAP Active Plaza Senayan may have incorrect format', priority: 'LOW', status: 'COMPLETED', assignedTo: stewardUser?.id, assignedBy: user.id, completedAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000), resolution: 'Phone number format verified and corrected', context: JSON.stringify({ store_code: 'STR-008' }) },
-          { moduleId: articleMod?.id || '', taskType: 'QUALITY_REVIEW', title: 'Validate pricing for ART-021 Adidas Tiro Jacket', description: 'Article in IN_REVIEW status — validate pricing data before approval', priority: 'NORMAL', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), context: JSON.stringify({ article_code: 'ART-021', status: 'IN_REVIEW' }) },
-          { moduleId: articleMod?.id || '', taskType: 'DATA_ENRICHMENT', title: 'Enrich brand data for ART-017 and ART-018', description: "Levi's 501 and Tommy Hilfiger Polo need sub_category assignment", priority: 'NORMAL', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), context: JSON.stringify({ article_codes: ['ART-017', 'ART-018'], missingFields: ['sub_category'] }) },
+          { moduleId: articleMod?.id || '', taskType: 'QUALITY_REVIEW', title: 'Review Article ART-025 Data Quality', description: 'Puma x AMI Suede XL is in DRAFT status — check completeness before approval', priority: 'HIGH', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000), context: jsonVal({ article_code: 'ART-025', reason: 'DRAFT record needs quality review' }) },
+          { moduleId: articleMod?.id || '', taskType: 'DATA_ENRICHMENT', title: 'Add missing product images for ART-007', description: 'Adidas NMD R1 missing product images — upload hero and lifestyle shots', priority: 'NORMAL', status: 'IN_PROGRESS', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), context: jsonVal({ article_code: 'ART-007', missingFields: ['images'] }) },
+          { moduleId: storeMod?.id || '', taskType: 'DATA_CORRECTION', title: 'Fix store phone format STR-008', description: 'Phone number for MAP Active Plaza Senayan may have incorrect format', priority: 'LOW', status: 'COMPLETED', assignedTo: stewardUser?.id, assignedBy: user.id, completedAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000), resolution: 'Phone number format verified and corrected', context: jsonVal({ store_code: 'STR-008' }) },
+          { moduleId: articleMod?.id || '', taskType: 'QUALITY_REVIEW', title: 'Validate pricing for ART-021 Adidas Tiro Jacket', description: 'Article in IN_REVIEW status — validate pricing data before approval', priority: 'NORMAL', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), context: jsonVal({ article_code: 'ART-021', status: 'IN_REVIEW' }) },
+          { moduleId: articleMod?.id || '', taskType: 'DATA_ENRICHMENT', title: 'Enrich brand data for ART-017 and ART-018', description: "Levi's 501 and Tommy Hilfiger Polo need sub_category assignment", priority: 'NORMAL', status: 'PENDING', assignedTo: stewardUser?.id, assignedBy: user.id, dueDate: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), context: jsonVal({ article_codes: ['ART-017', 'ART-018'], missingFields: ['sub_category'] }) },
         ].filter(t => t.moduleId);
 
         for (const task of tasks) {
@@ -571,7 +572,7 @@ export async function POST(request: NextRequest) {
         data: {
           name: 'Product Approval Workflow', description: 'Standard workflow for product data approval',
           moduleScope: 'ARTICLE_MASTER', stepCount: 4,
-          stepConfig: JSON.stringify({
+          stepConfig: jsonVal({
             states: [
               { id: 'draft', name: 'Draft', type: 'DRAFT', color: '#6b7280' },
               { id: 'in_review', name: 'In Review', type: 'IN_REVIEW', color: '#f59e0b' },
@@ -585,7 +586,7 @@ export async function POST(request: NextRequest) {
               { from: 'rejected', to: 'draft', name: 'Resubmit' },
             ],
           }),
-          slaConfig: JSON.stringify({ defaultDeadlineHours: 48 }),
+          slaConfig: jsonVal({ defaultDeadlineHours: 48 }),
           isActive: true,
         },
       });
@@ -609,7 +610,7 @@ export async function POST(request: NextRequest) {
           data: {
             templateId: productTemplate.id, fromStateId: psMap[t.fromStateCode], toStateId: psMap[t.toStateCode],
             transitionName: t.transitionName, requiredRole: t.requiredRole, isAuto: t.isAuto,
-            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null, sortOrder: t.sortOrder,
+            notifyRoles: t.notifyRoles ? jsonVal(t.notifyRoles) : null, sortOrder: t.sortOrder,
           },
         });
       }

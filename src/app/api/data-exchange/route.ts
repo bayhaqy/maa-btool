@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,11 +86,11 @@ export async function POST(request: NextRequest) {
         description: description || null,
         endpointType: endpointType || 'REST_API',
         direction: direction || 'INBOUND',
-        connectionConfig: typeof connectionConfig === 'string' ? connectionConfig : JSON.stringify(connectionConfig || {}),
-        mappingConfig: mappingConfig ? (typeof mappingConfig === 'string' ? mappingConfig : JSON.stringify(mappingConfig)) : null,
-        scheduleConfig: scheduleConfig ? (typeof scheduleConfig === 'string' ? scheduleConfig : JSON.stringify(scheduleConfig)) : null,
-        transformRules: transformRules ? (typeof transformRules === 'string' ? transformRules : JSON.stringify(transformRules)) : null,
-        errorHandling: errorHandling ? (typeof errorHandling === 'string' ? errorHandling : JSON.stringify(errorHandling)) : null,
+        connectionConfig: typeof connectionConfig === 'string' ? jsonVal(JSON.parse(connectionConfig)) : jsonVal(connectionConfig || {}),
+        mappingConfig: mappingConfig ? (typeof mappingConfig === 'string' ? jsonVal(JSON.parse(mappingConfig)) : jsonVal(mappingConfig)) : null,
+        scheduleConfig: scheduleConfig ? (typeof scheduleConfig === 'string' ? jsonVal(JSON.parse(scheduleConfig)) : jsonVal(scheduleConfig)) : null,
+        transformRules: transformRules ? (typeof transformRules === 'string' ? jsonVal(JSON.parse(transformRules)) : jsonVal(transformRules)) : null,
+        errorHandling: errorHandling ? (typeof errorHandling === 'string' ? jsonVal(JSON.parse(errorHandling)) : jsonVal(errorHandling)) : null,
         moduleId: moduleId || null,
         isActive: isActive !== undefined ? isActive : true,
       },
@@ -145,7 +146,7 @@ export async function PATCH(request: NextRequest) {
 
     if (action === 'testConnection') {
       // Simulate connection test — in production this would actually test the endpoint
-      const config = JSON.parse(endpoint.connectionConfig || '{}');
+      const config = jsonParse<Record<string, unknown>>(endpoint.connectionConfig || '{}');
       const success = Math.random() > 0.2; // 80% success simulation
       const result = {
         success,

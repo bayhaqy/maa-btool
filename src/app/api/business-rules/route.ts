@@ -4,6 +4,7 @@ import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import { logAudit, sanitizeInput } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -223,15 +224,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate conditionJson is valid JSON
+    let parsedConditionJson: unknown;
     try {
-      JSON.parse(conditionJson);
+      parsedConditionJson = typeof conditionJson === 'string' ? JSON.parse(conditionJson) : conditionJson;
     } catch {
       return NextResponse.json({ error: 'conditionJson must be valid JSON' }, { status: 422 });
     }
 
+    let parsedActionJson: unknown = null;
     if (actionJson) {
       try {
-        JSON.parse(actionJson);
+        parsedActionJson = typeof actionJson === 'string' ? JSON.parse(actionJson) : actionJson;
       } catch {
         return NextResponse.json({ error: 'actionJson must be valid JSON' }, { status: 422 });
       }
@@ -258,9 +261,9 @@ export async function POST(request: NextRequest) {
         description: description ? sanitizeInput(description) : null,
         ruleType: resolvedRuleType,
         conditionType: resolvedConditionType,
-        conditionJson: String(conditionJson),
+        conditionJson: jsonVal(parsedConditionJson),
         actionType: resolvedActionType,
-        actionJson: actionJson ? String(actionJson) : null,
+        actionJson: parsedActionJson ? jsonVal(parsedActionJson) : null,
         errorMessage: errorMessage ? sanitizeInput(errorMessage) : null,
         severity: resolvedSeverity,
         trigger: String(trigger),
@@ -366,19 +369,27 @@ export async function PUT(request: NextRequest) {
     if (body.ruleType !== undefined) update.ruleType = String(body.ruleType);
     if (body.conditionType !== undefined) update.conditionType = String(body.conditionType);
     if (body.conditionJson !== undefined) {
-      try { JSON.parse(body.conditionJson); } catch {
+      try {
+        const parsed = typeof body.conditionJson === 'string' ? JSON.parse(body.conditionJson) : body.conditionJson;
+        void parsed; // validated
+        update.conditionJson = jsonVal(parsed);
+      } catch {
         return NextResponse.json({ error: 'conditionJson must be valid JSON' }, { status: 422 });
       }
-      update.conditionJson = String(body.conditionJson);
     }
     if (body.actionType !== undefined) update.actionType = String(body.actionType);
     if (body.actionJson !== undefined) {
       if (body.actionJson) {
-        try { JSON.parse(body.actionJson); } catch {
+        try {
+          const parsed = typeof body.actionJson === 'string' ? JSON.parse(body.actionJson) : body.actionJson;
+          void parsed; // validated
+          update.actionJson = jsonVal(parsed);
+        } catch {
           return NextResponse.json({ error: 'actionJson must be valid JSON' }, { status: 422 });
         }
+      } else {
+        update.actionJson = null;
       }
-      update.actionJson = body.actionJson ? String(body.actionJson) : null;
     }
     if (body.errorMessage !== undefined) update.errorMessage = body.errorMessage ? sanitizeInput(body.errorMessage) : null;
     if (body.severity !== undefined) update.severity = String(body.severity);

@@ -6,6 +6,7 @@ import {
   STATUS_ACTIVE,
   STATUS_REVISION_PENDING,
 } from '@/lib/auth';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -161,7 +162,7 @@ export async function POST(request: NextRequest) {
       if (record) {
         let payload: Record<string, unknown> = {};
         try {
-          payload = record.currentPayload ? JSON.parse(record.currentPayload) : {};
+          payload = record.currentPayload ? jsonParse<Record<string, unknown>>(record.currentPayload) : {};
         } catch {
           payload = {};
         }
@@ -179,7 +180,7 @@ export async function POST(request: NextRequest) {
           await db.dataVersion.create({
             data: {
               recordId: record.id,
-              payloadSnapshot: JSON.stringify(payload),
+              payloadSnapshot: jsonVal(payload),
               versionNumber: newVersionNumber,
               changedById: tokenPayload.userId,
               changeReason: `AI enrichment approved (prompt: ${aiOutput.prompt.name})`,
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest) {
           await db.dataRecord.update({
             where: { id: record.id },
             data: {
-              currentPayload: JSON.stringify(payload),
+              currentPayload: jsonVal(payload),
               status: STATUS_REVISION_PENDING,
               updatedById: tokenPayload.userId,
             },
@@ -211,7 +212,7 @@ export async function POST(request: NextRequest) {
           await db.dataRecord.update({
             where: { id: record.id },
             data: {
-              currentPayload: JSON.stringify(payload),
+              currentPayload: jsonVal(payload),
               updatedById: tokenPayload.userId,
             },
           });

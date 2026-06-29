@@ -4,6 +4,7 @@ import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission, isSuperAdmin } from '@/lib/rbac';
 import { logAudit, sanitizeInput } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
+import { jsonVal } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -251,7 +252,7 @@ export async function POST(request: NextRequest) {
         assignedTo: assignedTo ? sanitizeInput(assignedTo) : null,
         assignedBy: tokenPayload!.userId,
         dueDate: dueDate ? new Date(dueDate) : null,
-        context: context ? (typeof context === 'string' ? context : JSON.stringify(context)) : null,
+        context: context ? (typeof context === 'string' ? context : jsonVal(context)) : null,
       },
       include: {
         module: {

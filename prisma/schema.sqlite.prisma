@@ -87,8 +87,8 @@ model SysRole {
   // STIBO role types: VIEWER (read-only), EDITOR (create/edit), APPROVER (review/approve),
   // DATA_STEWARD (quality/correction), ADMINISTRATOR (config/manage), SYSTEM_ADMIN (full access)
   roleType    String  @default("VIEWER")
-  // Scope: GLOBAL (all modules) | MODULE (specific modules via RolePermission)
-  scope       String  @default("MODULE")
+  // Scope: GLOBAL (all modules) | MODULE_LEVEL (specific modules via RolePermission)
+  scope       String  @default("MODULE_LEVEL")
   // Is this a system role (cannot be deleted)?
   isSystem    Boolean @default(false)
   // Global roles apply across all tenants (e.g. Super Admin); isGlobal roles have companyId pointing to "SYSTEM"
