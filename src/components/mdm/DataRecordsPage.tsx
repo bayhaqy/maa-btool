@@ -526,10 +526,10 @@ export default function DataRecordsPage() {
     try {
       const payload = parsePayload(record.currentPayload);
       payload[editingCell.fieldCode] = editingValue;
-      await fetch(`/api/records?id=${editingCell.recordId}`, {
+      await fetch(`/api/records?action=update`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPayload: payload }),
+        body: JSON.stringify({ id: editingCell.recordId, payload }),
       });
       setRecords((prev) => prev.map((r) =>
         r.id === editingCell.recordId ? { ...r, currentPayload: JSON.stringify(payload) } : r
