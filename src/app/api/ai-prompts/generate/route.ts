@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { isAIConfigured, getAIClient } from '@/lib/ai';
 import { logAudit } from '@/lib/audit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -172,7 +173,7 @@ async function generateForRecord(
   let inputAttrs: string[] = [];
   try {
     inputAttrs = prompt.inputAttributes
-      ? (JSON.parse(prompt.inputAttributes) as string[])
+      ? jsonParse<string[]>(prompt.inputAttributes)
       : [];
   } catch {
     inputAttrs = [];
@@ -181,7 +182,7 @@ async function generateForRecord(
   // 3. Build the payload map.
   let payload: Record<string, unknown> = {};
   try {
-    payload = record.currentPayload ? JSON.parse(record.currentPayload) : {};
+    payload = record.currentPayload ? jsonParse<Record<string, unknown>>(record.currentPayload) : {};
   } catch {
     payload = {};
   }
@@ -218,7 +219,7 @@ async function generateForRecord(
       output: aiResult.text,
       confidenceScore: aiResult.confidence,
       reasons: aiResult.reasons,
-      suggestions: JSON.stringify(aiResult.suggestions),
+      suggestions: jsonVal(aiResult.suggestions),
       status: 'PENDING_REVIEW',
       tokensUsed: aiResult.tokensUsed,
     },

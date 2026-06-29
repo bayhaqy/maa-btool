@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
+import { jsonVal } from '@/lib/db-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
           description: description || null,
           moduleScope: moduleScope || null,
           stepCount: statesInput.length,
-          stepConfig: JSON.stringify(statesInput),
+          stepConfig: jsonVal(statesInput),
           autoApproveRules: autoApproveRules || null,
           slaConfig: slaConfig || null,
         },
@@ -184,7 +185,7 @@ export async function POST(request: NextRequest) {
               condition: t.condition || null,
               requiredRole: t.requiredRole || null,
               isAuto: t.isAuto || false,
-              notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+              notifyRoles: t.notifyRoles ? jsonVal(t.notifyRoles) : null,
               sortOrder: t.sortOrder ?? 0,
             },
           });
@@ -299,7 +300,7 @@ export async function PUT(request: NextRequest) {
       const finalStates = statesInput || [];
       if (finalStates.length > 0) {
         updateData.stepCount = finalStates.length;
-        updateData.stepConfig = JSON.stringify(finalStates);
+        updateData.stepConfig = jsonVal(finalStates);
       }
 
       await tx.workflowTemplate.update({ where: { id }, data: updateData });
@@ -338,7 +339,7 @@ export async function PUT(request: NextRequest) {
             condition: t.condition || null,
             requiredRole: t.requiredRole || null,
             isAuto: t.isAuto || false,
-            notifyRoles: t.notifyRoles ? JSON.stringify(t.notifyRoles) : null,
+            notifyRoles: t.notifyRoles ? jsonVal(t.notifyRoles) : null,
             sortOrder: t.sortOrder ?? 0,
           },
         });

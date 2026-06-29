@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
+import { jsonVal } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,11 +86,11 @@ export async function PUT(
     if (description !== undefined) data.description = description;
     if (endpointType !== undefined) data.endpointType = endpointType;
     if (direction !== undefined) data.direction = direction;
-    if (connectionConfig !== undefined) data.connectionConfig = typeof connectionConfig === 'string' ? connectionConfig : JSON.stringify(connectionConfig);
-    if (mappingConfig !== undefined) data.mappingConfig = typeof mappingConfig === 'string' ? mappingConfig : JSON.stringify(mappingConfig);
-    if (scheduleConfig !== undefined) data.scheduleConfig = typeof scheduleConfig === 'string' ? scheduleConfig : JSON.stringify(scheduleConfig);
-    if (transformRules !== undefined) data.transformRules = typeof transformRules === 'string' ? transformRules : JSON.stringify(transformRules);
-    if (errorHandling !== undefined) data.errorHandling = typeof errorHandling === 'string' ? errorHandling : JSON.stringify(errorHandling);
+    if (connectionConfig !== undefined) data.connectionConfig = typeof connectionConfig === 'string' ? jsonVal(JSON.parse(connectionConfig)) : jsonVal(connectionConfig);
+    if (mappingConfig !== undefined) data.mappingConfig = typeof mappingConfig === 'string' ? jsonVal(JSON.parse(mappingConfig)) : jsonVal(mappingConfig);
+    if (scheduleConfig !== undefined) data.scheduleConfig = typeof scheduleConfig === 'string' ? jsonVal(JSON.parse(scheduleConfig)) : jsonVal(scheduleConfig);
+    if (transformRules !== undefined) data.transformRules = typeof transformRules === 'string' ? jsonVal(JSON.parse(transformRules)) : jsonVal(transformRules);
+    if (errorHandling !== undefined) data.errorHandling = typeof errorHandling === 'string' ? jsonVal(JSON.parse(errorHandling)) : jsonVal(errorHandling);
     if (moduleId !== undefined) data.moduleId = moduleId || null;
     if (isActive !== undefined) data.isActive = isActive;
 

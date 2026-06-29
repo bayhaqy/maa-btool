@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest) {
       records.forEach((rec) => {
         let payload: Record<string, unknown> = {};
         try {
-          payload = JSON.parse(rec.currentPayload || '{}');
+          payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
         } catch {
           // ignore
         }

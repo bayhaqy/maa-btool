@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
+import { jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
       records.forEach((rec) => {
         let payload: Record<string, unknown> = {};
         try {
-          payload = JSON.parse(rec.currentPayload || '{}');
+          payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
         } catch {
           // ignore parse errors
         }
@@ -113,14 +114,14 @@ export async function GET(request: NextRequest) {
         records.forEach((rec) => {
           let payload: Record<string, unknown> = {};
           try {
-            payload = JSON.parse(rec.currentPayload || '{}');
+            payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
           } catch {
             // Parse errors count as invalid
           }
           let passesAllRules = true;
           for (const rule of moduleRules) {
             try {
-              const condition = JSON.parse(rule.conditionJson);
+              const condition = jsonParse(rule.conditionJson);
               if (!evaluateRuleCondition(condition, payload)) {
                 passesAllRules = false;
                 break;
@@ -142,7 +143,7 @@ export async function GET(request: NextRequest) {
       records.forEach((rec) => {
         let payload: Record<string, unknown> = {};
         try {
-          payload = JSON.parse(rec.currentPayload || '{}');
+          payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
         } catch {
           // Parse error = inconsistent
           return;
@@ -213,7 +214,7 @@ export async function GET(request: NextRequest) {
         records.forEach((rec) => {
           let payload: Record<string, unknown> = {};
           try {
-            payload = JSON.parse(rec.currentPayload || '{}');
+            payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
           } catch {
             return;
           }
@@ -328,7 +329,7 @@ export async function GET(request: NextRequest) {
       mod.dataRecords.forEach((rec) => {
         let payload: Record<string, unknown> = {};
         try {
-          payload = JSON.parse(rec.currentPayload || '{}');
+          payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}');
         } catch {
           return;
         }
@@ -511,7 +512,7 @@ export async function POST(request: NextRequest) {
       let totalRequiredSlots = 0;
       records.forEach((rec) => {
         let payload: Record<string, unknown> = {};
-        try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { /* ignore */ }
+        try { payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}'); } catch { /* ignore */ }
         requiredFields.forEach((field) => {
           totalRequiredSlots++;
           const value = payload[field.fieldCode];
@@ -529,11 +530,11 @@ export async function POST(request: NextRequest) {
         validRecords = 0;
         records.forEach((rec) => {
           let payload: Record<string, unknown> = {};
-          try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { /* */ }
+          try { payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}'); } catch { /* */ }
           let passesAllRules = true;
           for (const rule of moduleRules) {
             try {
-              const condition = JSON.parse(rule.conditionJson);
+              const condition = jsonParse(rule.conditionJson);
               if (!evaluateRuleCondition(condition, payload)) {
                 passesAllRules = false;
                 break;
@@ -549,7 +550,7 @@ export async function POST(request: NextRequest) {
       let consistentRecords = 0;
       records.forEach((rec) => {
         let payload: Record<string, unknown> = {};
-        try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { return; }
+        try { payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}'); } catch { return; }
         let isConsistent = true;
         if (rec.status === 'ACTIVE') {
           for (const field of requiredFields) {
@@ -589,7 +590,7 @@ export async function POST(request: NextRequest) {
         const seen = new Map<string, number>();
         records.forEach((rec) => {
           let payload: Record<string, unknown> = {};
-          try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { return; }
+          try { payload = jsonParse<Record<string, unknown>>(rec.currentPayload || '{}'); } catch { return; }
           const key = uniqueFields.map((f) => String(payload[f.fieldCode] ?? '')).join('||');
           if (key && seen.has(key)) {
             duplicateCount++;

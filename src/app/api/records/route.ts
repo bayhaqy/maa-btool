@@ -4,6 +4,7 @@ import { getTokenFromHeaders, canTransition, STATUS_DRAFT, STATUS_IN_REVIEW, STA
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 // ============================================================
 // Validation rule type constants (STIBO-aligned per-field
@@ -82,7 +83,7 @@ async function validatePayload(
           const needle = String(value).toLowerCase();
           const clash = allRecords.some((r) => {
             try {
-              const other = JSON.parse(r.currentPayload || '{}') as Record<string, unknown>;
+              const other = jsonParse<Record<string, unknown>>(r.currentPayload || '{}');
               const ov = other[field.fieldCode];
               return typeof ov === 'string' && ov.toLowerCase() === needle;
             } catch {
@@ -290,7 +291,7 @@ async function evaluateBusinessRules(
   for (const rule of rules) {
     let condition: BusinessCondition;
     try {
-      condition = JSON.parse(rule.conditionJson) as BusinessCondition;
+      condition = jsonParse<BusinessCondition>(rule.conditionJson);
     } catch {
       // Skip malformed rule
       continue;
@@ -313,7 +314,7 @@ async function evaluateBusinessRules(
     } else if (rule.actionType === 'SET_VALUE') {
       if (rule.actionJson) {
         try {
-          const action = JSON.parse(rule.actionJson) as SetActionPayload;
+          const action = jsonParse<SetActionPayload>(rule.actionJson);
           if (action.targetFieldCode && action.expression) {
             const evaluated = evaluateExpression(action.expression, modifiedPayload);
             modifiedPayload[action.targetFieldCode] = evaluated;
@@ -499,7 +500,7 @@ export async function POST(request: NextRequest) {
         moduleId,
         companyId: tokenPayload.companyId,
         status: initialStatus,
-        currentPayload: JSON.stringify(finalPayload),
+        currentPayload: jsonVal(finalPayload),
         createdById: tokenPayload.userId,
         updatedById: tokenPayload.userId,
       },
@@ -510,7 +511,7 @@ export async function POST(request: NextRequest) {
       await db.dataVersion.create({
         data: {
           recordId: record.id,
-          payloadSnapshot: JSON.stringify(finalPayload),
+          payloadSnapshot: jsonVal(finalPayload),
           versionNumber: 1,
           changedById: tokenPayload.userId,
           changeReason: 'Initial creation (auto-approved)',
@@ -688,7 +689,7 @@ export async function PUT(request: NextRequest) {
         await db.dataVersion.create({
           data: {
             recordId: id,
-            payloadSnapshot: JSON.stringify(finalPayload),
+            payloadSnapshot: jsonVal(finalPayload),
             versionNumber: newVersionNumber,
             changedById: tokenPayload.userId,
             changeReason: 'Amendment requested (pending approval)',
@@ -700,7 +701,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(finalPayload),
+            currentPayload: jsonVal(finalPayload),
             status: STATUS_REVISION_PENDING,
             updatedById: tokenPayload.userId,
           },
@@ -727,7 +728,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(finalPayload),
+            currentPayload: jsonVal(finalPayload),
             updatedById: tokenPayload.userId,
           },
         });
@@ -740,7 +741,7 @@ export async function PUT(request: NextRequest) {
         const updatedRecord = await db.dataRecord.update({
           where: { id },
           data: {
-            currentPayload: JSON.stringify(finalPayload),
+            currentPayload: jsonVal(finalPayload),
             updatedById: tokenPayload.userId,
           },
         });
@@ -880,7 +881,7 @@ export async function PUT(request: NextRequest) {
             await db.dataVersion.create({
               data: {
                 recordId: id,
-                payloadSnapshot: JSON.stringify(payload),
+                payloadSnapshot: jsonVal(payload),
                 versionNumber: newVersionNumber,
                 changedById: tokenPayload.userId,
                 changeReason: 'Amendment requested via grid editor (pending approval)',
@@ -891,7 +892,7 @@ export async function PUT(request: NextRequest) {
             const updatedRecord = await db.dataRecord.update({
               where: { id },
               data: {
-                currentPayload: JSON.stringify(payload),
+                currentPayload: jsonVal(payload),
                 status: STATUS_REVISION_PENDING,
                 updatedById: tokenPayload.userId,
               },
@@ -912,7 +913,7 @@ export async function PUT(request: NextRequest) {
             const updatedRecord = await db.dataRecord.update({
               where: { id },
               data: {
-                currentPayload: JSON.stringify(payload),
+                currentPayload: jsonVal(payload),
                 updatedById: tokenPayload.userId,
               },
             });

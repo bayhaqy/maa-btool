@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import { join } from 'path';
+import { jsonVal } from '@/lib/db-json';
 
 const ASSET_STATUSES = ['DRAFT', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'ARCHIVED'];
 
@@ -104,9 +105,9 @@ export async function PUT(
 
     if (body.tags !== undefined) {
       if (Array.isArray(body.tags)) {
-        updateData.tags = JSON.stringify(body.tags);
+        updateData.tags = jsonVal(body.tags);
       } else if (typeof body.tags === 'string') {
-        updateData.tags = body.tags;
+        try { updateData.tags = jsonVal(JSON.parse(body.tags)); } catch { updateData.tags = body.tags; }
       }
     }
 

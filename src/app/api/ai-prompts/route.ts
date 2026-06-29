@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -146,7 +147,7 @@ export async function POST(request: NextRequest) {
         description: description || null,
         systemPrompt,
         userPromptTemplate,
-        inputAttributes: inputAttributes ? JSON.stringify(inputAttributes) : null,
+        inputAttributes: inputAttributes ? jsonVal(inputAttributes) : null,
         outputAttribute: outputAttribute || null,
         maxChars: typeof maxChars === 'number' ? maxChars : 500,
         persona: persona || null,
@@ -213,7 +214,7 @@ export async function PUT(request: NextRequest) {
         systemPrompt: rest.systemPrompt,
         userPromptTemplate: rest.userPromptTemplate,
         inputAttributes: rest.inputAttributes
-          ? JSON.stringify(rest.inputAttributes)
+          ? jsonVal(rest.inputAttributes)
           : existing.inputAttributes,
         outputAttribute: rest.outputAttribute || null,
         maxChars: typeof rest.maxChars === 'number' ? rest.maxChars : existing.maxChars,

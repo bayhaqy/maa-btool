@@ -4,6 +4,7 @@ import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_REJECTED } from '@/lib/auth'
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -210,7 +211,7 @@ export async function PUT(request: NextRequest) {
             reviewedById: tokenPayload.userId,
             reviewNotes: reviewNotes || (isApprove ? 'Bulk approved' : 'Bulk rejected'),
             reviewedAt: new Date(),
-            workflowHistory: JSON.stringify(history),
+            workflowHistory: jsonVal(history),
           };
 
           // For multi-step: check if we need to advance or complete
@@ -224,7 +225,7 @@ export async function PUT(request: NextRequest) {
 
             // Parse step config to get next step name
             try {
-              const stepConfig = JSON.parse(ticket.stepName || '[]');
+              const stepConfig = jsonParse<StepConfig[]>(ticket.stepName || '[]');
               if (Array.isArray(stepConfig) && stepConfig[nextStep - 1]) {
                 updateData.stepName = stepConfig[nextStep - 1].name || `Step ${nextStep}`;
               }
@@ -346,7 +347,7 @@ export async function PUT(request: NextRequest) {
         reviewedById: tokenPayload.userId,
         reviewNotes: reviewNotes || (isApprove ? 'Approved' : 'Rejected'),
         reviewedAt: new Date(),
-        workflowHistory: JSON.stringify(history),
+        workflowHistory: jsonVal(history),
       };
 
       // For multi-step: advance to next step instead of completing
@@ -471,7 +472,7 @@ export async function PUT(request: NextRequest) {
         data: {
           delegatedFrom: tokenPayload.userId,
           reviewedById: null, // Clear current reviewer so delegate can pick up
-          workflowHistory: JSON.stringify(history),
+          workflowHistory: jsonVal(history),
           reviewNotes: reviewNotes || `Delegated by ${tokenPayload.username}`,
         },
       });
@@ -527,7 +528,7 @@ export async function PUT(request: NextRequest) {
         data: {
           reviewedById: null,
           delegatedFrom: null,
-          workflowHistory: JSON.stringify(history),
+          workflowHistory: jsonVal(history),
           reviewNotes: reviewNotes || `Reassigned by admin`,
         },
       });
@@ -601,7 +602,7 @@ export async function POST(request: NextRequest) {
         deadline: deadline ? new Date(deadline) : null,
         priority,
         parentTicketId: parentTicketId || null,
-        workflowHistory: JSON.stringify(history),
+        workflowHistory: jsonVal(history),
       },
     });
 
@@ -619,7 +620,7 @@ export async function POST(request: NextRequest) {
 function parseWorkflowHistory(raw: string | null | undefined): WorkflowHistoryEntry[] {
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = jsonParse<WorkflowHistoryEntry[]>(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -636,7 +637,7 @@ interface StepConfig {
 function parseStepConfig(raw: string | null | undefined): StepConfig[] {
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = jsonParse<StepConfig[]>(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];

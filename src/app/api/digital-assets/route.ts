@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/rbac';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'digital-assets');
 
@@ -241,18 +242,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Build tags as JSON array string
-    let tagsJson: string | null = null;
+    // Build tags as JSON array
+    let tagsValue: unknown = null;
     if (tagsStr) {
       try {
         const parsed = JSON.parse(tagsStr);
         if (Array.isArray(parsed)) {
-          tagsJson = JSON.stringify(parsed);
+          tagsValue = jsonVal(parsed);
         } else {
-          tagsJson = JSON.stringify(tagsStr.split(',').map(t => t.trim()).filter(Boolean));
+          tagsValue = jsonVal(tagsStr.split(',').map(t => t.trim()).filter(Boolean));
         }
       } catch {
-        tagsJson = JSON.stringify(tagsStr.split(',').map(t => t.trim()).filter(Boolean));
+        tagsValue = jsonVal(tagsStr.split(',').map(t => t.trim()).filter(Boolean));
       }
     }
 
@@ -271,7 +272,7 @@ export async function POST(request: NextRequest) {
         title: title || file.name,
         description: description || null,
         altText: altText || null,
-        tags: tagsJson,
+        tags: tagsValue,
         category: category || null,
         status: validStatus,
         uploadedById: tokenPayload.userId,
@@ -407,11 +408,11 @@ export async function PUT(request: NextRequest) {
             const asset = assets.find(a => a.id === assetId);
             if (!asset) { results.push({ id: assetId, success: false, error: 'Not found' }); continue; }
             let existingTags: string[] = [];
-            try { existingTags = JSON.parse(asset.tags || '[]'); } catch { existingTags = []; }
+            try { existingTags = jsonParse<string[]>(asset.tags || '[]'); } catch { existingTags = []; }
             const merged = [...new Set([...existingTags, ...tagsToAdd])];
             await db.digitalAsset.update({
               where: { id: assetId },
-              data: { tags: JSON.stringify(merged) },
+              data: { tags: jsonVal(merged) },
             });
             results.push({ id: assetId, success: true });
           } catch (err) {
@@ -427,11 +428,11 @@ export async function PUT(request: NextRequest) {
             const asset = assets.find(a => a.id === assetId);
             if (!asset) { results.push({ id: assetId, success: false, error: 'Not found' }); continue; }
             let existingTags: string[] = [];
-            try { existingTags = JSON.parse(asset.tags || '[]'); } catch { existingTags = []; }
+            try { existingTags = jsonParse<string[]>(asset.tags || '[]'); } catch { existingTags = []; }
             const filtered = existingTags.filter(t => !tagsToRemove.includes(t));
             await db.digitalAsset.update({
               where: { id: assetId },
-              data: { tags: JSON.stringify(filtered) },
+              data: { tags: jsonVal(filtered) },
             });
             results.push({ id: assetId, success: true });
           } catch (err) {

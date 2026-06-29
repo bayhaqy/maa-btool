@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword, getTokenFromHeaders } from '@/lib/auth';
 import { isSuperAdmin } from '@/lib/rbac';
+import { jsonVal } from '@/lib/db-json';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,13 +12,26 @@ export async function POST(request: NextRequest) {
     
     if (forceReseed && (await db.sysUser.count()) === 0) {
       console.info('[seed] Force reseed requested — wiping partial data...');
-      const tablenames = await db.$queryRaw<Array<{ tablename: string }>>`
-        SELECT tablename FROM pg_tables WHERE schemaname='public'
-      `;
-      for (const { tablename } of tablenames) {
-        if (tablename !== '_prisma_migrations') {
-          try { await db.$executeRawUnsafe(`TRUNCATE TABLE "${tablename}" CASCADE;`); } catch {}
+      try {
+        // Try PostgreSQL first
+        const tablenames = await db.$queryRaw<Array<{ tablename: string }>>`
+          SELECT tablename FROM pg_tables WHERE schemaname='public'
+        `;
+        for (const { tablename } of tablenames) {
+          if (tablename !== '_prisma_migrations') {
+            try { await db.$executeRawUnsafe(`TRUNCATE TABLE "${tablename}" CASCADE;`); } catch {}
+          }
         }
+      } catch {
+        // Fallback for SQLite
+        try {
+          const tables = await db.$queryRaw<Array<{ name: string }>>`
+            SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_prisma%' AND name NOT LIKE 'sqlite%'
+          `;
+          for (const { name } of tables) {
+            try { await db.$executeRawUnsafe(`DELETE FROM "${name}";`); } catch {}
+          }
+        } catch {}
       }
       console.info('[seed] All tables truncated.');
     }
@@ -127,10 +141,10 @@ export async function POST(request: NextRequest) {
     
     // Shared functional roles
     const roleAdministrator = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Administrator', description: 'Can read, create, edit, and approve records across modules', roleType: 'ADMINISTRATOR', scope: 'GLOBAL' } });
-    const roleEditor = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Editor', description: 'Can read, create, and edit records in assigned modules', roleType: 'EDITOR', scope: 'MODULE' } });
-    const roleViewer = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Viewer', description: 'Read-only access to assigned modules', roleType: 'VIEWER', scope: 'MODULE' } });
-    const roleDataSteward = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Data Steward', description: 'Can manage data quality, corrections, and knowledge base', roleType: 'DATA_STEWARD', scope: 'MODULE' } });
-    const roleApprover = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Approver', description: 'Can review and approve data management tasks', roleType: 'APPROVER', scope: 'MODULE' } });
+    const roleEditor = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Editor', description: 'Can read, create, and edit records in assigned modules', roleType: 'EDITOR', scope: 'MODULE_LEVEL' } });
+    const roleViewer = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Viewer', description: 'Read-only access to assigned modules', roleType: 'VIEWER', scope: 'MODULE_LEVEL' } });
+    const roleDataSteward = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Data Steward', description: 'Can manage data quality, corrections, and knowledge base', roleType: 'DATA_STEWARD', scope: 'MODULE_LEVEL' } });
+    const roleApprover = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Approver', description: 'Can review and approve data management tasks', roleType: 'APPROVER', scope: 'MODULE_LEVEL' } });
 
     // Per-company Company Admin roles
     const roleCompanyAdminMAPI = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'Company Admin MAPI', description: 'MAPI company-level administrator', roleType: 'ADMINISTRATOR', scope: 'GLOBAL', color: '#dc2626' } });
@@ -141,12 +155,12 @@ export async function POST(request: NextRequest) {
     const roleCompanyAdminMAPL = await db.sysRole.create({ data: { companyId: companyMAPL.id, roleName: 'Company Admin MAPL', description: 'MAPL company-level administrator', roleType: 'ADMINISTRATOR', scope: 'GLOBAL', color: '#dc2626' } });
 
     // Specialized roles with MODULE scope
-    const roleApiManager = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'API Manager', description: 'Can manage API keys and integration configurations', roleType: 'ADMINISTRATOR', scope: 'MODULE', color: '#7c3aed' } });
-    const roleSftpManager = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'SFTP Manager', description: 'Can manage SFTP configurations and sync schedules', roleType: 'ADMINISTRATOR', scope: 'MODULE', color: '#0891b2' } });
+    const roleApiManager = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'API Manager', description: 'Can manage API keys and integration configurations', roleType: 'ADMINISTRATOR', scope: 'MODULE_LEVEL', color: '#7c3aed' } });
+    const roleSftpManager = await db.sysRole.create({ data: { companyId: companyMAPI.id, roleName: 'SFTP Manager', description: 'Can manage SFTP configurations and sync schedules', roleType: 'ADMINISTRATOR', scope: 'MODULE_LEVEL', color: '#0891b2' } });
 
     // Data Steward per company
-    const roleStewardMAPA = await db.sysRole.create({ data: { companyId: companyMAPA.id, roleName: 'Data Steward MAPA', description: 'MAPA data quality steward', roleType: 'DATA_STEWARD', scope: 'MODULE', color: '#d97706' } });
-    const roleStewardMBA = await db.sysRole.create({ data: { companyId: companyMBA.id, roleName: 'Data Steward MBA', description: 'MBA data quality steward', roleType: 'DATA_STEWARD', scope: 'MODULE', color: '#d97706' } });
+    const roleStewardMAPA = await db.sysRole.create({ data: { companyId: companyMAPA.id, roleName: 'Data Steward MAPA', description: 'MAPA data quality steward', roleType: 'DATA_STEWARD', scope: 'MODULE_LEVEL', color: '#d97706' } });
+    const roleStewardMBA = await db.sysRole.create({ data: { companyId: companyMBA.id, roleName: 'Data Steward MBA', description: 'MBA data quality steward', roleType: 'DATA_STEWARD', scope: 'MODULE_LEVEL', color: '#d97706' } });
 
     const allRoles = [roleSuperAdmin, roleAdministrator, roleEditor, roleViewer, roleDataSteward, roleApprover,
       roleCompanyAdminMAPI, roleCompanyAdminMAPA, roleCompanyAdminMBA, roleCompanyAdminMAPD, roleCompanyAdminMAPP, roleCompanyAdminMAPL,

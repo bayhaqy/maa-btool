@@ -39,7 +39,7 @@ const DEFAULT_ROLES: DefaultRoleDef[] = [
     isSystem: true,
     color: ROLE_TYPE_INFO.VIEWER.color,
     icon: ROLE_TYPE_INFO.VIEWER.icon,
-    scope: 'MODULE',
+    scope: 'MODULE_LEVEL',
   },
   {
     roleName: 'Editor',
@@ -48,7 +48,7 @@ const DEFAULT_ROLES: DefaultRoleDef[] = [
     isSystem: false,
     color: ROLE_TYPE_INFO.EDITOR.color,
     icon: ROLE_TYPE_INFO.EDITOR.icon,
-    scope: 'MODULE',
+    scope: 'MODULE_LEVEL',
   },
   {
     roleName: 'Approver',
@@ -57,7 +57,7 @@ const DEFAULT_ROLES: DefaultRoleDef[] = [
     isSystem: false,
     color: ROLE_TYPE_INFO.APPROVER.color,
     icon: ROLE_TYPE_INFO.APPROVER.icon,
-    scope: 'MODULE',
+    scope: 'MODULE_LEVEL',
   },
   {
     roleName: 'Company Admin',

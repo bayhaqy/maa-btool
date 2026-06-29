@@ -14,6 +14,7 @@ import {
   STATUS_DRAFT,
   STATUS_REVISION_PENDING,
 } from '@/lib/auth';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -194,8 +195,8 @@ export async function POST(request: NextRequest) {
         userId: tokenPayload.userId,
         moduleId,
         name: name || `Bulk Update — ${operations.length} ops`,
-        targetFilter: JSON.stringify(targetFilter),
-        operations: JSON.stringify(operations),
+        targetFilter: jsonVal(targetFilter),
+        operations: jsonVal(operations),
         status: 'QUEUED',
         mode,
       },
@@ -320,7 +321,7 @@ export async function POST(request: NextRequest) {
               await db.dataVersion.create({
                 data: {
                   recordId: rec.id,
-                  payloadSnapshot: JSON.stringify(result.after),
+                  payloadSnapshot: jsonVal(result.after),
                   versionNumber: newVersionNumber,
                   changedById: tokenPayload.userId,
                   changeReason: `Bulk Update: ${job.name || job.id}`,
@@ -331,7 +332,7 @@ export async function POST(request: NextRequest) {
               await db.dataRecord.update({
                 where: { id: rec.id },
                 data: {
-                  currentPayload: JSON.stringify(result.after),
+                  currentPayload: jsonVal(result.after),
                   status: newStatus || STATUS_REVISION_PENDING,
                   updatedById: tokenPayload.userId,
                 },
@@ -357,7 +358,7 @@ export async function POST(request: NextRequest) {
               await db.dataRecord.update({
                 where: { id: rec.id },
                 data: {
-                  currentPayload: JSON.stringify(result.after),
+                  currentPayload: jsonVal(result.after),
                   status: newStatus || rec.status,
                   updatedById: tokenPayload.userId,
                 },
@@ -387,7 +388,7 @@ export async function POST(request: NextRequest) {
         totalRecords: matched.length,
         okRecords: okCount,
         failedRecords: failedCount,
-        results: JSON.stringify(processed),
+        results: jsonVal(processed),
         completedAt: new Date(),
       },
     });
@@ -432,10 +433,10 @@ export async function POST(request: NextRequest) {
 // Helpers
 // ============================================================
 
-function safeParsePayload(json: string | null | undefined): Record<string, unknown> {
+function safeParsePayload(json: string | null | undefined | object): Record<string, unknown> {
   if (!json) return {};
   try {
-    return JSON.parse(json) as Record<string, unknown>;
+    return jsonParse<Record<string, unknown>>(json);
   } catch {
     return {};
   }
