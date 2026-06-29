@@ -565,7 +565,7 @@ export default function DataRecordsPage() {
 
   const handleLoadView = useCallback((view: { filterConfig?: string | null }) => {
     try {
-      const fc = view.filterConfig ? JSON.parse(view.filterConfig) : {};
+      const fc = view.filterConfig ? parsePayload(view.filterConfig) : {};
       if (fc.search) setSearchQuery(fc.search);
       if (fc.status) setActiveStatus(fc.status);
       if (fc.company) setCompanyFilter(fc.company);

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -702,7 +703,7 @@ export default function ModuleDetailPage() {
 
   const describeCondition = (rule: any): string => {
     try {
-      const c = JSON.parse(rule.conditionJson) as { leftFieldCode?: string; operator?: string; rightFieldCode?: string; constantValue?: unknown };
+      const c = parsePayload<{ leftFieldCode?: string; operator?: string; rightFieldCode?: string; constantValue?: unknown }>(rule.conditionJson);
       const right = c.rightFieldCode ? `{{${c.rightFieldCode}}}` : JSON.stringify(c.constantValue ?? '');
       return `${c.leftFieldCode || '?'} ${c.operator || '?'} ${right}`;
     } catch { return '(invalid)'; }
@@ -711,7 +712,7 @@ export default function ModuleDetailPage() {
   const describeAction = (rule: any): string => {
     if (rule.actionType === 'SET_VALUE' && rule.actionJson) {
       try {
-        const a = JSON.parse(rule.actionJson) as { targetFieldCode?: string; expression?: string };
+        const a = parsePayload<{ targetFieldCode?: string; expression?: string }>(rule.actionJson);
         return `SET ${a.targetFieldCode || '?'} = ${a.expression || '?'}`;
       } catch { return 'SET_VALUE (invalid)'; }
     }
@@ -734,14 +735,14 @@ export default function ModuleDetailPage() {
     setEditRule(r);
     let leftFieldCode = '', operator = '=', rightMode: 'field' | 'constant' = 'field', rightFieldCode = '', constantValue = '';
     try {
-      const c = JSON.parse(r.conditionJson) as { leftFieldCode?: string; operator?: string; rightFieldCode?: string; constantValue?: unknown };
+      const c = parsePayload<{ leftFieldCode?: string; operator?: string; rightFieldCode?: string; constantValue?: unknown }>(r.conditionJson);
       leftFieldCode = c.leftFieldCode || ''; operator = c.operator || '=';
       if (c.rightFieldCode) { rightMode = 'field'; rightFieldCode = c.rightFieldCode; }
       else { rightMode = 'constant'; constantValue = c.constantValue !== undefined ? String(c.constantValue) : ''; }
     } catch { /* defaults */ }
     let targetFieldCode = '', expression = '';
     if (r.actionType === 'SET_VALUE' && r.actionJson) {
-      try { const a = JSON.parse(r.actionJson) as { targetFieldCode?: string; expression?: string }; targetFieldCode = a.targetFieldCode || ''; expression = a.expression || ''; }
+      try { const a = parsePayload<{ targetFieldCode?: string; expression?: string }>(r.actionJson); targetFieldCode = a.targetFieldCode || ''; expression = a.expression || ''; }
       catch { /* defaults */ }
     }
     setRuleForm({

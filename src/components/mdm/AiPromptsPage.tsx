@@ -417,7 +417,7 @@ function PromptEditDialog({ open, onOpenChange, prompt, onSaved }: PromptEditPro
       let inputAttrs = '';
       try {
         inputAttrs = prompt.inputAttributes
-          ? (JSON.parse(prompt.inputAttributes) as string[]).join(', ')
+          ? parsePayload<string[]>(prompt.inputAttributes, []).join(', ')
           : '';
       } catch {
         inputAttrs = '';
@@ -836,11 +836,7 @@ function GenerateTab() {
 
   const suggestions = useMemo(() => {
     if (!output?.suggestions) return [];
-    try {
-      return JSON.parse(output.suggestions) as string[];
-    } catch {
-      return [];
-    }
+    return parsePayload<string[]>(output.suggestions, []);
   }, [output]);
 
   return (

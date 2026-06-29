@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -336,21 +337,13 @@ const sampleRules: BusinessRule[] = [
 // Helper: Parse conditionJson safely
 // ---------------------------------------------------------------------------
 
-function parseConditionJson(json: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+function parseConditionJson(json: unknown): Record<string, unknown> | null {
+  return parsePayload<Record<string, unknown> | null>(json, null);
 }
 
-function parseActionJson(json: string | null): Record<string, unknown> | null {
+function parseActionJson(json: unknown): Record<string, unknown> | null {
   if (!json) return null;
-  try {
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+  return parsePayload<Record<string, unknown> | null>(json, null);
 }
 
 // ---------------------------------------------------------------------------

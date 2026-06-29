@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1156,7 +1157,7 @@ export default function DigitalAssetPage() {
 
     let rightsInfo: Record<string, string> | null = null;
     if (detailAsset.rightsInfo) {
-      try { rightsInfo = JSON.parse(detailAsset.rightsInfo); } catch { rightsInfo = null; }
+      rightsInfo = parsePayload(detailAsset.rightsInfo, null);
     }
 
     return (

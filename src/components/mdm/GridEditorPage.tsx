@@ -425,16 +425,8 @@ function shallowEqualPayload(
   return true;
 }
 
-function safeParsePayload(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
+function safeParsePayload(raw: unknown): Record<string, unknown> {
+  return parsePayload<Record<string, unknown>>(raw, {});
 }
 
 /** Group a flat list of images by their fieldName. Images with no fieldName
@@ -1396,12 +1388,8 @@ export default function GridEditorPage() {
     (view: SavedView) => {
       let nextFilters: AdvancedFilter[] = [];
       if (view.filterConfig) {
-        try {
-          const parsed = JSON.parse(view.filterConfig);
-          if (Array.isArray(parsed)) nextFilters = parsed as AdvancedFilter[];
-        } catch {
-          // malformed filterConfig — leave empty
-        }
+        const parsed = parsePayload<AdvancedFilter[]>(view.filterConfig, []);
+        if (Array.isArray(parsed)) nextFilters = parsed;
       }
       setAdvancedFilters(nextFilters);
       if (nextFilters.length > 0) setShowAdvancedFilter(true);
@@ -2248,7 +2236,7 @@ export default function GridEditorPage() {
               savedViews.map((v) => {
                 const isOwner = v.userId === user?.userId;
                 const sharedLabel = v.sharedWith === '*' ? 'Shared: Company' : v.sharedWith ? 'Shared: Users' : 'Private';
-                const filterCount = v.filterConfig ? (JSON.parse(v.filterConfig).length || 0) : 0;
+                const filterCount = v.filterConfig ? parsePayload<AdvancedFilter[]>(v.filterConfig, []).length : 0;
                 return (
                   <div
                     key={v.id}

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -306,10 +307,10 @@ export default function DataExchangePage() {
   const openEditDialog = (ep: EndpointData) => {
     setEditMode(true);
     setSelectedEndpoint(ep);
-    const connConfig = JSON.parse(ep.connectionConfig || '{}');
-    const mapConfig = ep.mappingConfig ? JSON.parse(ep.mappingConfig) : {};
-    const schedConfig = ep.scheduleConfig ? JSON.parse(ep.scheduleConfig) : {};
-    const errConfig = ep.errorHandling ? JSON.parse(ep.errorHandling) : {};
+    const connConfig = parsePayload(ep.connectionConfig);
+    const mapConfig = parsePayload(ep.mappingConfig, {});
+    const schedConfig = parsePayload(ep.scheduleConfig, {});
+    const errConfig = parsePayload(ep.errorHandling, {});
     setForm({
       endpointName: ep.endpointName,
       endpointCode: ep.endpointCode,
@@ -1115,10 +1116,10 @@ export default function DataExchangePage() {
 // ─── Endpoint Detail Sub-Component ─────────────────────────────
 
 function EndpointDetail({ ep, onEdit }: { ep: EndpointData; onEdit: () => void }) {
-  const connectionConfig = JSON.parse(ep.connectionConfig || '{}');
-  const mappingConfig = ep.mappingConfig ? JSON.parse(ep.mappingConfig) : null;
-  const scheduleConfig = ep.scheduleConfig ? JSON.parse(ep.scheduleConfig) : null;
-  const errorHandling = ep.errorHandling ? JSON.parse(ep.errorHandling) : null;
+  const connectionConfig = parsePayload(ep.connectionConfig);
+  const mappingConfig = parsePayload(ep.mappingConfig, null);
+  const scheduleConfig = parsePayload(ep.scheduleConfig, null);
+  const errorHandling = parsePayload(ep.errorHandling, null);
 
   const getStatusColor = (status: string | null) => {
     switch (status) {

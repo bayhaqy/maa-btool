@@ -1,17 +1,20 @@
 /**
- * Frontend-safe JSON payload parser
+ * Frontend-safe JSON parsers for data coming from the API.
  *
- * When data comes from the API:
- * - PostgreSQL (production): Prisma returns currentPayload as a native JS object
- *   → NextResponse.json() serializes it → fetch().json() deserializes back to object
- *   → currentPayload is already an object, NOT a string
+ * In PostgreSQL (production): Prisma returns Json fields as native JS objects.
+ *   → NextResponse.json() serializes → fetch().json() deserializes back to object
+ *   → The value is already a parsed object, NOT a string.
  *
- * - SQLite (local dev): currentPayload may be stored as a string
- *   → After API round-trip it could be either a string or object
+ * In SQLite (local dev): Json fields are stored as strings.
+ *   → After API round-trip, the value could be either a string or object.
  *
- * This helper handles BOTH cases safely, preventing JSON.parse on non-string values.
+ * These helpers handle BOTH cases safely, preventing JSON.parse on non-string values.
  */
 
+/**
+ * Safely parse any JSON-capable value from the database.
+ * Handles both string (SQLite) and object (PostgreSQL) values.
+ */
 export function parsePayload<T = Record<string, unknown>>(
   val: unknown,
   fallback: T = {} as T,
@@ -24,12 +27,18 @@ export function parsePayload<T = Record<string, unknown>>(
       return fallback;
     }
   }
-  // Already a parsed object (PostgreSQL round-trip)
+  // Already a parsed object/array (PostgreSQL round-trip)
   if (typeof val === 'object') {
     return val as T;
   }
   return fallback;
 }
+
+/**
+ * Alias for parsePayload — semantically clearer when parsing
+ * non-payload JSON columns (e.g., conditionJson, connectionConfig).
+ */
+export const safeJsonParse = parsePayload;
 
 /**
  * Get a single field value from a currentPayload, with safe parsing.

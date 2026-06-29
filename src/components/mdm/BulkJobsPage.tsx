@@ -274,7 +274,7 @@ export default function BulkJobsPage() {
         body: JSON.stringify({
           moduleId: job.module.id,
           name: `${job.name || 'Bulk Update'} (re-run)`,
-          targetFilter: JSON.parse(job.results || '[]'),
+          targetFilter: parsePayload(job.results, []),
           operations: [],
           mode: job.mode,
         }),
@@ -1222,11 +1222,7 @@ function ResultsDialog({
 }) {
   const results: RowResult[] = useMemo(() => {
     if (!job?.results) return [];
-    try {
-      return JSON.parse(job.results) as RowResult[];
-    } catch {
-      return [];
-    }
+    return parsePayload<RowResult[]>(job.results, []);
   }, [job]);
 
   if (!job) return null;
