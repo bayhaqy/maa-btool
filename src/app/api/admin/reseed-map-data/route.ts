@@ -495,9 +495,10 @@ export async function POST(request: NextRequest) {
     summary.deleted['BusinessRule'] = delBusinessRules.count;
 
     // 1d. Delete orphan hierarchy models created by previous reseed runs
-    // (look for "MAP Article Hierarchy" pattern)
+    // Only delete hierarchies on ARTICLE_MASTER (not CATEGORY_MASTER which has the main seed hierarchy)
+    const reseedModuleIds = [moduleMap['ARTICLE_MASTER'], moduleMap['STORE_MASTER'], moduleMap['INVENTORY_MASTER']].filter(Boolean);
     const orphanHierarchies = await db.hierarchyModel.findMany({
-      where: { moduleId: { in: targetModuleIds } },
+      where: { moduleId: { in: reseedModuleIds } },
       select: { id: true },
     });
     if (orphanHierarchies.length > 0) {
