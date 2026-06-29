@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -497,11 +498,7 @@ function PreviewDialog({
 
   const recordPayload = (() => {
     if (!record) return {} as Record<string, unknown>;
-    try {
-      return JSON.parse(record.currentPayload) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+    return parsePayload(record.currentPayload);
   })();
 
   return (

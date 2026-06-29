@@ -1,3 +1,5 @@
+import { parsePayload } from '@/lib/parse-payload';
+
 /**
  * Advanced multi-column filter logic — shared between the client-side
  * GridEditorPage (Task 23-D) and the server-side Bulk Update engine
@@ -177,12 +179,7 @@ export function filterRecords<T extends { currentPayload: string }>(
 ): T[] {
   if (!conds || conds.length === 0) return records;
   return records.filter((rec) => {
-    let payload: Record<string, unknown> = {};
-    try {
-      payload = rec.currentPayload ? JSON.parse(rec.currentPayload) : {};
-    } catch {
-      payload = {};
-    }
+    const payload = parsePayload(rec.currentPayload);
     return evaluateAdvancedFilters(payload, conds, fields);
   });
 }

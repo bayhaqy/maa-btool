@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1385,12 +1386,7 @@ function applyFiltersClient(
     dataType: f.dataType,
   }));
   return records.filter((rec) => {
-    let payload: Record<string, unknown> = {};
-    try {
-      payload = rec.currentPayload ? JSON.parse(rec.currentPayload) : {};
-    } catch {
-      payload = {};
-    }
+    const payload = parsePayload(rec.currentPayload);
     return evaluateAdvancedFilters(payload, sharedFilters, sharedFields);
   });
 }

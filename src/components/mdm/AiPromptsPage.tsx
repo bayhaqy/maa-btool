@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -830,11 +831,7 @@ function GenerateTab() {
   // Render record value preview
   const recordPayload = useMemo(() => {
     if (!selectedRecord) return {} as Record<string, unknown>;
-    try {
-      return JSON.parse(selectedRecord.currentPayload) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+    return parsePayload(selectedRecord.currentPayload);
   }, [selectedRecord]);
 
   const suggestions = useMemo(() => {
@@ -888,12 +885,8 @@ function GenerateTab() {
                   ) : (
                     records.slice(0, 100).map((r) => {
                       let name = r.id;
-                      try {
-                        const p = JSON.parse(r.currentPayload);
-                        name = p.name || p.article_name || r.id.slice(0, 8);
-                      } catch {
-                        // ignore
-                      }
+                      const p = parsePayload(r.currentPayload) as Record<string, any>;
+                      name = p.name || p.article_name || r.id.slice(0, 8);
                       return (
                         <SelectItem key={r.id} value={r.id}>
                           {String(name)} ({r.status})

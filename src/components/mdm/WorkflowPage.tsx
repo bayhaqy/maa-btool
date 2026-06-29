@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -170,16 +171,14 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string; icon: type
 // ---------------------------------------------------------------------------
 
 function extractRecordTitle(ticket: ApprovalTicket): string {
-  try {
-    const payload = JSON.parse(ticket?.record?.currentPayload || '{}');
-    for (const k of RECORD_TITLE_FIELDS) {
-      const v = payload[k];
-      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v);
-    }
-    for (const [, v] of Object.entries(payload)) {
-      if (typeof v === 'string' && v.trim() !== '') return v;
-    }
-  } catch { /* ignore */ }
+  const payload = parsePayload(ticket?.record?.currentPayload);
+  for (const k of RECORD_TITLE_FIELDS) {
+    const v = payload[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v);
+  }
+  for (const [, v] of Object.entries(payload)) {
+    if (typeof v === 'string' && v.trim() !== '') return v;
+  }
   return ticket?.record?.module?.moduleName || 'Untitled Record';
 }
 
@@ -209,7 +208,7 @@ function getDeadlineInfo(deadline: string | null): { isOverdue: boolean; isUpcom
 
 function getPayloadDiff(ticket: ApprovalTicket) {
   try {
-    const newP = JSON.parse(ticket.record?.currentPayload || '{}');
+    const newP = parsePayload(ticket.record?.currentPayload);
     const oldP = ticket.deltaPayload ? JSON.parse(ticket.deltaPayload) : {};
     const allKeys = new Set([...Object.keys(oldP), ...Object.keys(newP)]);
     const diffs: Array<{ key: string; oldVal: string; newVal: string }> = [];
