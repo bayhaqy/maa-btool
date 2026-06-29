@@ -1000,22 +1000,25 @@ export async function POST(request: NextRequest) {
     }
 
     if (productHierarchy) {
-      // Find category-level nodes (depth 0) to link articles to
-      const categoryNodes = await db.hierarchyNode.findMany({
-        where: { hierarchyId: productHierarchy.id, depthLevel: 0 },
+      // Find ALL nodes (not just depth 0) to link articles to
+      const allNodes = await db.hierarchyNode.findMany({
+        where: { hierarchyId: productHierarchy.id },
       });
 
-      // Map category codes to hierarchy nodes
+      console.info(`[reseed-map-data] Found ${allNodes.length} hierarchy nodes. Labels: ${allNodes.map(n => n.nodeLabel).join(', ')}`);
+
+      // Map category codes to hierarchy nodes by label matching
       const categoryNodeMap: Record<string, string> = {};
-      for (const node of categoryNodes) {
-        const label = node.nodeLabel.toLowerCase();
+      for (const node of allNodes) {
+        const label = node.nodeLabel.toLowerCase().replace(/[^a-z]/g, '');
         if (label.includes('footwear')) categoryNodeMap['FOOTWEAR'] = node.id;
         else if (label.includes('apparel')) categoryNodeMap['APPAREL'] = node.id;
         else if (label.includes('accessor')) categoryNodeMap['ACCESSORIES'] = node.id;
-        else if (label.includes('sport')) categoryNodeMap['SPORTS_EQUIPMENT'] = node.id;
+        else if (label.includes('sport') && !label.includes('outdoor')) categoryNodeMap['SPORTS_EQUIPMENT'] = node.id;
         else if (label.includes('outdoor')) categoryNodeMap['OUTDOOR'] = node.id;
-        else if (label.includes('food') || label.includes('beverage')) categoryNodeMap['FOOD_BEVERAGE'] = node.id;
+        else if (label.includes('food') || label.includes('beverage') || label.includes('fnb')) categoryNodeMap['FOOD_BEVERAGE'] = node.id;
       }
+      console.info(`[reseed-map-data] Category node mapping: ${JSON.stringify(categoryNodeMap)}`);
 
       // Create hierarchy nodes linking article records to their category
       const hierarchyNodeData: Array<{
