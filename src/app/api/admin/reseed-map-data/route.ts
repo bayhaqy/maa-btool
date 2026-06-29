@@ -1024,14 +1024,15 @@ export async function POST(request: NextRequest) {
       // Create hierarchy nodes linking article records to their category
       const hierarchyNodeData: Array<{
         hierarchyId: string;
-        recordId: string;
-        parentNodeId: string;
+        recordId: string | null;
+        parentNodeId?: string;
         nodeLabel: string;
         materializedPath: string;
         depthLevel: number;
         sortOrder: number;
         isActive: boolean;
         status: string;
+        description?: string;
       }> = [];
 
       for (const seed of ARTICLE_SEEDS) {
@@ -1039,18 +1040,18 @@ export async function POST(request: NextRequest) {
         if (!recordInfo) continue;
 
         const parentNodeId = categoryNodeMap[seed.category];
-        if (!parentNodeId) continue;
 
         hierarchyNodeData.push({
           hierarchyId: productHierarchy.id,
           recordId: recordInfo.id,
-          parentNodeId,
+          ...(parentNodeId ? { parentNodeId } : {}),
           nodeLabel: seed.name,
-          materializedPath: parentNodeId,
-          depthLevel: 2, // Leaf level (under category)
+          materializedPath: parentNodeId ?? '',
+          depthLevel: parentNodeId ? 2 : 0,
           sortOrder: ARTICLE_SEEDS.indexOf(seed),
           isActive: recordInfo.status === 'PUBLISHED' || recordInfo.status === 'APPROVED',
           status: recordInfo.status === 'PUBLISHED' || recordInfo.status === 'APPROVED' ? 'APPROVED' : 'DRAFT',
+          description: `${seed.brand} ${seed.category} > ${seed.subCategory}`,
         });
       }
 
