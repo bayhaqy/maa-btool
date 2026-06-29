@@ -61,8 +61,35 @@ export async function POST(request: NextRequest) {
       console.info('[seed] First-run: allowing unauthenticated seed (database is empty).');
     }
 
-    if (userCount > 0) {
-      return NextResponse.json({ message: 'Database already seeded. Delete the db file and run db:push first to re-seed.' });
+    if (userCount > 0 && !forceReseed) {
+      return NextResponse.json({ message: 'Database already seeded. Use ?force=true to re-seed (Super Admin only).' });
+    }
+
+    // If force reseed AND authenticated as superadmin, wipe all data first
+    if (forceReseed && userCount > 0) {
+      console.info('[seed] Force re-seed: wiping existing data...');
+      try {
+        // Try PostgreSQL
+        const tablenames = await db.$queryRaw<Array<{ tablename: string }>>`
+          SELECT tablename FROM pg_tables WHERE schemaname='public'
+        `;
+        for (const { tablename } of tablenames) {
+          if (tablename !== '_prisma_migrations') {
+            try { await db.$executeRawUnsafe(`TRUNCATE TABLE "${tablename}" CASCADE;`); } catch {}
+          }
+        }
+      } catch {
+        // Fallback for SQLite
+        try {
+          const tables = await db.$queryRaw<Array<{ name: string }>>`
+            SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_prisma%' AND name NOT LIKE 'sqlite%'
+          `;
+          for (const { name } of tables) {
+            try { await db.$executeRawUnsafe(`DELETE FROM "${name}";`); } catch {}
+          }
+        } catch {}
+      }
+      console.info('[seed] All tables truncated for re-seed.');
     }
 
     // ============================================================
