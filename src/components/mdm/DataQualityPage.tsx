@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -223,10 +224,7 @@ export default function DataQualityPage() {
 
       if (res.ok && data.records) {
         data.records.forEach((rec: any, recIdx: number) => {
-          let payload: Record<string, unknown> = {};
-          try {
-            payload = JSON.parse(rec.currentPayload || '{}');
-          } catch { return; }
+          const payload = parsePayload(rec.currentPayload);
 
           // Check for empty required fields
           Object.entries(payload).forEach(([key, value]) => {
@@ -400,7 +398,7 @@ export default function DataQualityPage() {
       setMergeRecords(records);
       // Default survivor: left (first record)
       if (records.length >= 2) {
-        const leftPayload = JSON.parse(records[0].currentPayload || '{}');
+        const leftPayload = parsePayload(records[0].currentPayload);
         const survivor: Record<string, 'left' | 'right'> = {};
         for (const key of Object.keys(leftPayload)) {
           survivor[key] = 'left';
@@ -974,8 +972,8 @@ export default function DataQualityPage() {
                 <div className="space-y-2">
                   {(() => {
                     try {
-                      const leftPayload = JSON.parse(mergeRecords[0].currentPayload || '{}');
-                      const rightPayload = JSON.parse(mergeRecords[1].currentPayload || '{}');
+                      const leftPayload = parsePayload(mergeRecords[0].currentPayload);
+                      const rightPayload = parsePayload(mergeRecords[1].currentPayload);
                       const allKeys = new Set([...Object.keys(leftPayload), ...Object.keys(rightPayload)]);
                       return Array.from(allKeys).map((key) => {
                         const leftVal = String(leftPayload[key] ?? '');

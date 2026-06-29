@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -803,7 +804,7 @@ const { data, total } = await response.json();
 
 // Process records
 for (const record of data) {
-  const payload = JSON.parse(record.currentPayload);
+  const payload = parsePayload(record.currentPayload);
   console.log(payload.ARTICLE_NAME);
 }`}</pre>
                 </div>

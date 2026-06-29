@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { STATUS_COLORS, STATUS_LABELS, STATE_TRANSITIONS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS, STIBO_TERMINOLOGY } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -590,11 +591,7 @@ export default function RecordDetailPage() {
         const recData = await recRes.json();
         if (recRes.ok) {
           setRecord(recData.record);
-          try {
-            setEditPayload(JSON.parse(recData.record.currentPayload || '{}'));
-          } catch {
-            setEditPayload({});
-          }
+          setEditPayload(parsePayload(recData.record.currentPayload));
         }
         // Load images for this record
         loadImages(selectedRecordId);
@@ -1332,7 +1329,7 @@ export default function RecordDetailPage() {
     const latestTicket = record.approvalTickets?.find((t: any) => t.status === 'PENDING');
     if (!latestTicket) return null;
     try {
-      const newPayload = JSON.parse(record.currentPayload || '{}');
+      const newPayload = parsePayload(record.currentPayload);
       const oldPayload = latestTicket.deltaPayload ? JSON.parse(latestTicket.deltaPayload) : {};
       const allKeys = new Set([...Object.keys(oldPayload), ...Object.keys(newPayload)]);
       const diffs: Array<{ key: string; label: string; oldVal: string; newVal: string }> = [];
@@ -1393,7 +1390,7 @@ export default function RecordDetailPage() {
           )}
           {isEditing && (
             <>
-              <Button variant="outline" onClick={() => { setIsEditing(false); discardPendingImages(); if (record) { try { setEditPayload(JSON.parse(record.currentPayload)); } catch {} } }} className="h-9">Cancel</Button>
+              <Button variant="outline" onClick={() => { setIsEditing(false); discardPendingImages(); if (record) { setEditPayload(parsePayload(record.currentPayload)) } }} className="h-9">Cancel</Button>
               <Button onClick={handleSave} disabled={saving || !perms.canEdit} className="bg-red-600 hover:bg-red-700 text-white h-9">
                 {saving ? 'Saving...' : isNewRecord ? 'Create' : 'Save'}
               </Button>
@@ -1976,12 +1973,10 @@ export default function RecordDetailPage() {
                   <div className="space-y-2">
                     {relatedRecords.map((rel: any) => {
                       let title = 'Untitled';
-                      try {
-                        const payload = JSON.parse(rel.currentPayload || '{}');
-                        for (const k of ['name', 'title', 'articleName', 'displayName', 'code', 'supplierName', 'storeName']) {
-                          if (payload[k]) { title = String(payload[k]); break; }
-                        }
-                      } catch { /* */ }
+                      const payload = parsePayload(rel.currentPayload);
+                      for (const k of ['name', 'title', 'articleName', 'displayName', 'code', 'supplierName', 'storeName']) {
+                        if (payload[k]) { title = String(payload[k]); break; }
+                      }
                       return (
                         <div
                           key={rel.id}

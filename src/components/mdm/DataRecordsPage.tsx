@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { parsePayload } from '@/lib/parse-payload';
 import { STATUS_LABELS, WORKFLOW_STATE_LABELS, WORKFLOW_STATE_DESCRIPTIONS } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -112,7 +113,7 @@ function RecordPreview({ record, fields, activeModuleId, navigate, perms }: {
     </div>
   );
 
-  const payload = (() => { try { return JSON.parse(record.currentPayload || '{}'); } catch { return {}; } })();
+  const payload = parsePayload(record.currentPayload);
 
   // Calculate completeness: percentage of non-empty fields
   const totalFields = fields.length || 1;
@@ -405,10 +406,8 @@ export default function DataRecordsPage() {
   }, [fields, visibleColumns]);
 
   const getPayloadValue = useCallback((record: any, fieldCode: string) => {
-    try {
-      const payload = JSON.parse(record.currentPayload || '{}');
-      return payload[fieldCode] ?? '-';
-    } catch { return '-'; }
+    const payload = parsePayload(record.currentPayload);
+    return payload[fieldCode] ?? '-';
   }, []);
 
   const filteredRecords = useMemo(() => {
@@ -417,10 +416,8 @@ export default function DataRecordsPage() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((r) => {
-        try {
-          const payload = JSON.parse(r.currentPayload || '{}');
-          if (Object.values(payload).some((v) => String(v).toLowerCase().includes(q))) return true;
-        } catch { /* skip */ }
+        const payload = parsePayload(r.currentPayload);
+        if (Object.values(payload).some((v) => String(v).toLowerCase().includes(q))) return true;
         if (r.status?.toLowerCase().includes(q)) return true;
         if (r.company?.companyCode?.toLowerCase().includes(q)) return true;
         return false;
@@ -527,7 +524,7 @@ export default function DataRecordsPage() {
     const record = records.find((r) => r.id === editingCell.recordId);
     if (!record) return;
     try {
-      const payload = JSON.parse(record.currentPayload || '{}');
+      const payload = parsePayload(record.currentPayload);
       payload[editingCell.fieldCode] = editingValue;
       await fetch(`/api/records?id=${editingCell.recordId}`, {
         method: 'PUT',
