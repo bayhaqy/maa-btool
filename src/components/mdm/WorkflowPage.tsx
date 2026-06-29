@@ -182,16 +182,16 @@ function extractRecordTitle(ticket: ApprovalTicket): string {
   return ticket?.record?.module?.moduleName || 'Untitled Record';
 }
 
-function prettyRecordJson(raw: string | null | undefined): string {
+function prettyRecordJson(raw: unknown): string {
   if (!raw) return '{}';
-  try { return JSON.stringify(JSON.parse(raw), null, 2); }
-  catch { return String(raw); }
+  const parsed = parsePayload(raw);
+  return JSON.stringify(parsed, null, 2);
 }
 
-function parseWorkflowHistory(raw: string | null | undefined): WorkflowHistoryEntry[] {
+function parseWorkflowHistory(raw: unknown): WorkflowHistoryEntry[] {
   if (!raw) return [];
-  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; }
-  catch { return []; }
+  const p = parsePayload<unknown[]>(raw, []);
+  return Array.isArray(p) ? p as WorkflowHistoryEntry[] : [];
 }
 
 function getDeadlineInfo(deadline: string | null): { isOverdue: boolean; isUpcoming: boolean; display: string } {
@@ -209,7 +209,7 @@ function getDeadlineInfo(deadline: string | null): { isOverdue: boolean; isUpcom
 function getPayloadDiff(ticket: ApprovalTicket) {
   try {
     const newP = parsePayload(ticket.record?.currentPayload);
-    const oldP = ticket.deltaPayload ? JSON.parse(ticket.deltaPayload) : {};
+    const oldP = parsePayload(ticket.deltaPayload);
     const allKeys = new Set([...Object.keys(oldP), ...Object.keys(newP)]);
     const diffs: Array<{ key: string; oldVal: string; newVal: string }> = [];
     for (const key of allKeys) {
@@ -221,16 +221,15 @@ function getPayloadDiff(ticket: ApprovalTicket) {
   } catch { return []; }
 }
 
-function parseSlaConfig(raw: string | null): { defaultDeadlineHours: number; escalationRules: Array<{ afterHours: number; assignToRole: string; description?: string }> } | null {
+function parseSlaConfig(raw: unknown): { defaultDeadlineHours: number; escalationRules: Array<{ afterHours: number; assignToRole: string; description?: string }> } | null {
   if (!raw) return null;
-  try { return JSON.parse(raw); }
-  catch { return null; }
+  return parsePayload<{ defaultDeadlineHours: number; escalationRules: Array<{ afterHours: number; assignToRole: string; description?: string }> } | null>(raw, null);
 }
 
-function parseAutoApproveRules(raw: string | null): Array<{ condition: string; targetState: string; description?: string }> | null {
+function parseAutoApproveRules(raw: unknown): Array<{ condition: string; targetState: string; description?: string }> | null {
   if (!raw) return null;
-  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; }
-  catch { return null; }
+  const p = parsePayload<unknown[]>(raw, null);
+  return Array.isArray(p) ? p as Array<{ condition: string; targetState: string; description?: string }> : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -963,7 +962,7 @@ export default function WorkflowPage() {
         description: tpl.description || '',
         moduleScope: tpl.moduleScope || '',
         states: tpl.states.map(s => ({ stateCode: s.stateCode, stateName: s.stateName, stateType: s.stateType, color: s.color, isInitial: s.isInitial, isFinal: s.isFinal, sortOrder: s.sortOrder })),
-        transitions: tpl.transitions.map(t => ({ fromStateCode: t.fromState.stateCode, toStateCode: t.toState.stateCode, transitionName: t.transitionName, condition: t.condition || '', requiredRole: t.requiredRole || '', isAuto: t.isAuto, notifyRoles: t.notifyRoles ? JSON.parse(t.notifyRoles) : [], sortOrder: t.sortOrder })),
+        transitions: tpl.transitions.map(t => ({ fromStateCode: t.fromState.stateCode, toStateCode: t.toState.stateCode, transitionName: t.transitionName, condition: t.condition || '', requiredRole: t.requiredRole || '', isAuto: t.isAuto, notifyRoles: t.notifyRoles ? parsePayload<string[]>(t.notifyRoles, []) : [], sortOrder: t.sortOrder })),
         autoApproveRules: tpl.autoApproveRules || '',
         slaDeadlineHours: sla ? String(sla.defaultDeadlineHours) : '48',
         slaEscalations: sla?.escalationRules?.map(e => ({ afterHours: String(e.afterHours), assignToRole: e.assignToRole })) || [],
@@ -1380,8 +1379,8 @@ export default function WorkflowPage() {
                             {t.condition && (
                               <Badge variant="outline" className="text-[9px] font-mono max-w-[200px] truncate"><Settings2 className="w-2.5 h-2.5 mr-0.5" /> {t.condition}</Badge>
                             )}
-                            {t.notifyRoles && JSON.parse(t.notifyRoles).length > 0 && (
-                              <Badge variant="outline" className="text-[9px]"><Bell className="w-2.5 h-2.5 mr-0.5" /> {JSON.parse(t.notifyRoles).join(', ')}</Badge>
+                            {t.notifyRoles && parsePayload<string[]>(t.notifyRoles, []).length > 0 && (
+                              <Badge variant="outline" className="text-[9px]"><Bell className="w-2.5 h-2.5 mr-0.5" /> {parsePayload<string[]>(t.notifyRoles, []).join(', ')}</Badge>
                             )}
                           </div>
                           <p className="text-[10px] text-muted-foreground mt-1">

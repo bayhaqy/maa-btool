@@ -1330,7 +1330,7 @@ export default function RecordDetailPage() {
     if (!latestTicket) return null;
     try {
       const newPayload = parsePayload(record.currentPayload);
-      const oldPayload = latestTicket.deltaPayload ? JSON.parse(latestTicket.deltaPayload) : {};
+      const oldPayload = parsePayload(latestTicket.deltaPayload);
       const allKeys = new Set([...Object.keys(oldPayload), ...Object.keys(newPayload)]);
       const diffs: Array<{ key: string; label: string; oldVal: string; newVal: string }> = [];
       for (const key of allKeys) {
@@ -1801,10 +1801,10 @@ export default function RecordDetailPage() {
                         const isLatest = idx === 0;
                         let prevPayload: Record<string, unknown> = {};
                         if (idx < record.versions.length - 1) {
-                          try { prevPayload = JSON.parse(record.versions[idx + 1]?.payloadSnapshot || '{}'); } catch { /* */ }
+                          prevPayload = parsePayload(record.versions[idx + 1]?.payloadSnapshot);
                         }
                         let currPayload: Record<string, unknown> = {};
-                        try { currPayload = JSON.parse(v.payloadSnapshot || '{}'); } catch { /* */ }
+                        currPayload = parsePayload(v.payloadSnapshot);
 
                         // Compute field-level diff
                         const allKeys = new Set([...Object.keys(prevPayload), ...Object.keys(currPayload)]);

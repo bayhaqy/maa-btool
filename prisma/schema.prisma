@@ -132,14 +132,14 @@ model RolePermission {
   canImport          Boolean @default(false)
   canBulkUpdate      Boolean @default(false)
   // Column-level restrictions (JSON array of restricted field codes)
-  columnRestrictions Json?
+  columnRestrictions String?
   // Row-level filter (JSON condition)
-  rowFilter          Json?
+  rowFilter          String?
   // Workflow-state based restrictions (JSON array of allowed states)
   // Stibo privilege rules: restrict permissions to specific workflow states
   // e.g. ["DRAFT","REVIEW"] means the role can only act on records in DRAFT or REVIEW state
   // Combined with WorkflowState/WorkflowTransition models for full Stibo workflow governance
-  allowedStates      Json?
+  allowedStates      String?
   // DEPRECATED: Access companyId via role.companyId instead — kept for backward compat queries
   companyId          String?
 
@@ -311,7 +311,7 @@ model DataRecord {
   companyId      String
   // STIBO workflow states: DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
   status         String   @default("DRAFT")
-  currentPayload Json
+  currentPayload String
   lockedBy       String?
   version        Int      @default(1)
   // STIBO: Data ownership
@@ -341,7 +341,7 @@ model DataRecord {
 model DataVersion {
   id              String   @id @default(cuid())
   recordId        String
-  payloadSnapshot Json
+  payloadSnapshot String
   versionNumber   Int
   changedById     String?
   changeReason    String?
@@ -404,7 +404,7 @@ model ApprovalTicket {
   requestedById String
   reviewedById  String?
   status        String    @default("PENDING")
-  deltaPayload  Json?
+  deltaPayload  String?
   reviewNotes   String?
   createdAt     DateTime  @default(now())
   reviewedAt    DateTime?
@@ -419,7 +419,7 @@ model ApprovalTicket {
   delegatedFrom String?
   priority      String    @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
   parentTicketId String?
-  workflowHistory Json?
+  workflowHistory String?
 
   record      DataRecord @relation(fields: [recordId], references: [id])
   requestedBy SysUser    @relation("RequestedBy", fields: [requestedById], references: [id])
@@ -436,13 +436,13 @@ model WorkflowTemplate {
   stepCount    Int      @default(1)
   // STIBO: Visual workflow configuration
   // JSON: { states: [{id, name, type, color}], transitions: [{from, to, condition, assignee}] }
-  stepConfig   Json
+  stepConfig   String
   // STIBO: Auto-approval rules
   // JSON: [{condition, targetState}]
-  autoApproveRules Json?
+  autoApproveRules String?
   // STIBO: SLA configuration
   // JSON: { defaultDeadlineHours, escalationRules: [{afterHours, assignToRole}] }
-  slaConfig    Json?
+  slaConfig    String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -474,15 +474,15 @@ model WorkflowTransition {
   toStateId     String
   transitionName String
   // STIBO: Condition for transition (JSON expression)
-  condition     Json?
+  condition     String?
   // STIBO: Role required to execute this transition
   requiredRole  String?
   // STIBO: Business rules to validate before transition
-  businessRuleIds Json? // JSON array of rule IDs
+  businessRuleIds String? // JSON array of rule IDs
   // STIBO: Auto-transition (when condition is met)
   isAuto        Boolean  @default(false)
   // STIBO: Notification config
-  notifyRoles   Json? // JSON array of role names to notify
+  notifyRoles   String? // JSON array of role names to notify
   sortOrder     Int      @default(0)
 
   template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, name: "TemplateTransitions")
@@ -560,12 +560,12 @@ model DigitalAsset {
   // STIBO: Asset status and workflow
   status        String   @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
   // STIBO: Asset tags and categories
-  tags          Json?  // JSON array of tags
+  tags          String?  // JSON array of tags
   category      String?
   // STIBO: Expiry and rights management
   validFrom     DateTime?
   validTo       DateTime?
-  rightsInfo    Json?  // JSON: {license, owner, restrictions}
+  rightsInfo    String?  // JSON: {license, owner, restrictions}
   // STIBO: Upload tracking
   uploadedById  String?
   sortOrder     Int      @default(0)
@@ -629,7 +629,7 @@ model ApiKey {
   keyPrefix   String
   companyId   String?
   userId      String?
-  permissions String  // Comma-separated permission list
+  permissions String
   rateLimit   Int       @default(100)
   isActive    Boolean   @default(true)
   lastUsedAt  DateTime?
@@ -676,19 +676,19 @@ model DataExchangeEndpoint {
   // REST: {url, method, headers, authType, authToken}
   // SFTP: {host, port, username, authType, path}
   // DATABASE: {connectionString, query}
-  connectionConfig Json
+  connectionConfig String
   // STIBO: Data mapping configuration (JSON)
   // {fieldMappings: [{source, target, transform}], primaryKey, conflictResolution}
-  mappingConfig Json?
+  mappingConfig String?
   // STIBO: Schedule configuration (JSON)
   // {type: 'cron'|'interval'|'manual', expression: '0 */6 * * *', timezone}
-  scheduleConfig Json?
+  scheduleConfig String?
   // STIBO: Transform rules (JSON array)
   // [{type: 'RENAME'|'FILTER'|'MAP'|'CONCAT'|'SPLIT'|'LOOKUP', config: {...}}]
-  transformRules Json?
+  transformRules String?
   // STIBO: Error handling
   // {onError: 'skip'|'stop'|'log', maxRetries: 3, retryDelay: 1000}
-  errorHandling Json?
+  errorHandling String?
   // STIBO: Module scope
   moduleId      String?
   isActive      Boolean  @default(true)
@@ -767,7 +767,7 @@ model Documentation {
   slug        String    @unique
   content     String
   category    String
-  tags        String?   // Comma-separated tag list (not JSON)
+  tags        String?
   authorId    String?
   version     Int       @default(1)
   sortOrder   Int       @default(0)
@@ -803,8 +803,8 @@ model AuditLog {
   entityId    String?
   moduleName  String?
   description String
-  oldValues   Json?
-  newValues   Json?
+  oldValues   String?
+  newValues   String?
   companyId   String?
   ipAddress   String?
   userAgent   String?
@@ -822,7 +822,7 @@ model AiConversation {
   pinned       Boolean   @default(false)
   // STIBO: Conversation categories
   category     String?   // DATA_QUALITY, ENRICHMENT, MAPPING, GENERAL
-  tags         Json?   // JSON array of tags
+  tags         String?   // JSON array of tags
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -868,14 +868,14 @@ model BusinessRule {
   // RANGE (check value range), PATTERN (regex validation)
   conditionType String   @default("CROSS_FIELD")
   // JSON: condition configuration
-  conditionJson Json
+  conditionJson String
   // STIBO: Action type for ACTION rules
   // BLOCK (prevent save), SET_VALUE (compute field), SEND_EMAIL, WARN,
   // SET_STATUS (change record status), TRANSITION (workflow state change),
   // TRIGGER_WEBHOOK (call external API), CREATE_TASK (create stewardship task)
   actionType    String   @default("BLOCK")
   // JSON for action configuration
-  actionJson    Json?
+  actionJson    String?
   // STIBO: Error/warning message
   errorMessage  String?
   // STIBO: Severity: ERROR (blocks save), WARNING (shows warning), INFO (informational)
@@ -902,9 +902,9 @@ model SavedView {
   moduleId    String
   name        String
   scope       String   @default("COMBINED")
-  columnConfig Json?
-  filterConfig Json?
-  sharedWith   Json?
+  columnConfig String?
+  filterConfig String?
+  sharedWith   String?
   isDefault    Boolean  @default(false)
   lastUsedAt   DateTime?
   createdAt    DateTime @default(now())
@@ -923,14 +923,14 @@ model BulkUpdateJob {
   userId        String
   moduleId      String
   name          String?
-  targetFilter  Json
-  operations    Json
+  targetFilter  String
+  operations    String
   status        String    @default("QUEUED")
   mode          String    @default("APPLY")
   totalRecords  Int       @default(0)
   okRecords     Int       @default(0)
   failedRecords Int       @default(0)
-  results       Json?
+  results       String?
   errorLog      String?
   startedAt     DateTime?
   completedAt   DateTime?
@@ -951,7 +951,7 @@ model AiPrompt {
   description     String?
   systemPrompt    String
   userPromptTemplate String
-  inputAttributes  Json?
+  inputAttributes  String?
   outputAttribute String?
   maxChars        Int      @default(500)
   persona         String?
@@ -973,8 +973,8 @@ model AiOutput {
   userId          String?
   output          String
   confidenceScore Int      @default(0)
-  reasons         Json?
-  suggestions     Json?
+  reasons         String?
+  suggestions     String?
   status          String   @default("PENDING_REVIEW")
   reviewedById    String?
   reviewedAt      DateTime?
@@ -1049,7 +1049,7 @@ model StewardshipTask {
   dueDate     DateTime?
   completedAt DateTime?
   resolution  String?
-  context     Json?
+  context     String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -1073,7 +1073,7 @@ model TenantAiConfig {
   model       String?
   temperature Float    @default(0.7)
   maxTokens   Int      @default(4096)
-  customHeaders Json?  // JSON: custom provider headers
+  customHeaders String?  // for custom provider headers (SQLite uses String instead of Json)
   isActive    Boolean  @default(true)
   createdBy   String?
   updatedBy   String?

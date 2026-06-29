@@ -489,11 +489,7 @@ function PreviewDialog({
 
   const suggestions = (() => {
     if (!output.suggestions) return [];
-    try {
-      return JSON.parse(output.suggestions) as string[];
-    } catch {
-      return [];
-    }
+    return parsePayload<string[]>(output.suggestions, []);
   })();
 
   const recordPayload = (() => {
