@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { getAIProviderConfig, type AIProvider } from '@/lib/ai';
+import { hasPermission } from '@/lib/rbac';
+import { getTenantAIProviderConfig, type AIProvider } from '@/lib/ai';
+import { rateLimitByCategory } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +21,7 @@ Key information about the system:
 Format your responses using Markdown when helpful: use **bold** for emphasis, bullet lists, numbered steps, and fenced code blocks for code or commands. Be concise but thorough.`;
 
 interface SSEEvent {
-  type: 'delta' | 'done' | 'error';
+  type: 'delta' | 'reasoning' | 'done' | 'error';
   content?: string;
   conversationId?: string;
   messageId?: string;
@@ -38,7 +40,7 @@ type SendFn = (event: SSEEvent) => void;
 
 async function streamFromProvider(
   provider: AIProvider,
-  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number },
+  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number; customHeaders?: Record<string, string> },
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   send: SendFn,
 ): Promise<{ fullResponse: string; tokensUsed: number }> {
@@ -107,129 +109,179 @@ async function streamFromProvider(
 
     case 'gemini': {
       // Gemini REST API — streamGenerateContent
-      const url = `${config.baseUrl}/models/${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
-      const geminiContents = messages
-        .filter(m => m.role !== 'system')
-        .map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        }));
-      const systemInstruction = messages.find(m => m.role === 'system');
-      const body: Record<string, unknown> = {
-        contents: geminiContents,
-        generationConfig: {
-          maxOutputTokens: config.maxTokens,
-          temperature: config.temperature,
-        },
-      };
-      if (systemInstruction) {
-        body.systemInstruction = { parts: [{ text: systemInstruction.content }] };
-      }
+      // Try streaming first, fall back to non-streaming
+      try {
+        const url = `${config.baseUrl}/models/${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
+        const geminiContents = messages
+          .filter(m => m.role !== 'system')
+          .map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          }));
+        const systemInstruction = messages.find(m => m.role === 'system');
+        const body: Record<string, unknown> = {
+          contents: geminiContents,
+          generationConfig: {
+            maxOutputTokens: config.maxTokens,
+            temperature: config.temperature,
+          },
+        };
+        if (systemInstruction) {
+          body.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+        }
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
 
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 300)}`);
-      }
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 300)}`);
+        }
 
-      let fullResponse = '';
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No readable stream from Gemini');
+        let fullResponse = '';
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No readable stream from Gemini');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) {
-                fullResponse += text;
-                send({ type: 'delta', content: text });
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr || jsonStr === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                  fullResponse += text;
+                  send({ type: 'delta', content: text });
+                }
+              } catch {
+                // Skip malformed SSE chunks
               }
-            } catch {
-              // Skip malformed SSE chunks
             }
           }
         }
-      }
 
-      return { fullResponse, tokensUsed: 0 };
+        // If streaming produced no content, fall back to non-streaming
+        if (!fullResponse.trim()) {
+          return await callGeminiNonStreaming(config, messages, send);
+        }
+
+        return { fullResponse, tokensUsed: 0 };
+      } catch {
+        // Fallback to non-streaming Gemini call
+        return await callGeminiNonStreaming(config, messages, send);
+      }
     }
 
     case 'openai':
     case 'custom': {
       // OpenAI-compatible streaming
-      const res = await fetch(`${config.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: config.model,
-          messages,
-          max_tokens: config.maxTokens,
-          temperature: config.temperature,
-          stream: true,
-        }),
-      });
-
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+      const customHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      };
+      if (config.customHeaders) {
+        Object.assign(customHeaders, config.customHeaders);
       }
 
-      let fullResponse = '';
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No readable stream from OpenAI');
+      // Try streaming first, fall back to non-streaming if needed
+      const tryStream = async (): Promise<{ fullResponse: string; tokensUsed: number }> => {
+        const res = await fetch(`${config.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: customHeaders,
+          body: JSON.stringify({
+            model: config.model,
+            messages,
+            max_tokens: config.maxTokens,
+            temperature: config.temperature,
+            stream: true,
+          }),
+        });
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 300)}`);
+        }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        // Check if the response is actually a stream
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('text/event-stream') && !contentType.includes('application/octet-stream')) {
+          // Provider returned a non-streaming response — parse it and simulate streaming
+          const data = await res.json();
+          const content = data?.choices?.[0]?.message?.content || '';
+          const tokensUsed = data?.usage?.total_tokens || 0;
+          if (content) {
+            // Simulate streaming by chunking the response
+            const chunkSize = 8;
+            for (let i = 0; i < content.length; i += chunkSize) {
+              const chunk = content.slice(i, i + chunkSize);
+              send({ type: 'delta', content: chunk });
+              await new Promise(r => setTimeout(r, 12));
+            }
+          }
+          return { fullResponse: content, tokensUsed };
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        let fullResponse = '';
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No readable stream from OpenAI');
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const delta = parsed?.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullResponse += delta;
-                send({ type: 'delta', content: delta });
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr || jsonStr === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const choice = parsed?.choices?.[0];
+                if (choice?.delta) {
+                  // Handle standard content delta
+                  const delta = choice.delta.content;
+                  if (delta) {
+                    fullResponse += delta;
+                    send({ type: 'delta', content: delta });
+                  }
+                  // Handle reasoning/thinking content (e.g., GLM-5.1 reasoning_content)
+                  const reasoning = choice.delta.reasoning_content;
+                  if (reasoning) {
+                    // Send reasoning as a separate event type so the frontend can display it differently
+                    send({ type: 'reasoning', content: reasoning });
+                  }
+                }
+              } catch {
+                // Skip malformed SSE chunks
               }
-            } catch {
-              // Skip malformed SSE chunks
             }
           }
         }
-      }
 
-      return { fullResponse, tokensUsed: 0 };
+        return { fullResponse, tokensUsed: 0 };
+      };
+
+      return tryStream();
     }
 
     case 'azure-openai': {
@@ -295,6 +347,60 @@ async function streamFromProvider(
   }
 }
 
+// ─── Non-streaming fallback for Gemini ──────────────────────────────
+
+async function callGeminiNonStreaming(
+  config: { apiKey: string; baseUrl: string; model: string; maxTokens: number; temperature: number },
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  send: SendFn,
+): Promise<{ fullResponse: string; tokensUsed: number }> {
+  const url = `${config.baseUrl}/models/${config.model}:generateContent?key=${config.apiKey}`;
+  const geminiContents = messages
+    .filter(m => m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+  const systemInstruction = messages.find(m => m.role === 'system');
+  const body: Record<string, unknown> = {
+    contents: geminiContents,
+    generationConfig: {
+      maxOutputTokens: config.maxTokens,
+      temperature: config.temperature,
+    },
+  };
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const tokensUsed = data?.usageMetadata?.totalTokenCount || 0;
+
+  if (content) {
+    // Simulate streaming
+    const chunkSize = 8;
+    for (let i = 0; i < content.length; i += chunkSize) {
+      const chunk = content.slice(i, i + chunkSize);
+      send({ type: 'delta', content: chunk });
+      await new Promise(r => setTimeout(r, 12));
+    }
+  }
+
+  return { fullResponse: content, tokensUsed };
+}
+
 // POST /api/ai/chat/stream — Streaming chat via Server-Sent Events
 export async function POST(request: NextRequest) {
   const tokenPayload = getTokenFromHeaders(request.headers);
@@ -305,11 +411,20 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const hasAiRole = tokenPayload.roles.some(r => ['Super Admin', 'AI User', 'Manager'].includes(r));
-  if (!hasAiRole) {
-    return new Response(sseEncode({ type: 'error', message: 'Access denied. AI User role required.' }), {
+  const hasAiReadPerm = hasPermission(tokenPayload.roles, 'ai:read');
+  if (!hasAiReadPerm) {
+    return new Response(sseEncode({ type: 'error', message: 'Access denied. Required: ai:read permission.' }), {
       status: 403,
       headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
+
+  // Rate limit AI endpoints
+  const rl = rateLimitByCategory('ai', tokenPayload.userId);
+  if (!rl.allowed) {
+    return new Response(sseEncode({ type: 'error', message: 'Too many requests. Please try again later.' }), {
+      status: 429,
+      headers: { 'Content-Type': 'text/event-stream', 'Retry-After': String(rl.retryAfterSeconds) },
     });
   }
 
@@ -390,7 +505,7 @@ export async function POST(request: NextRequest) {
         let aiConfigured = false;
 
         try {
-          const config = await getAIProviderConfig();
+          const config = await getTenantAIProviderConfig(tokenPayload.companyId);
           aiConfigured = !!config.apiKey;
 
           if (aiConfigured) {

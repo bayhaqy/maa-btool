@@ -775,7 +775,7 @@ export default function BusinessRulesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {perms.isReadOnly && <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Read Only</Badge>}
+
             <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" onClick={() => setCreateOpen(true)} disabled={!perms.canCreate}>
               <Plus className="w-4 h-4" />
               Create Rule

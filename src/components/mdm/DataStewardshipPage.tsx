@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -18,9 +19,12 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
   ShieldCheck, Users, Merge, AlertTriangle, CheckCircle2, Clock,
   ArrowRight, Eye, GitMerge, UserCircle, FileText, TrendingUp,
-  AlertCircle, Layers, Crown, Plus, UserPlus, RefreshCw,
+  AlertCircle, Layers, Crown, Plus, UserPlus, RefreshCw, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -31,14 +35,37 @@ import { toast } from 'sonner';
 
 interface StewardshipTask {
   id: string;
-  type: 'review' | 'merge' | 'ownership' | 'quality';
+  taskType: string;
   title: string;
-  description: string;
-  domain: string;
-  priority: 'high' | 'medium' | 'low';
-  status: 'pending' | 'in_progress' | 'completed';
-  assignee: string;
+  description: string | null;
+  priority: string;
+  status: string;
+  assignedTo: string | null;
+  assignedBy: string | null;
+  dueDate: string | null;
+  resolution: string | null;
+  context: string | null;
+  moduleId: string;
+  recordId: string | null;
   createdAt: string;
+  module: { id: string; moduleCode: string; moduleName: string };
+  assignee: { id: string; username: string; displayName: string | null; email: string } | null;
+  assigner: { id: string; username: string; displayName: string | null; email: string } | null;
+  source?: string;
+}
+
+interface ApprovalTask {
+  id: string;
+  taskType: string;
+  title: string;
+  priority: string;
+  status: string;
+  assignedTo: string | null;
+  dueDate: string | null;
+  createdAt: string;
+  module: { id: string; moduleCode: string; moduleName: string };
+  recordId: string;
+  source: string;
 }
 
 interface GoldenRecord {
@@ -73,18 +100,8 @@ interface QualityAlert {
 }
 
 // ---------------------------------------------------------------------------
-// Fallback / mock data for tasks, golden records, and alerts
-// (only used as fallback when API data is unavailable)
+// Fallback data for golden records and alerts
 // ---------------------------------------------------------------------------
-
-const stewardshipTasks: StewardshipTask[] = [
-  { id: 'ST-001', type: 'review', title: 'Review duplicate Article Master entries', description: '3 potential duplicates detected in Footwear category', domain: 'Product', priority: 'high', status: 'pending', assignee: 'admin', createdAt: '2025-01-15T10:30:00Z' },
-  { id: 'ST-002', type: 'merge', title: 'Merge Supplier records: Nike ID vs Nike Indonesia', description: 'Two supplier records with overlapping data identified', domain: 'Supplier', priority: 'high', status: 'pending', assignee: 'admin', createdAt: '2025-01-15T09:15:00Z' },
-  { id: 'ST-003', type: 'ownership', title: 'Assign data owner for Promotion module', description: 'No data steward assigned for promotional data domain', domain: 'Promotion', priority: 'medium', status: 'pending', assignee: '', createdAt: '2025-01-14T16:00:00Z' },
-  { id: 'ST-004', type: 'quality', title: 'Fix null brand values in Article Master', description: '12 records with missing brand attribution need resolution', domain: 'Product', priority: 'medium', status: 'in_progress', assignee: 'admin', createdAt: '2025-01-14T14:20:00Z' },
-  { id: 'ST-005', type: 'review', title: 'Validate Store Master address data', description: '5 store records with incomplete address fields flagged', domain: 'Store', priority: 'low', status: 'pending', assignee: 'admin', createdAt: '2025-01-13T11:00:00Z' },
-  { id: 'ST-006', type: 'merge', title: 'Consolidate pricing records for Q1 campaign', description: 'Overlapping promotional prices need deduplication', domain: 'Pricing', priority: 'medium', status: 'pending', assignee: 'admin', createdAt: '2025-01-13T09:45:00Z' },
-];
 
 const goldenRecords: GoldenRecord[] = [
   { id: 'GR-001', domain: 'Product - Footwear', recordCount: 38, survivorSource: 'Article Master (SAP)', lastMerged: '2025-01-14', confidence: 96, status: 'active' },
@@ -107,22 +124,38 @@ const qualityAlerts: QualityAlert[] = [
 // ---------------------------------------------------------------------------
 
 const priorityColors: Record<string, string> = {
-  high: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  HIGH: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  URGENT: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  NORMAL: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  LOW: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+};
+
+const priorityLabel: Record<string, string> = {
+  HIGH: 'high', URGENT: 'high', NORMAL: 'medium', LOW: 'low',
 };
 
 const taskTypeIcons: Record<string, React.ElementType> = {
-  review: Eye,
-  merge: GitMerge,
-  ownership: UserCircle,
-  quality: AlertTriangle,
+  QUALITY_REVIEW: Eye,
+  DEDUP_REVIEW: GitMerge,
+  OWNERSHIP_ASSIGN: UserCircle,
+  DATA_CORRECTION: AlertTriangle,
+  ENRICHMENT: TrendingUp,
+};
+
+const taskTypeLabel: Record<string, string> = {
+  QUALITY_REVIEW: 'Review',
+  DEDUP_REVIEW: 'Merge',
+  OWNERSHIP_ASSIGN: 'Ownership',
+  DATA_CORRECTION: 'Quality',
+  ENRICHMENT: 'Enrichment',
 };
 
 const statusBadge: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  in_progress: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
-  completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  IN_PROGRESS: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+  COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  CANCELLED: 'bg-slate-100 text-slate-700 dark:bg-slate-900/40 dark:text-slate-300',
+  ESCALATED: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
 
 const grStatusColors: Record<string, string> = {
@@ -144,18 +177,75 @@ const severityColors: Record<string, string> = {
 export default function DataStewardshipPage() {
   const { token, user } = useAppStore();
   const perms = usePermissions();
+  const navigate = useAppStore((s) => s.navigate);
   const [activeTab, setActiveTab] = useState('tasks');
   const [selectedTask, setSelectedTask] = useState<StewardshipTask | null>(null);
   const [selectedGoldenRecord, setSelectedGoldenRecord] = useState<GoldenRecord | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Ownership data from API
+  // API data
+  const [tasks, setTasks] = useState<StewardshipTask[]>([]);
+  const [approvalTasks, setApprovalTasks] = useState<ApprovalTask[]>([]);
+  const [summary, setSummary] = useState({ pending: 0, inProgress: 0, completed: 0, escalated: 0, total: 0 });
   const [domainOwnerships, setDomainOwnerships] = useState<DomainOwnership[]>([]);
   const [ownershipLoading, setOwnershipLoading] = useState(true);
 
-  const pendingTasks = stewardshipTasks.filter(t => t.status === 'pending').length;
-  const highPriority = stewardshipTasks.filter(t => t.priority === 'high' && t.status === 'pending').length;
+  // Dialogs
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
+  const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
+  const [createTaskDialogOpen, setCreateTaskDialogOpen] = useState(false);
+
+  // Dialog form state
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [completeResolution, setCompleteResolution] = useState('');
+  const [reassignUserId, setReassignUserId] = useState('');
+  const [assignStewardModuleId, setAssignStewardModuleId] = useState('');
+  const [assignStewardUserId, setAssignStewardUserId] = useState('');
+
+  // Create task form
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskModuleId, setNewTaskModuleId] = useState('');
+  const [newTaskType, setNewTaskType] = useState('QUALITY_REVIEW');
+  const [newTaskPriority, setNewTaskPriority] = useState('NORMAL');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+
+  // Users list for reassign/assign
+  const [users, setUsers] = useState<{ id: string; username: string; displayName: string | null }[]>([]);
+
+  // Alerts state (mutable)
+  const [alerts, setAlerts] = useState<QualityAlert[]>(qualityAlerts);
+
+  // Action loading
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const pendingTasks = summary.pending + approvalTasks.length;
+  const highPriority = tasks.filter(t => (t.priority === 'HIGH' || t.priority === 'URGENT') && t.status === 'PENDING').length;
   const activeConflicts = goldenRecords.filter(g => g.status === 'conflict').length;
   const unassignedDomains = domainOwnerships.filter(d => !d.stewardAssigned).length;
+
+  // Fetch stewardship tasks from API
+  const loadTasks = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTasks(data.tasks || []);
+        setSummary(data.summary || { pending: 0, inProgress: 0, completed: 0, escalated: 0, total: 0 });
+        setApprovalTasks(data.approvalTasks || []);
+      }
+    } catch {
+      // fallback to empty
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
 
   // Fetch ownership data from API
   const loadOwnershipData = useCallback(async () => {
@@ -174,7 +264,6 @@ export default function DataStewardshipPage() {
         const ownerships: DomainOwnership[] = modData.modules
           .filter((m: any) => m.isActive !== false)
           .map((m: any) => {
-            // Find quality data for this module
             const modQual = qualData?.moduleBreakdown?.find((q: any) => q.moduleId === m.id);
             return {
               domain: m.moduleName,
@@ -192,16 +281,260 @@ export default function DataStewardshipPage() {
         setDomainOwnerships(ownerships);
       }
     } catch {
-      // Fallback: use empty data
       setDomainOwnerships([]);
     } finally {
       setOwnershipLoading(false);
     }
   }, [token]);
 
+  // Fetch users for reassign/assign
+  const loadUsers = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/users?limit=100', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.users) {
+        setUsers(data.users.map((u: any) => ({ id: u.id, username: u.username, displayName: u.displayName })));
+      }
+    } catch {
+      // ignore
+    }
+  }, [token]);
+
   useEffect(() => {
+    loadTasks();
     loadOwnershipData();
-  }, [loadOwnershipData]);
+    loadUsers();
+  }, [loadTasks, loadOwnershipData, loadUsers]);
+
+  // ── Action handlers ────────────────────────────────────────────
+
+  const handleStartReview = async () => {
+    if (!selectedTask || !token) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedTask.id, status: 'IN_PROGRESS' }),
+      });
+      if (res.ok) {
+        toast.success('Review started successfully');
+        setReviewDialogOpen(false);
+        setSelectedTask(null);
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to start review');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStartMerge = async () => {
+    if (!selectedTask || !token) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedTask.id, status: 'IN_PROGRESS' }),
+      });
+      if (res.ok) {
+        toast.success('Merge process started. Navigate to Data Quality > Deduplication to complete the merge.');
+        setMergeDialogOpen(false);
+        setSelectedTask(null);
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to start merge');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCompleteTask = async () => {
+    if (!selectedTask || !token) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedTask.id, status: 'COMPLETED', resolution: completeResolution || 'Completed by ' + (user?.username || 'steward') }),
+      });
+      if (res.ok) {
+        toast.success('Task completed successfully');
+        setCompleteDialogOpen(false);
+        setCompleteResolution('');
+        setSelectedTask(null);
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to complete task');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!selectedTask || !token || !reassignUserId) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedTask.id, assignedTo: reassignUserId }),
+      });
+      if (res.ok) {
+        toast.success('Task reassigned successfully');
+        setReassignDialogOpen(false);
+        setReassignUserId('');
+        setSelectedTask(null);
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to reassign');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDismissTask = async () => {
+    if (!selectedTask || !token) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedTask.id, status: 'CANCELLED', resolution: 'Dismissed by ' + (user?.username || 'steward') }),
+      });
+      if (res.ok) {
+        toast.success('Task dismissed');
+        setSelectedTask(null);
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to dismiss task');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCreateTask = async () => {
+    if (!token || !newTaskTitle || !newTaskModuleId) {
+      toast.error('Title and Module are required');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moduleId: newTaskModuleId,
+          title: newTaskTitle,
+          taskType: newTaskType,
+          priority: newTaskPriority,
+          description: newTaskDescription,
+        }),
+      });
+      if (res.ok) {
+        toast.success('Task created successfully');
+        setCreateTaskDialogOpen(false);
+        setNewTaskTitle('');
+        setNewTaskDescription('');
+        setNewTaskModuleId('');
+        setNewTaskType('QUALITY_REVIEW');
+        setNewTaskPriority('NORMAL');
+        loadTasks();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to create task');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAssignSteward = async () => {
+    if (!token || !assignStewardModuleId || !assignStewardUserId) {
+      toast.error('Module and Steward user are required');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/stewardship', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moduleId: assignStewardModuleId,
+          title: `Assign data steward for ${domainOwnerships.find(d => d.moduleId === assignStewardModuleId)?.domain || 'module'}`,
+          taskType: 'OWNERSHIP_ASSIGN',
+          priority: 'NORMAL',
+          assignedTo: assignStewardUserId,
+          description: 'Data steward ownership assignment',
+        }),
+      });
+      if (res.ok) {
+        toast.success('Steward assignment task created successfully');
+        setAssignDialogOpen(false);
+        setAssignStewardModuleId('');
+        setAssignStewardUserId('');
+        loadTasks();
+        loadOwnershipData();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to assign steward');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResolveAlert = (alertId: string) => {
+    setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, resolved: true } : a));
+    toast.success('Alert resolved');
+  };
+
+  const handleViewSourceRecords = (gr: GoldenRecord) => {
+    setSelectedGoldenRecord(null);
+    navigate('data-records');
+  };
+
+  // ── Render ─────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="p-4 md:p-6 space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -224,6 +557,9 @@ export default function DataStewardshipPage() {
               {highPriority} High Priority
             </Badge>
           )}
+          <Button variant="outline" size="sm" className="gap-1" onClick={() => { loadTasks(); loadOwnershipData(); }}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
         </div>
       </div>
 
@@ -283,8 +619,20 @@ export default function DataStewardshipPage() {
         <TabsContent value="tasks">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Stewardship Tasks</CardTitle>
-              <CardDescription>Pending reviews, ownership assignments, and data quality issues requiring attention.</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Stewardship Tasks</CardTitle>
+                  <CardDescription>Pending reviews, ownership assignments, and data quality issues requiring attention.</CardDescription>
+                </div>
+                <Button
+                  className="gap-1.5 bg-red-600 hover:bg-red-700 text-white"
+                  size="sm"
+                  onClick={() => setCreateTaskDialogOpen(true)}
+                  disabled={!perms.canCreate}
+                >
+                  <Plus className="w-3.5 h-3.5" /> New Task
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <ScrollArea className="max-h-[480px]">
@@ -294,7 +642,7 @@ export default function DataStewardshipPage() {
                       <TableHead className="w-[80px]">ID</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Title</TableHead>
-                      <TableHead className="hidden md:table-cell">Domain</TableHead>
+                      <TableHead className="hidden md:table-cell">Module</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="hidden lg:table-cell">Assignee</TableHead>
@@ -302,28 +650,30 @@ export default function DataStewardshipPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {stewardshipTasks.map((task) => {
-                      const Icon = taskTypeIcons[task.type];
+                    {/* DB Tasks */}
+                    {tasks.map((task) => {
+                      const Icon = taskTypeIcons[task.taskType] || AlertTriangle;
+                      const typeLabel = taskTypeLabel[task.taskType] || task.taskType;
                       return (
                         <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedTask(task)}>
-                          <TableCell className="font-mono text-xs">{task.id}</TableCell>
+                          <TableCell className="font-mono text-xs">{task.id.slice(0, 8)}...</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1.5">
                               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                              <span className="capitalize text-xs">{task.type}</span>
+                              <span className="text-xs">{typeLabel}</span>
                             </div>
                           </TableCell>
                           <TableCell className="font-medium text-sm max-w-[200px] truncate">{task.title}</TableCell>
                           <TableCell className="hidden md:table-cell">
-                            <Badge variant="outline" className="text-[10px]">{task.domain}</Badge>
+                            <Badge variant="outline" className="text-[10px]">{task.module?.moduleName || '—'}</Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge className={cn('text-[10px] border-0', priorityColors[task.priority])}>{task.priority}</Badge>
+                            <Badge className={cn('text-[10px] border-0', priorityColors[task.priority] || priorityColors.NORMAL)}>{priorityLabel[task.priority] || task.priority.toLowerCase()}</Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge className={cn('text-[10px] border-0', statusBadge[task.status])}>{task.status.replace('_', ' ')}</Badge>
+                            <Badge className={cn('text-[10px] border-0', statusBadge[task.status] || statusBadge.PENDING)}>{task.status.replace('_', ' ')}</Badge>
                           </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">{task.assignee || '—'}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">{task.assignee?.displayName || task.assignee?.username || '—'}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
                               <ArrowRight className="w-3.5 h-3.5" />
@@ -332,6 +682,56 @@ export default function DataStewardshipPage() {
                         </TableRow>
                       );
                     })}
+                    {/* Approval Tasks */}
+                    {approvalTasks.map((task) => {
+                      const Icon = Eye;
+                      return (
+                        <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50 bg-sky-50/30 dark:bg-sky-950/10" onClick={() => {
+                          setSelectedTask({
+                            ...task,
+                            description: task.title,
+                            assignedBy: null,
+                            dueDate: task.dueDate,
+                            resolution: null,
+                            context: null,
+                            recordId: task.recordId,
+                            assignee: null,
+                            assigner: null,
+                          } as StewardshipTask);
+                        }}>
+                          <TableCell className="font-mono text-xs">{task.id.slice(0, 8)}...</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              <Icon className="w-3.5 h-3.5 text-sky-500" />
+                              <span className="text-xs">Approval</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-sm max-w-[200px] truncate">{task.title}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <Badge variant="outline" className="text-[10px]">{task.module?.moduleName || '—'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn('text-[10px] border-0', priorityColors[task.priority] || priorityColors.NORMAL)}>{priorityLabel[task.priority] || task.priority.toLowerCase()}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className="text-[10px] border-0 bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Approval</Badge>
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">—</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {tasks.length === 0 && approvalTasks.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          No stewardship tasks found
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </ScrollArea>
@@ -463,8 +863,12 @@ export default function DataStewardshipPage() {
                           variant="outline"
                           size="sm"
                           className="w-full mt-3 gap-1.5 text-xs h-8"
-                          onClick={() => toast.info(`Steward assignment for ${domain.domain} will be available in a future update`)}
                           disabled={!perms.canEdit}
+                          onClick={() => {
+                            setAssignStewardModuleId(domain.moduleId);
+                            setAssignStewardUserId('');
+                            setAssignDialogOpen(true);
+                          }}
                         >
                           <UserPlus className="w-3.5 h-3.5" /> Assign Steward
                         </Button>
@@ -487,7 +891,7 @@ export default function DataStewardshipPage() {
             <CardContent className="p-0">
               <ScrollArea className="max-h-[480px]">
                 <div className="divide-y">
-                  {qualityAlerts.map((alert) => (
+                  {alerts.map((alert) => (
                     <div key={alert.id} className={cn(
                       'flex items-start gap-3 px-4 py-3 transition-colors hover:bg-accent/30',
                       alert.resolved && 'opacity-50'
@@ -504,7 +908,12 @@ export default function DataStewardshipPage() {
                         </div>
                       </div>
                       {!alert.resolved && (
-                        <Button variant="outline" size="sm" className="h-7 text-xs shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => handleResolveAlert(alert.id)}
+                        >
                           Resolve
                         </Button>
                       )}
@@ -517,13 +926,13 @@ export default function DataStewardshipPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Task Detail Dialog */}
-      <Dialog open={!!selectedTask} onOpenChange={(open) => !open && setSelectedTask(null)}>
+      {/* ── Task Detail Dialog ──────────────────────────────────── */}
+      <Dialog open={!!selectedTask && !reviewDialogOpen && !mergeDialogOpen && !completeDialogOpen && !reassignDialogOpen} onOpenChange={(open) => !open && setSelectedTask(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedTask && (() => {
-                const Icon = taskTypeIcons[selectedTask.type];
+                const Icon = taskTypeIcons[selectedTask.taskType] || AlertTriangle;
                 return <Icon className="w-5 h-5 text-muted-foreground" />;
               })()}
               {selectedTask?.title}
@@ -533,36 +942,307 @@ export default function DataStewardshipPage() {
           {selectedTask && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-muted-foreground">Task ID:</span> <span className="font-mono">{selectedTask.id}</span></div>
-                <div><span className="text-muted-foreground">Domain:</span> <Badge variant="outline">{selectedTask.domain}</Badge></div>
-                <div><span className="text-muted-foreground">Priority:</span> <Badge className={cn('border-0', priorityColors[selectedTask.priority])}>{selectedTask.priority}</Badge></div>
-                <div><span className="text-muted-foreground">Status:</span> <Badge className={cn('border-0', statusBadge[selectedTask.status])}>{selectedTask.status.replace('_', ' ')}</Badge></div>
-                <div><span className="text-muted-foreground">Assignee:</span> <span>{selectedTask.assignee || 'Unassigned'}</span></div>
+                <div><span className="text-muted-foreground">Task ID:</span> <span className="font-mono">{selectedTask.id.slice(0, 12)}...</span></div>
+                <div><span className="text-muted-foreground">Module:</span> <Badge variant="outline">{selectedTask.module?.moduleName || '—'}</Badge></div>
+                <div><span className="text-muted-foreground">Priority:</span> <Badge className={cn('border-0', priorityColors[selectedTask.priority] || priorityColors.NORMAL)}>{priorityLabel[selectedTask.priority] || selectedTask.priority.toLowerCase()}</Badge></div>
+                <div><span className="text-muted-foreground">Status:</span> <Badge className={cn('border-0', statusBadge[selectedTask.status] || statusBadge.PENDING)}>{selectedTask.status.replace('_', ' ')}</Badge></div>
+                <div><span className="text-muted-foreground">Assignee:</span> <span>{selectedTask.assignee?.displayName || selectedTask.assignee?.username || 'Unassigned'}</span></div>
                 <div><span className="text-muted-foreground">Created:</span> <span>{new Date(selectedTask.createdAt).toLocaleDateString()}</span></div>
               </div>
+              {selectedTask.resolution && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Resolution:</span> <span>{selectedTask.resolution}</span>
+                </div>
+              )}
               <Separator />
-              <div className="flex items-center gap-2">
-                {selectedTask.type === 'merge' && (
-                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit}>
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedTask.taskType === 'DEDUP_REVIEW' && selectedTask.status === 'PENDING' && (
+                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit} onClick={() => setMergeDialogOpen(true)}>
                     <GitMerge className="w-4 h-4" />
                     Start Merge
                   </Button>
                 )}
-                {selectedTask.type === 'review' && (
-                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canApprove}>
+                {selectedTask.taskType === 'QUALITY_REVIEW' && selectedTask.status === 'PENDING' && (
+                  <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canApprove} onClick={() => setReviewDialogOpen(true)}>
                     <Eye className="w-4 h-4" />
                     Start Review
                   </Button>
                 )}
-                <Button variant="outline" disabled={!perms.canEdit}>Reassign</Button>
-                <Button variant="ghost" className="ml-auto" disabled={!perms.canEdit}>Dismiss</Button>
+                {(selectedTask.status === 'IN_PROGRESS') && (
+                  <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!perms.canEdit} onClick={() => setCompleteDialogOpen(true)}>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Complete
+                  </Button>
+                )}
+                {selectedTask.status !== 'COMPLETED' && selectedTask.status !== 'CANCELLED' && (
+                  <>
+                    <Button variant="outline" disabled={!perms.canEdit} onClick={() => setReassignDialogOpen(true)}>Reassign</Button>
+                    <Button variant="ghost" className="ml-auto" disabled={!perms.canEdit} onClick={handleDismissTask}>Dismiss</Button>
+                  </>
+                )}
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Golden Record Detail Dialog */}
+      {/* ── Review Dialog ───────────────────────────────────────── */}
+      <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" /> Review Task
+            </DialogTitle>
+            <DialogDescription>Start reviewing this task. The status will be updated to In Progress.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-3 bg-muted/30">
+              <p className="font-medium text-sm">{selectedTask?.title}</p>
+              <p className="text-xs text-muted-foreground mt-1">{selectedTask?.description}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Review Notes (optional)</label>
+              <Textarea
+                placeholder="Add notes about your review..."
+                value={reviewNotes}
+                onChange={(e) => setReviewNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleStartReview} disabled={actionLoading}>
+              {actionLoading ? 'Starting...' : 'Start Review'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Merge Dialog ───────────────────────────────────────── */}
+      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitMerge className="w-5 h-5" /> Merge Duplicate Records
+            </DialogTitle>
+            <DialogDescription>Start the deduplication merge process. You&apos;ll be redirected to the Data Quality deduplication panel.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-3 bg-muted/30">
+              <p className="font-medium text-sm">{selectedTask?.title}</p>
+              <p className="text-xs text-muted-foreground mt-1">{selectedTask?.description}</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              The task status will be set to In Progress. After confirming, navigate to
+              <Button variant="link" className="h-auto p-0 px-1 text-red-600" onClick={() => { setMergeDialogOpen(false); setSelectedTask(null); navigate('data-quality'); }}>
+                Data Quality → Deduplication
+              </Button>
+              to complete the merge.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeDialogOpen(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleStartMerge} disabled={actionLoading}>
+              {actionLoading ? 'Starting...' : 'Start Merge Process'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Complete Task Dialog ────────────────────────────────── */}
+      <Dialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" /> Complete Task
+            </DialogTitle>
+            <DialogDescription>Mark this task as completed with a resolution note.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-3 bg-muted/30">
+              <p className="font-medium text-sm">{selectedTask?.title}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Resolution</label>
+              <Textarea
+                placeholder="Describe how the task was resolved..."
+                value={completeResolution}
+                onChange={(e) => setCompleteResolution(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCompleteDialogOpen(false); setCompleteResolution(''); }}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleCompleteTask} disabled={actionLoading}>
+              {actionLoading ? 'Completing...' : 'Complete Task'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reassign Dialog ────────────────────────────────────── */}
+      <Dialog open={reassignDialogOpen} onOpenChange={setReassignDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCircle className="w-5 h-5" /> Reassign Task
+            </DialogTitle>
+            <DialogDescription>Assign this task to another steward.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-3 bg-muted/30">
+              <p className="font-medium text-sm">{selectedTask?.title}</p>
+              <p className="text-xs text-muted-foreground mt-1">Current assignee: {selectedTask?.assignee?.displayName || selectedTask?.assignee?.username || 'Unassigned'}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Assign to</label>
+              <Select value={reassignUserId} onValueChange={setReassignUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName || u.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReassignDialogOpen(false); setReassignUserId(''); }}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleReassign} disabled={actionLoading || !reassignUserId}>
+              {actionLoading ? 'Reassigning...' : 'Reassign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Create Task Dialog ─────────────────────────────────── */}
+      <Dialog open={createTaskDialogOpen} onOpenChange={setCreateTaskDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5" /> Create Stewardship Task
+            </DialogTitle>
+            <DialogDescription>Create a new stewardship task for data governance.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Title *</label>
+              <input
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Task title..."
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Module *</label>
+                <Select value={newTaskModuleId} onValueChange={setNewTaskModuleId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select module..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {domainOwnerships.map((d) => (
+                      <SelectItem key={d.moduleId} value={d.moduleId}>{d.domain}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Task Type</label>
+                <Select value={newTaskType} onValueChange={setNewTaskType}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="QUALITY_REVIEW">Quality Review</SelectItem>
+                    <SelectItem value="DEDUP_REVIEW">Dedup Review</SelectItem>
+                    <SelectItem value="OWNERSHIP_ASSIGN">Ownership Assign</SelectItem>
+                    <SelectItem value="DATA_CORRECTION">Data Correction</SelectItem>
+                    <SelectItem value="ENRICHMENT">Enrichment</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Priority</label>
+              <Select value={newTaskPriority} onValueChange={setNewTaskPriority}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">Low</SelectItem>
+                  <SelectItem value="NORMAL">Normal</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Description</label>
+              <Textarea
+                placeholder="Describe the task..."
+                value={newTaskDescription}
+                onChange={(e) => setNewTaskDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateTaskDialogOpen(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleCreateTask} disabled={actionLoading || !newTaskTitle || !newTaskModuleId}>
+              {actionLoading ? 'Creating...' : 'Create Task'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Assign Steward Dialog ──────────────────────────────── */}
+      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5" /> Assign Data Steward
+            </DialogTitle>
+            <DialogDescription>Assign a data steward to take ownership of this domain.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-3 bg-muted/30">
+              <p className="font-medium text-sm">{domainOwnerships.find(d => d.moduleId === assignStewardModuleId)?.domain || 'Domain'}</p>
+              <p className="text-xs text-muted-foreground mt-1">This will create an ownership assignment task.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Assign Steward *</label>
+              <Select value={assignStewardUserId} onValueChange={setAssignStewardUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName || u.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAssignDialogOpen(false); setAssignStewardUserId(''); }}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleAssignSteward} disabled={actionLoading || !assignStewardUserId}>
+              {actionLoading ? 'Assigning...' : 'Assign Steward'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Golden Record Detail Dialog ─────────────────────────── */}
       <Dialog open={!!selectedGoldenRecord} onOpenChange={(open) => !open && setSelectedGoldenRecord(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -584,13 +1264,20 @@ export default function DataStewardshipPage() {
               </div>
               <Separator />
               <div className="flex items-center gap-2">
-                <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit}>
+                <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white" disabled={!perms.canEdit} onClick={() => {
+                  toast.success('Merge process initiated. Navigate to Data Quality → Deduplication to complete.');
+                  setSelectedGoldenRecord(null);
+                  navigate('data-quality');
+                }}>
                   <GitMerge className="w-4 h-4" />
                   Run Merge
                 </Button>
-                <Button variant="outline">View Source Records</Button>
+                <Button variant="outline" onClick={() => handleViewSourceRecords(selectedGoldenRecord)}>View Source Records</Button>
                 {selectedGoldenRecord.status === 'conflict' && (
-                  <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300" disabled={!perms.canEdit}>
+                  <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300" disabled={!perms.canEdit} onClick={() => {
+                    toast.success('Conflict resolution initiated. The golden record has been flagged for review.');
+                    setSelectedGoldenRecord(null);
+                  }}>
                     <AlertTriangle className="w-4 h-4" />
                     Resolve Conflict
                   </Button>

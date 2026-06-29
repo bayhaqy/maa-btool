@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
         : 100;
 
     const totalDuplicates = moduleBreakdown.reduce(
-      (sum, m) => sum + m.duplicateCount,
+      (sum, m) => sum + (m.duplicateCount ?? 0),
       0
     );
 
@@ -455,6 +455,232 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('DataQuality GET error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/data-quality — Run quality check and persist scores
+export async function POST(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    const authCheck = checkAuthAndPermission(tokenPayload, 'data:read');
+    if (authCheck.error) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
+    }
+
+    const companyId = tokenPayload!.companyId;
+
+    // Fetch all active modules
+    const modules = await db.metaModule.findMany({
+      where: { isActive: true },
+      include: {
+        fields: { where: { isActive: true } },
+        dataRecords: {
+          where: { companyId },
+          select: {
+            id: true,
+            currentPayload: true,
+            status: true,
+            updatedAt: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const businessRules = await db.businessRule.findMany({
+      where: { isActive: true },
+    });
+
+    let totalScoresSaved = 0;
+
+    for (const mod of modules) {
+      const records = mod.dataRecords;
+      const totalRecords = records.length;
+
+      if (totalRecords === 0) continue;
+
+      const requiredFields = mod.fields.filter((f) => f.isRequired);
+
+      // Calculate completeness
+      let filledCount = 0;
+      let totalRequiredSlots = 0;
+      records.forEach((rec) => {
+        let payload: Record<string, unknown> = {};
+        try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { /* ignore */ }
+        requiredFields.forEach((field) => {
+          totalRequiredSlots++;
+          const value = payload[field.fieldCode];
+          if (value !== null && value !== undefined && value !== '') {
+            filledCount++;
+          }
+        });
+      });
+      const completeness = totalRequiredSlots > 0 ? Math.round((filledCount / totalRequiredSlots) * 100) : 100;
+
+      // Calculate accuracy
+      const moduleRules = businessRules.filter((r) => r.moduleId === mod.id);
+      let validRecords = totalRecords;
+      if (moduleRules.length > 0) {
+        validRecords = 0;
+        records.forEach((rec) => {
+          let payload: Record<string, unknown> = {};
+          try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { /* */ }
+          let passesAllRules = true;
+          for (const rule of moduleRules) {
+            try {
+              const condition = JSON.parse(rule.conditionJson);
+              if (!evaluateRuleCondition(condition, payload)) {
+                passesAllRules = false;
+                break;
+              }
+            } catch { /* skip */ }
+          }
+          if (passesAllRules) validRecords++;
+        });
+      }
+      const accuracy = Math.round((validRecords / totalRecords) * 100);
+
+      // Calculate consistency
+      let consistentRecords = 0;
+      records.forEach((rec) => {
+        let payload: Record<string, unknown> = {};
+        try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { return; }
+        let isConsistent = true;
+        if (rec.status === 'ACTIVE') {
+          for (const field of requiredFields) {
+            const value = payload[field.fieldCode];
+            if (value === null || value === undefined || value === '') {
+              isConsistent = false;
+              break;
+            }
+          }
+        }
+        mod.fields.filter((f) => f.dataType === 'EMAIL').forEach((field) => {
+          const val = payload[field.fieldCode];
+          if (val && typeof val === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+            isConsistent = false;
+          }
+        });
+        mod.fields.filter((f) => f.dataType === 'NUMBER').forEach((field) => {
+          const val = payload[field.fieldCode];
+          if (val !== null && val !== undefined && val !== '') {
+            if (isNaN(Number(val))) isConsistent = false;
+          }
+        });
+        if (isConsistent) consistentRecords++;
+      });
+      const consistency = Math.round((consistentRecords / totalRecords) * 100);
+
+      // Calculate timeliness
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const timelyRecords = records.filter((r) => new Date(r.updatedAt) >= ninetyDaysAgo).length;
+      const timeliness = Math.round((timelyRecords / totalRecords) * 100);
+
+      // Calculate uniqueness
+      const uniqueFields = mod.fields.filter((f) => f.isUnique);
+      let duplicateCount = 0;
+      if (uniqueFields.length > 0) {
+        const seen = new Map<string, number>();
+        records.forEach((rec) => {
+          let payload: Record<string, unknown> = {};
+          try { payload = JSON.parse(rec.currentPayload || '{}'); } catch { return; }
+          const key = uniqueFields.map((f) => String(payload[f.fieldCode] ?? '')).join('||');
+          if (key && seen.has(key)) {
+            duplicateCount++;
+          } else if (key) {
+            seen.set(key, 1);
+          }
+        });
+      }
+      const uniqueness = Math.round(Math.max(0, 100 - (duplicateCount / totalRecords) * 100));
+
+      // Overall
+      const overall = Math.round(
+        completeness * 0.3 + accuracy * 0.25 + consistency * 0.2 + timeliness * 0.15 + uniqueness * 0.1
+      );
+
+      // Save OVERALL score for the module
+      // Use upsert on the unique constraint [recordId, metricType, metricCode]
+      // Since DataQualityScore is per-record, we'll save one score per module as a summary
+      // Using a synthetic recordId for module-level scores
+      const existingModuleScore = await db.dataQualityScore.findFirst({
+        where: { moduleId: mod.id, metricType: 'MODULE_OVERALL' },
+      });
+
+      if (existingModuleScore) {
+        await db.dataQualityScore.update({
+          where: { id: existingModuleScore.id },
+          data: { score: overall, calculatedAt: new Date() },
+        });
+      } else {
+        // Need a recordId since it's required — use first record or create a placeholder
+        const firstRecord = records[0];
+        if (firstRecord) {
+          await db.dataQualityScore.create({
+            data: {
+              recordId: firstRecord.id,
+              moduleId: mod.id,
+              metricType: 'MODULE_OVERALL',
+              score: overall,
+              calculatedAt: new Date(),
+            },
+          });
+        }
+      }
+
+      // Save individual dimension scores
+      const dimensions = [
+        { code: 'completeness', score: completeness },
+        { code: 'accuracy', score: accuracy },
+        { code: 'consistency', score: consistency },
+        { code: 'timeliness', score: timeliness },
+        { code: 'uniqueness', score: uniqueness },
+      ];
+
+      for (const dim of dimensions) {
+        const firstRecord = records[0];
+        if (!firstRecord) continue;
+
+        const existing = await db.dataQualityScore.findFirst({
+          where: { moduleId: mod.id, metricType: 'DIMENSION', metricCode: dim.code },
+        });
+
+        if (existing) {
+          await db.dataQualityScore.update({
+            where: { id: existing.id },
+            data: { score: dim.score, calculatedAt: new Date() },
+          });
+        } else {
+          await db.dataQualityScore.create({
+            data: {
+              recordId: firstRecord.id,
+              moduleId: mod.id,
+              metricType: 'DIMENSION',
+              metricCode: dim.code,
+              score: dim.score,
+              calculatedAt: new Date(),
+            },
+          });
+        }
+      }
+
+      totalScoresSaved += dimensions.length + 1;
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Quality check completed. ${totalScoresSaved} scores saved across ${modules.length} modules.`,
+      modulesChecked: modules.length,
+      scoresSaved: totalScoresSaved,
+    });
+  } catch (error) {
+    console.error('DataQuality POST error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

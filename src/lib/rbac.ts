@@ -186,6 +186,8 @@ export const ROLE_TYPE_INFO: Record<string, { label: string; description: string
   'COMPANY_ADMIN': { label: 'Company Admin', description: 'Manage users, roles, and AI config within own company (Account)', color: '#0ea5e9', icon: 'Building2' },
   'ADMINISTRATOR': { label: 'Administrator', description: 'Can configure system, manage users and settings', color: '#ef4444', icon: 'Settings' },
   'SYSTEM_ADMIN': { label: 'System Admin', description: 'Full unrestricted access to all features', color: '#dc2626', icon: 'Crown' },
+  'API': { label: 'API Manager', description: 'Can manage API keys and integration configurations', color: '#10b981', icon: 'Globe' },
+  'SFTP': { label: 'SFTP Manager', description: 'Can manage SFTP configurations and sync schedules', color: '#6366f1', icon: 'Globe' },
 };
 
 // ============================================================

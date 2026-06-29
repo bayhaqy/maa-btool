@@ -113,6 +113,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'roleName is required' }, { status: 400 });
     }
 
+    // Validate MODULE_LEVEL scope requires at least one permission
+    const resolvedScope = scope || 'MODULE_LEVEL';
+    if ((resolvedScope === 'MODULE_LEVEL' || resolvedScope === 'MODULE') && (!permissions || permissions.length === 0)) {
+      return NextResponse.json({ error: 'Module-level scope requires at least one module to be selected' }, { status: 400 });
+    }
+
     // Resolve companyId — default to SYSTEM for global roles, otherwise required
     const resolvedCompanyId = companyId || 'SYSTEM';
 
@@ -134,7 +140,7 @@ export async function POST(request: NextRequest) {
         roleName,
         description,
         roleType: roleType || 'VIEWER',
-        scope: scope || 'MODULE',
+        scope: scope || 'MODULE_LEVEL',
         isSystem: false,
         isGlobal: resolvedCompanyId === 'SYSTEM',
         companyId: resolvedCompanyId,

@@ -432,14 +432,14 @@ export default function AiSettingsPage() {
     }));
   };
 
-  // Pre-fill DashScope config for Custom provider
+  // Pre-fill DashScope config for Custom provider (without API key — user must provide their own)
   const handlePreFillDashScope = () => {
     setConfig((prev) => ({
       ...prev,
       provider: 'custom',
       baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
       model: 'glm-5.1',
-      apiKey: 'sk-ws-H.LMLMLP.DVPC.MEUCIH8gkusLYOfxHGwMd_7_E_J5NlhiekhG2uVeeWuAV4UwAiEAyqERu-UTHMByOrCwGbOtIWDSb-oUTCEFvJ8k3ksTSHk',
+      // API key is NOT pre-filled for security — user must enter it manually
     }));
     setTestResult(null);
     setSaveMessage(null);
@@ -1148,16 +1148,7 @@ export default function AiSettingsPage() {
         </div>
       )}
 
-      {/* ── Read-only notice for Company Admin (non-edit scenario) ── */}
-      {canView && !canEdit && (
-        <Alert className="border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20">
-          <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-          <AlertTitle className="text-blue-800 dark:text-blue-300">Read-Only Access</AlertTitle>
-          <AlertDescription className="text-blue-700 dark:text-blue-400">
-            You can view the AI configuration but do not have permission to edit it. Contact your Super Admin to make changes.
-          </AlertDescription>
-        </Alert>
-      )}
+
     </div>
   );
 }

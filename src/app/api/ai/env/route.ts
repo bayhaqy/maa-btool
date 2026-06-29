@@ -1,15 +1,16 @@
 /**
  * AI Environment Variables API
  *
- * PUT — Save AI_PROVIDER and AI_API_KEY to AppSettings (database) AND
- *       register them as Vercel environment variables via the Vercel API.
- *       Super Admin only.
+ * GET  — Check AI availability and configuration status.
+ * PUT  — Save AI_PROVIDER and AI_API_KEY to AppSettings (database) AND
+ *        register them as Vercel environment variables via the Vercel API.
+ *        Super Admin only.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
-import { clearAICache, type AIProvider } from '@/lib/ai';
+import { clearAICache, isAIConfiguredAsync, type AIProvider } from '@/lib/ai';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,40 @@ async function upsertSetting(key: string, value: string, updatedById?: string): 
     update: { settingValue: value, updatedById: updatedById ?? null },
     create: { settingKey: key, settingValue: value, updatedById: updatedById ?? null },
   });
+}
+
+// GET /api/ai/env — Check AI availability
+export async function GET(request: NextRequest) {
+  try {
+    const tokenPayload = getTokenFromHeaders(request.headers);
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const configured = await isAIConfiguredAsync();
+
+    // Check if we have env vars set
+    const hasEnvKey = !!(process.env.AI_API_KEY || process.env.ZAI_API_KEY);
+
+    // Check DB settings
+    let hasDbConfig = false;
+    try {
+      const dbProvider = await db.appSettings.findUnique({ where: { settingKey: 'AI_PROVIDER' } });
+      const dbApiKey = await db.appSettings.findUnique({ where: { settingKey: 'AI_API_KEY' } });
+      hasDbConfig = !!(dbProvider && dbApiKey);
+    } catch {
+      // DB not available
+    }
+
+    return NextResponse.json({
+      available: configured,
+      source: hasDbConfig ? 'database' : (hasEnvKey ? 'environment' : 'none'),
+      provider: (await db.appSettings.findUnique({ where: { settingKey: 'AI_PROVIDER' } }))?.settingValue || null,
+    });
+  } catch (error) {
+    console.error('AI Env GET error:', error);
+    return NextResponse.json({ available: false, source: 'none', provider: null }, { status: 500 });
+  }
 }
 
 /**

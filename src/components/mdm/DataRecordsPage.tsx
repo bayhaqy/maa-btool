@@ -35,7 +35,7 @@ import {
   LayoutGrid, List, Filter, SlidersHorizontal, Eye, EyeOff, ArrowUpDown,
   ArrowUp, ArrowDown, Copy, Trash2, Pencil, ThumbsUp,
   Save, X, ExternalLink, Check, Columns3, Clock, User,
-  RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot, Lock,
+  RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
@@ -587,11 +587,7 @@ export default function DataRecordsPage() {
           <p className="text-muted-foreground text-sm mt-1">Browse and manage master data entity instances</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {perms.isReadOnly && (
-            <Badge variant="outline" className="h-8 gap-1.5 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20">
-              <Lock className="w-3.5 h-3.5" /> Read Only
-            </Badge>
-          )}
+
           <Select value={activeModuleId} onValueChange={setActiveModuleId}>
             <SelectTrigger className="w-[200px] h-10">
               <SelectValue placeholder="Select module" />

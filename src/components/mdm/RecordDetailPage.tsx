@@ -1384,9 +1384,7 @@ export default function RecordDetailPage() {
               <Save className="w-4 h-4 mr-1" /> Request Amendment
             </Button>
           )}
-          {perms.isReadOnly && !isEditing && (
-            <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Read Only</Badge>
-          )}
+
           {isEditing && hasPendingImageOps && (
             <Badge variant="outline" className="text-[11px] border-amber-300 bg-amber-50 text-amber-700">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mr-1.5" />
