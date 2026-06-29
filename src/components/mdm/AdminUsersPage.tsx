@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   Users, Plus, MoreVertical, Pencil, Trash2, UserCheck, UserX, UserCog, ShieldAlert, Loader2,
-  Building2, Eye, Crown,
+  Building2, Crown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -268,11 +268,7 @@ export default function AdminUsersPage() {
             <h2 className="text-2xl font-bold tracking-tight">User & Group Management</h2>
             <p className="text-muted-foreground text-sm mt-1">Manage users and their group assignments (Stibo User Groups)</p>
           </div>
-          {perms.isReadOnly && (
-            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
-              <Eye className="w-3 h-3 mr-1" /> Read Only
-            </Badge>
-          )}
+
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Add User

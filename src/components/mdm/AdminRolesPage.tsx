@@ -31,7 +31,7 @@ import {
 import {
   Shield, Plus, MoreVertical, Pencil, Trash2, Eye, Users, Lock,
   CheckCircle, Crown, Settings, AlertTriangle, Info, ShieldAlert,
-  Building2, Copy, Globe,
+  Building2, Copy, Globe, LayoutGrid, ListChecks,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -134,8 +134,9 @@ export default function AdminRolesPage() {
     roleName: '',
     description: '',
     roleType: 'VIEWER' as string,
-    scope: 'MODULE' as string,
+    scope: 'MODULE_LEVEL' as string,
     permissions: [] as PermissionRow[],
+    selectedModuleIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
 
@@ -210,6 +211,36 @@ export default function AdminRolesPage() {
           canBulkUpdate: isViewer ? false : p.canBulkUpdate,
         })),
       };
+    });
+  };
+
+  // Handle scope change: when switching to GLOBAL, auto-select all modules
+  const handleScopeChange = (newScope: string) => {
+    setForm((prev) => {
+      if (newScope === 'GLOBAL') {
+        // For GLOBAL scope, include all modules with default permissions
+        const isViewer = prev.roleType === 'VIEWER';
+        const allModuleIds = modules.map((m) => m.id);
+        const existingPermMap = new Map(prev.permissions.map((p) => [p.moduleId, p]));
+        const newPerms = modules.map((m) => {
+          const existing = existingPermMap.get(m.id);
+          if (existing) return existing;
+          return {
+            moduleId: m.id,
+            canRead: true,
+            canCreate: isViewer ? false : false,
+            canEdit: isViewer ? false : false,
+            canDelete: isViewer ? false : false,
+            canApprove: isViewer ? false : false,
+            canExport: isViewer ? false : false,
+            canImport: isViewer ? false : false,
+            canBulkUpdate: isViewer ? false : false,
+          };
+        });
+        return { ...prev, scope: newScope, selectedModuleIds: allModuleIds, permissions: newPerms };
+      } else {
+        return { ...prev, scope: newScope };
+      }
     });
   };
 
@@ -304,22 +335,26 @@ export default function AdminRolesPage() {
 
   const openEdit = (r: RoleData) => {
     setEditRole(r);
+    const perms = r.permissions?.map((p) => ({
+      moduleId: p.moduleId,
+      canRead: p.canRead,
+      canCreate: p.canCreate,
+      canEdit: p.canEdit,
+      canDelete: p.canDelete,
+      canApprove: p.canApprove,
+      canExport: p.canExport,
+      canImport: p.canImport,
+      canBulkUpdate: p.canBulkUpdate,
+    })) || [];
+    // Normalize scope: treat 'MODULE' as 'MODULE_LEVEL' for backward compatibility
+    const normalizedScope = (r.scope === 'MODULE' || r.scope === 'MODULE_LEVEL') ? 'MODULE_LEVEL' : r.scope || 'MODULE_LEVEL';
     setForm({
       roleName: r.roleName,
       description: r.description || '',
       roleType: r.roleType || 'VIEWER',
-      scope: r.scope || 'MODULE',
-      permissions: r.permissions?.map((p) => ({
-        moduleId: p.moduleId,
-        canRead: p.canRead,
-        canCreate: p.canCreate,
-        canEdit: p.canEdit,
-        canDelete: p.canDelete,
-        canApprove: p.canApprove,
-        canExport: p.canExport,
-        canImport: p.canImport,
-        canBulkUpdate: p.canBulkUpdate,
-      })) || [],
+      scope: normalizedScope,
+      permissions: perms,
+      selectedModuleIds: perms.map((p) => p.moduleId),
     });
     setDialogOpen(true);
   };
@@ -330,20 +365,78 @@ export default function AdminRolesPage() {
       roleName: '',
       description: '',
       roleType: 'VIEWER',
-      scope: 'MODULE',
-      permissions: modules.map((m) => ({
-        moduleId: m.id,
-        canRead: false,
-        canCreate: false,
-        canEdit: false,
-        canDelete: false,
-        canApprove: false,
-        canExport: false,
-        canImport: false,
-        canBulkUpdate: false,
-      })),
+      scope: 'MODULE_LEVEL',
+      permissions: [],
+      selectedModuleIds: [],
     });
     setDialogOpen(true);
+  };
+
+  // Toggle a module in/out of the selectedModuleIds set
+  const toggleModuleSelection = (moduleId: string, selected: boolean) => {
+    setForm((prev) => {
+      let newSelectedIds: string[];
+      let newPermissions: PermissionRow[];
+
+      if (selected) {
+        newSelectedIds = [...prev.selectedModuleIds, moduleId];
+        // Add a default permission entry if not present
+        if (!prev.permissions.find((p) => p.moduleId === moduleId)) {
+          const isViewer = prev.roleType === 'VIEWER';
+          newPermissions = [...prev.permissions, {
+            moduleId,
+            canRead: true, // Default: read access
+            canCreate: isViewer ? false : false,
+            canEdit: isViewer ? false : false,
+            canDelete: isViewer ? false : false,
+            canApprove: isViewer ? false : false,
+            canExport: isViewer ? false : false,
+            canImport: isViewer ? false : false,
+            canBulkUpdate: isViewer ? false : false,
+          }];
+        } else {
+          newPermissions = prev.permissions;
+        }
+      } else {
+        newSelectedIds = prev.selectedModuleIds.filter((id) => id !== moduleId);
+        // Remove permission entry for unselected module
+        newPermissions = prev.permissions.filter((p) => p.moduleId !== moduleId);
+      }
+
+      return { ...prev, selectedModuleIds: newSelectedIds, permissions: newPermissions };
+    });
+  };
+
+  // Select all modules
+  const selectAllModules = () => {
+    setForm((prev) => {
+      const isViewer = prev.roleType === 'VIEWER';
+      const allModuleIds = modules.map((m) => m.id);
+      const existingPermModuleIds = new Set(prev.permissions.map((p) => p.moduleId));
+      // Add default permission entries for any modules not yet in permissions
+      const newPerms = [...prev.permissions];
+      for (const mId of allModuleIds) {
+        if (!existingPermModuleIds.has(mId)) {
+          newPerms.push({
+            moduleId: mId,
+            canRead: true,
+            canCreate: isViewer ? false : false,
+            canEdit: isViewer ? false : false,
+            canDelete: isViewer ? false : false,
+            canApprove: isViewer ? false : false,
+            canExport: isViewer ? false : false,
+            canImport: isViewer ? false : false,
+            canBulkUpdate: isViewer ? false : false,
+          });
+        }
+      }
+      return { ...prev, selectedModuleIds: allModuleIds, permissions: newPerms };
+    });
+  };
+
+  // Deselect all modules
+  const deselectAllModules = () => {
+    setForm((prev) => ({ ...prev, selectedModuleIds: [], permissions: [] }));
   };
 
   const togglePermission = (moduleId: string, permKey: string) => {
@@ -463,11 +556,7 @@ export default function AdminRolesPage() {
               Configure user groups and their privilege rules (Stibo RBAC)
             </p>
           </div>
-          {perms.isReadOnly && (
-            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
-              <Eye className="w-3 h-3 mr-1" /> Read Only
-            </Badge>
-          )}
+
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Add User Group
@@ -499,7 +588,7 @@ export default function AdminRolesPage() {
       </div>
 
       {/* ── Role Type Summary Cards ─────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
         {Object.entries(ROLE_TYPE_INFO).map(([key, info]) => {
           const style = getRoleTypeBadgeStyle(key);
           const count = roleTypeStats[key] || 0;
@@ -618,7 +707,7 @@ export default function AdminRolesPage() {
                     <span>•</span>
                     <span>{role.permissionCount} privilege rule{role.permissionCount !== 1 ? 's' : ''}</span>
                     <span>•</span>
-                    <span>Scope: {role.scope || 'MODULE'}</span>
+                    <span>Scope: {role.scope === 'MODULE' || role.scope === 'MODULE_LEVEL' ? 'Module-level' : role.scope === 'GLOBAL' ? 'Global' : role.scope || 'Module-level'}</span>
                   </div>
 
                   {/* ── Expandable User List ──────────────────────── */}
@@ -636,6 +725,23 @@ export default function AdminRolesPage() {
                       ) : (
                         <p className="text-xs text-muted-foreground">No users assigned to this group</p>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── Module assignment display (MODULE_LEVEL scope) ── */}
+                  {(role.scope === 'MODULE_LEVEL' || role.scope === 'MODULE') && role.permissions && role.permissions.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {role.permissions.map((p) => (
+                        <Badge key={p.moduleId} variant="secondary" className="text-[10px]">
+                          {p.module?.moduleName || p.moduleId}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {(role.scope === 'MODULE_LEVEL' || role.scope === 'MODULE') && (!role.permissions || role.permissions.length === 0) && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>No modules assigned — edit this group to select modules</span>
                     </div>
                   )}
                 </div>
@@ -841,20 +947,22 @@ export default function AdminRolesPage() {
                 <Label className="text-sm font-medium">Scope</Label>
                 <Select
                   value={form.scope}
-                  onValueChange={(v) => setForm({ ...form, scope: v })}
+                  onValueChange={handleScopeChange}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="MODULE">
+                    <SelectItem value="MODULE_LEVEL">
                       <div className="flex items-center gap-2">
+                        <LayoutGrid className="w-4 h-4" />
                         <span>Module-level</span>
-                        <span className="text-muted-foreground text-xs">— Per-module privilege rules</span>
+                        <span className="text-muted-foreground text-xs">— Select specific modules</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="GLOBAL">
                       <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4" />
                         <span>Global</span>
                         <span className="text-muted-foreground text-xs">— All modules access</span>
                       </div>
@@ -903,12 +1011,101 @@ export default function AdminRolesPage() {
               </div>
             )}
 
+            {/* ── Module Selection (only for MODULE_LEVEL scope) ──────── */}
+            {form.scope === 'MODULE_LEVEL' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ListChecks className="w-4 h-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Select Modules</Label>
+                    <Badge variant="outline" className="text-xs">
+                      {form.selectedModuleIds.length} of {modules.length} selected
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={selectAllModules}
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={deselectAllModules}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                {modules.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No modules available. Create modules first.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {modules.map((m) => {
+                      const isSelected = form.selectedModuleIds.includes(m.id);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => toggleModuleSelection(m.id, !isSelected)}
+                          className={cn(
+                            'flex items-center gap-2 p-2.5 rounded-lg border text-left transition-all text-sm',
+                            isSelected
+                              ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30'
+                              : 'border-muted bg-background hover:border-muted-foreground/30 hover:bg-accent/30'
+                          )}
+                        >
+                          <div className={cn(
+                            'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors',
+                            isSelected
+                              ? 'bg-emerald-500 border-emerald-500 text-white'
+                              : 'border-muted-foreground/40'
+                          )}>
+                            {isSelected && <CheckCircle className="w-3 h-3" />}
+                          </div>
+                          <span className={cn(
+                            'truncate',
+                            isSelected ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'
+                          )}>
+                            {m.moduleName}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {form.selectedModuleIds.length === 0 && (
+                  <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-md border border-amber-200 dark:border-amber-800">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Module-level scope requires at least one module to be selected. Select modules above to configure privilege rules.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Global scope info ──────────────────────────────── */}
+            {form.scope === 'GLOBAL' && (
+              <div className="flex items-center gap-2 p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 text-sm">
+                <Globe className="w-4 h-4 text-blue-600" />
+                <span className="text-blue-700 dark:text-blue-400">Global scope grants access to <strong>all modules</strong>. Configure privilege rules per module below.</span>
+              </div>
+            )}
+
             <Separator />
 
             {/* ── Privilege Rule Matrix ──────────────────────────── */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Privilege Rule Matrix</Label>
+                <Label className="text-sm font-medium">
+                  Privilege Rule Matrix
+                  {form.scope === 'MODULE_LEVEL' && form.selectedModuleIds.length > 0 && (
+                    <span className="text-muted-foreground font-normal ml-1">({form.selectedModuleIds.length} module{form.selectedModuleIds.length !== 1 ? 's' : ''})</span>
+                  )}
+                </Label>
                 {!isViewerType && (
                   <div className="flex items-center gap-2">
                     <Button
@@ -961,6 +1158,12 @@ export default function AdminRolesPage() {
                 )}
               </div>
 
+              {(form.scope === 'MODULE_LEVEL' && form.selectedModuleIds.length === 0) ? (
+                <div className="border rounded-lg p-8 text-center bg-muted/20">
+                  <LayoutGrid className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+                  <p className="text-sm text-muted-foreground">Select modules above to configure privilege rules</p>
+                </div>
+              ) : (
               <div className="border rounded-lg overflow-hidden">
                 <div className="overflow-x-auto max-h-[40vh] overflow-y-auto custom-scrollbar">
                   <Table>
@@ -1002,7 +1205,10 @@ export default function AdminRolesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {modules.map((m) => {
+                      {(form.scope === 'MODULE_LEVEL'
+                        ? modules.filter((m) => form.selectedModuleIds.includes(m.id))
+                        : modules
+                      ).map((m) => {
                         const perm = form.permissions.find((p) => p.moduleId === m.id) || ensurePermission(m.id);
                         const allWriteOn = WRITE_PERMISSION_KEYS.every((k) => perm[k as keyof PermissionRow] as boolean);
                         return (
@@ -1061,6 +1267,7 @@ export default function AdminRolesPage() {
                   </Table>
                 </div>
               </div>
+              )}
 
               {isViewerType && (
                 <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-md border border-amber-200 dark:border-amber-800">
@@ -1077,7 +1284,7 @@ export default function AdminRolesPage() {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={saving || !form.roleName.trim()}
+              disabled={saving || !form.roleName.trim() || (form.scope === 'MODULE_LEVEL' && form.selectedModuleIds.length === 0)}
               className="bg-red-600 hover:bg-red-700 text-white"
             >
               {saving ? 'Saving...' : editRole ? 'Update User Group' : 'Create User Group'}

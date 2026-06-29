@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/select';
 import {
   Upload, Download, FileSpreadsheet, AlertCircle, Loader2,
-  FileUp, File, FileText, X,
+  FileUp, File, FileText, X, ImageIcon, Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
@@ -224,7 +224,10 @@ export default function BulkImportPage() {
 
       setImportResult(result);
       if (result.validRows > 0) {
-        toast.success(`Imported ${result.validRows} records successfully`);
+        const msg = result.imageDownloadCount > 0
+          ? `Imported ${result.validRows} records successfully (${result.imageDownloadCount} images downloaded)`
+          : `Imported ${result.validRows} records successfully`;
+        toast.success(msg);
       }
       if (result.invalidRows > 0) {
         toast.warning(`${result.invalidRows} rows had validation errors`);
@@ -277,8 +280,15 @@ export default function BulkImportPage() {
   const handleDownloadTemplate = () => {
     if (templateHeaders.length === 0) return;
     const headerLine = templateHeaders.map((h) => h.fieldCode).join(';');
-    const placeholderLine = templateHeaders.map((h) => h.placeholder || h.fieldCode).join(';');
-    const csv = headerLine + '\n' + placeholderLine;
+    const placeholderLine = templateHeaders.map((h) => {
+      if (h.isImage) return 'https://example.com/image.jpg';
+      return h.placeholder || h.fieldCode;
+    }).join(';');
+    const imageNoteLine = templateHeaders.map((h) => {
+      if (h.isImage) return '(image URL)';
+      return '';
+    }).join(';');
+    const csv = headerLine + '\n' + placeholderLine + '\n' + imageNoteLine;
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -340,12 +350,22 @@ export default function BulkImportPage() {
             <div className="flex flex-wrap gap-2">
               {templateHeaders.map((h: any) => (
                 <Badge key={h.fieldCode} variant="outline" className="text-xs">
+                  {h.isImage && <ImageIcon className="w-3 h-3 mr-1 inline" />}
                   {h.fieldName}
                   {h.isRequired && <span className="text-red-500 ml-0.5">*</span>}
                   <span className="text-muted-foreground ml-1">({h.dataType})</span>
+                  {h.isImage && <span className="text-blue-500 ml-1">(URL)</span>}
                 </Badge>
               ))}
             </div>
+            {templateHeaders.some((h: any) => h.isImage) && (
+              <div className="flex items-start gap-2 mt-3 p-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md">
+                <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  <strong>Image fields</strong> accept image URLs (http:// or https://). During import, the system will automatically download and store the images locally. Make sure the URLs are publicly accessible.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -508,6 +528,15 @@ export default function BulkImportPage() {
                   </div>
                 </div>
 
+                {importResult.imageDownloadCount > 0 && (
+                  <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span className="text-xs text-blue-700 dark:text-blue-400">
+                      <strong>{importResult.imageDownloadCount}</strong> image(s) downloaded and stored locally
+                    </span>
+                  </div>
+                )}
+
                 {importResult.errors?.length > 0 && (
                   <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                     <p className="text-sm font-medium text-destructive flex items-center gap-1">
@@ -532,7 +561,7 @@ export default function BulkImportPage() {
               <Download className="w-5 h-5 text-teal-600" />
               Export Data
             </CardTitle>
-            <CardDescription>Download active records as CSV file</CardDescription>
+            <CardDescription>Download active records as CSV file (includes image URLs)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="py-8 text-center border-2 border-dashed rounded-xl">

@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   Building2, Plus, MoreVertical, Pencil, Trash2, ShieldAlert,
-  Rocket, PauseCircle, PlayCircle, Users, Database, Eye, Loader2,
+  Rocket, PauseCircle, PlayCircle, Users, Database, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -292,11 +292,7 @@ export default function AdminCompaniesPage() {
             <h2 className="text-2xl font-bold tracking-tight">Account Management</h2>
             <p className="text-muted-foreground text-sm mt-1">Manage tenant accounts (Stibo STEP Instances)</p>
           </div>
-          {perms.isReadOnly && (
-            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
-              <Eye className="w-3 h-3 mr-1" /> Read Only
-            </Badge>
-          )}
+
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white h-11" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Add Account

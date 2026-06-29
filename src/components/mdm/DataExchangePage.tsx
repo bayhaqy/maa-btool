@@ -1120,6 +1120,16 @@ function EndpointDetail({ ep, onEdit }: { ep: EndpointData; onEdit: () => void }
   const scheduleConfig = ep.scheduleConfig ? JSON.parse(ep.scheduleConfig) : null;
   const errorHandling = ep.errorHandling ? JSON.parse(ep.errorHandling) : null;
 
+  const getStatusColor = (status: string | null) => {
+    switch (status) {
+      case 'COMPLETED': return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300';
+      case 'FAILED': return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300';
+      case 'PARTIAL': return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+      case 'RUNNING': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300';
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Connection */}

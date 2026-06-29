@@ -77,6 +77,7 @@ interface ChatMessage {
   feedback?: string | null;
   isEdited?: boolean;
   editedContent?: string | null;
+  reasoning?: string; // For thinking/reasoning content from models like GLM-5.1
 }
 
 type FilterTab = 'all' | 'bookmarked' | 'pinned';
@@ -290,6 +291,7 @@ export default function AiAssistantPage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let fullContent = '';
+      let fullReasoning = '';
       let finalConversationId = activeConversationId;
       let finalMessageId = assistantId;
       let finalTokens = 0;
@@ -314,7 +316,15 @@ export default function AiAssistantPage() {
               fullContent += evt.content;
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantId ? { ...m, content: fullContent } : m
+                  m.id === assistantId ? { ...m, content: fullContent, reasoning: fullReasoning || undefined } : m
+                )
+              );
+            } else if (evt.type === 'reasoning' && evt.content) {
+              // Thinking/reasoning content from models like GLM-5.1
+              fullReasoning += evt.content;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, reasoning: fullReasoning } : m
                 )
               );
             } else if (evt.type === 'done') {
@@ -899,11 +909,7 @@ export default function AiAssistantPage() {
                     <Zap className="w-3 h-3" /> Live AI
                   </span>
                 )}
-                {isReadOnly && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                    <ShieldCheck className="w-3 h-3" /> Read Only
-                  </span>
-                )}
+
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
                 {/* Provider Badge */}
@@ -1052,6 +1058,19 @@ export default function AiAssistantPage() {
                       )}>
                         {msg.role === 'assistant' ? (
                           <div className="md-render text-sm">
+                            {/* Reasoning/thinking section (collapsible) */}
+                            {msg.reasoning && (
+                              <details className="mb-3 group/details">
+                                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 select-none">
+                                  <GitBranch className="w-3 h-3" />
+                                  <span className="group-open/details:hidden">Show thinking process...</span>
+                                  <span className="hidden group-open/details:inline">Hide thinking process</span>
+                                </summary>
+                                <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50 text-xs text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto">
+                                  {msg.reasoning}
+                                </div>
+                              </details>
+                            )}
                             <ReactMarkdown
                               remarkPlugins={[remarkGfm]}
                               rehypePlugins={[rehypeHighlight]}

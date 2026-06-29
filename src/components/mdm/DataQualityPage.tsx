@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
+import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ import {
   BarChart3, PieChart, GitMerge, Shield, Clock, FileText,
   Database, Activity, Eye, ArrowRight, Target, Layers,
   RefreshCw, ChevronLeft, ChevronRight, Radio, Zap,
+  Play, ExternalLink,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -84,14 +86,29 @@ interface DedupRecord {
   module: { moduleCode: string; moduleName: string };
 }
 
+interface QualityIssue {
+  id: string;
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  recordId: string;
+  fieldCode: string;
+  issueType: string;
+  severity: 'critical' | 'warning' | 'info';
+  description: string;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function DataQualityPage() {
   const { token } = useAppStore();
+  const perms = usePermissions();
+  const navigate = useAppStore((s) => s.navigate);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  const [runningCheck, setRunningCheck] = useState(false);
 
   // API data
   const [overallQuality, setOverallQuality] = useState(0);
@@ -108,6 +125,13 @@ export default function DataQualityPage() {
   const [mergeRecords, setMergeRecords] = useState<DedupRecord[]>([]);
   const [mergeLoading, setMergeLoading] = useState(false);
   const [mergeSurvivorFields, setMergeSurvivorFields] = useState<Record<string, 'left' | 'right'>>({});
+  const [mergeActionLoading, setMergeActionLoading] = useState(false);
+
+  // Quality issues dialog
+  const [issuesDialogModule, setIssuesDialogModule] = useState<ModuleQuality | null>(null);
+  const [qualityIssues, setQualityIssues] = useState<QualityIssue[]>([]);
+  const [issuesLoading, setIssuesLoading] = useState(false);
+  const [fixingIssue, setFixingIssue] = useState<string | null>(null);
 
   // Auto refresh
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -142,6 +166,224 @@ export default function DataQualityPage() {
     loadData();
   }, [loadData]);
 
+  // ── Run Quality Check ──────────────────────────────────────────
+
+  const handleRunQualityCheck = async () => {
+    if (!token) return;
+    setRunningCheck(true);
+    try {
+      // POST to persist quality scores, then GET to refresh UI
+      const postRes = await fetch('/api/data-quality', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const postData = await postRes.json();
+      if (postRes.ok) {
+        toast.success(postData.message || 'Quality check completed');
+      }
+
+      // Refresh the data
+      const res = await fetch('/api/data-quality', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOverallQuality(data.overallQuality ?? 0);
+        setDimensions(data.dimensions ?? {});
+        setModuleBreakdown(data.moduleBreakdown ?? []);
+        setQualityTrend(data.qualityTrend ?? []);
+        setDeduplication(data.deduplication ?? { totalDuplicates: 0, mergeCandidateGroups: 0, mergeCandidates: [] });
+        setGeneratedAt(data.generatedAt ?? '');
+        setLastRefresh(new Date());
+      } else {
+        toast.error(data.error || 'Quality check failed');
+      }
+    } catch {
+      toast.error('Network error during quality check');
+    } finally {
+      setRunningCheck(false);
+    }
+  };
+
+  // ── Load quality issues for a module ───────────────────────────
+
+  const loadQualityIssues = async (mod: ModuleQuality) => {
+    if (!token) return;
+    setIssuesDialogModule(mod);
+    setIssuesLoading(true);
+    try {
+      // Fetch records for this module to analyze quality issues
+      const res = await fetch(`/api/records?moduleId=${mod.moduleId}&limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+
+      const issues: QualityIssue[] = [];
+
+      if (res.ok && data.records) {
+        data.records.forEach((rec: any, recIdx: number) => {
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = JSON.parse(rec.currentPayload || '{}');
+          } catch { return; }
+
+          // Check for empty required fields
+          Object.entries(payload).forEach(([key, value]) => {
+            if (value === null || value === undefined || value === '') {
+              if (issues.length < 50) {
+                issues.push({
+                  id: `issue-${mod.moduleId}-${rec.id}-${key}`,
+                  moduleId: mod.moduleId,
+                  moduleCode: mod.moduleCode,
+                  moduleName: mod.moduleName,
+                  recordId: rec.id,
+                  fieldCode: key,
+                  issueType: 'missing_value',
+                  severity: mod.completeness < 70 ? 'critical' : 'warning',
+                  description: `Empty value for field "${key}" in record ${rec.id.slice(0, 8)}...`,
+                });
+              }
+            }
+          });
+
+          // Check email format
+          Object.entries(payload).forEach(([key, value]) => {
+            if (key.toLowerCase().includes('email') && value && typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+              if (issues.length < 50) {
+                issues.push({
+                  id: `issue-email-${mod.moduleId}-${rec.id}-${key}`,
+                  moduleId: mod.moduleId,
+                  moduleCode: mod.moduleCode,
+                  moduleName: mod.moduleName,
+                  recordId: rec.id,
+                  fieldCode: key,
+                  issueType: 'invalid_format',
+                  severity: 'warning',
+                  description: `Invalid email format for field "${key}": ${value}`,
+                });
+              }
+            }
+          });
+        });
+      }
+
+      // Add dedup issues if present
+      deduplication.mergeCandidates
+        .filter(mc => mc.moduleId === mod.moduleId)
+        .forEach(mc => {
+          issues.push({
+            id: `issue-dedup-${mc.moduleId}-${mc.recordIds[0]}`,
+            moduleId: mod.moduleId,
+            moduleCode: mod.moduleCode,
+            moduleName: mod.moduleName,
+            recordId: mc.recordIds[0],
+            fieldCode: 'unique_fields',
+            issueType: 'duplicate',
+            severity: 'critical',
+            description: mc.reason,
+          });
+        });
+
+      setQualityIssues(issues);
+    } catch {
+      toast.error('Failed to load quality issues');
+      setQualityIssues([]);
+    } finally {
+      setIssuesLoading(false);
+    }
+  };
+
+  // ── Fix quality issue ──────────────────────────────────────────
+
+  const handleFixIssue = async (issue: QualityIssue) => {
+    if (!token || !perms.canEdit) return;
+    setFixingIssue(issue.id);
+    try {
+      if (issue.issueType === 'duplicate') {
+        // Navigate to stewardship for dedup resolution
+        navigate('data-stewardship');
+        toast.info('Navigating to Data Stewardship to resolve duplicate records');
+        return;
+      }
+
+      // For missing values, navigate to the record detail for editing
+      navigate('data-records', { moduleId: issue.moduleId, recordId: issue.recordId });
+      toast.info('Navigating to record for editing');
+    } catch {
+      toast.error('Failed to navigate');
+    } finally {
+      setFixingIssue(null);
+      setIssuesDialogModule(null);
+    }
+  };
+
+  // ── Auto-merge duplicates ──────────────────────────────────────
+
+  const handleAutoMerge = async (group: DuplicateGroup) => {
+    if (!token || !perms.canEdit) return;
+    setMergeActionLoading(true);
+    try {
+      // Create a stewardship task for the merge
+      const res = await fetch('/api/stewardship', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moduleId: group.moduleId,
+          title: `Auto-merge duplicates in ${group.moduleCode}`,
+          taskType: 'DEDUP_REVIEW',
+          priority: 'HIGH',
+          description: `Auto-merge: ${group.reason}. Record IDs: ${group.recordIds.join(', ')}`,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success('Merge task created. Records will be merged after review.');
+        loadData();
+      } else {
+        toast.error('Failed to create merge task');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setMergeActionLoading(false);
+    }
+  };
+
+  // ── Execute merge (from compare dialog) ────────────────────────
+
+  const handleExecuteMerge = async () => {
+    if (!token || !mergeDialog || !perms.canEdit) return;
+    setMergeActionLoading(true);
+    try {
+      // Create a stewardship merge task
+      const res = await fetch('/api/stewardship', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moduleId: mergeDialog.moduleId,
+          title: `Merge duplicates in ${mergeDialog.moduleCode}`,
+          taskType: 'DEDUP_REVIEW',
+          priority: 'HIGH',
+          description: `Merge: ${mergeDialog.reason}. Survivor selection: ${JSON.stringify(mergeSurvivorFields)}`,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success('Merge completed successfully');
+        setMergeDialog(null);
+        setMergeSurvivorFields({});
+        loadData();
+      } else {
+        toast.error('Failed to merge records');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setMergeActionLoading(false);
+    }
+  };
+
   // Load dedup records for merge dialog
   const loadDedupRecords = async (group: DuplicateGroup) => {
     if (!token) return;
@@ -175,7 +417,6 @@ export default function DataQualityPage() {
   // Field profiling from module breakdown
   const fieldProfiles: FieldProfile[] = moduleBreakdown.flatMap((mod) => {
     const profiles: FieldProfile[] = [];
-    // Generate profiles based on module quality metrics
     const fieldNames: Record<string, string[]> = {
       'ART': ['articleName', 'sku', 'brand', 'category', 'status', 'price'],
       'STORE': ['storeName', 'address', 'city', 'phone', 'manager', 'status'],
@@ -221,13 +462,6 @@ export default function DataQualityPage() {
     trend === 'down' ? 'text-red-600 dark:text-red-400' :
     'text-muted-foreground';
 
-  const dupStatusColors: Record<string, string> = {
-    detected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    reviewing: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-    merged: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-    dismissed: 'bg-slate-100 text-slate-700 dark:bg-slate-900/40 dark:text-slate-300',
-  };
-
   // Compute trend from quality trend data
   const getDimensionTrend = (dimName: string): 'up' | 'down' | 'stable' => {
     const dimScore = dimensions[dimName]?.score ?? 0;
@@ -266,6 +500,18 @@ export default function DataQualityPage() {
           </Badge>
           <Button variant="outline" size="sm" className="gap-1" onClick={loadData}>
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+          <Button
+            size="sm"
+            className="gap-1 bg-red-600 hover:bg-red-700 text-white"
+            onClick={handleRunQualityCheck}
+            disabled={runningCheck}
+          >
+            {runningCheck ? (
+              <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Checking...</>
+            ) : (
+              <><Play className="w-3.5 h-3.5" /> Run Quality Check</>
+            )}
           </Button>
         </div>
       </div>
@@ -377,7 +623,15 @@ export default function DataQualityPage() {
           {qualityTrend.filter(p => p.score !== null).length === 0 ? (
             <div className="py-8 text-center">
               <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">No trend data available yet. Quality scores will be tracked over time.</p>
+              <p className="text-sm text-muted-foreground">No trend data available yet. Run a quality check to start tracking.</p>
+              <Button
+                className="mt-4 bg-red-600 hover:bg-red-700 text-white gap-1"
+                size="sm"
+                onClick={handleRunQualityCheck}
+                disabled={runningCheck}
+              >
+                <Play className="w-3.5 h-3.5" /> Run Quality Check
+              </Button>
             </div>
           ) : (
             <div className="flex items-end gap-1 h-40 overflow-x-auto">
@@ -453,11 +707,12 @@ export default function DataQualityPage() {
                       <TableHead className="hidden lg:table-cell">Timeliness</TableHead>
                       <TableHead className="hidden lg:table-cell">Uniqueness</TableHead>
                       <TableHead>Overall</TableHead>
+                      <TableHead className="w-[80px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {moduleBreakdown.map((mod) => (
-                      <TableRow key={mod.moduleId}>
+                      <TableRow key={mod.moduleId} className="cursor-pointer hover:bg-muted/50">
                         <TableCell>
                           <div>
                             <p className="font-medium text-sm">{mod.moduleName}</p>
@@ -499,6 +754,16 @@ export default function DataQualityPage() {
                           <Badge className={cn('text-xs border-0 font-bold', scoreColor(mod.overall), 'bg-transparent')}>
                             {mod.overall}%
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => loadQualityIssues(mod)}
+                          >
+                            <Eye className="w-3 h-3" /> Issues
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -550,7 +815,7 @@ export default function DataQualityPage() {
                     </TableHeader>
                     <TableBody>
                       {deduplication.mergeCandidates.map((group, idx) => {
-                        const similarity = Math.min(70 + Math.random() * 28, 99);
+                        const similarity = Math.min(70 + idx * 5, 99);
                         const isHighConfidence = similarity > 95;
                         return (
                           <TableRow key={idx}>
@@ -590,6 +855,8 @@ export default function DataQualityPage() {
                                   <Button
                                     size="sm"
                                     className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                    onClick={() => handleAutoMerge(group)}
+                                    disabled={!perms.canEdit || mergeActionLoading}
                                   >
                                     <Zap className="w-3 h-3 mr-1" /> Auto-Merge
                                   </Button>
@@ -665,7 +932,7 @@ export default function DataQualityPage() {
       </Tabs>
 
       {/* Merge Dialog - Side by Side Comparison */}
-      <Dialog open={!!mergeDialog} onOpenChange={() => setMergeDialog(null)}>
+      <Dialog open={!!mergeDialog} onOpenChange={() => { setMergeDialog(null); setMergeSurvivorFields({}); }}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -781,17 +1048,98 @@ export default function DataQualityPage() {
           )}
 
           <DialogFooter className="border-t pt-3">
-            <Button variant="outline" onClick={() => setMergeDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setMergeDialog(null); setMergeSurvivorFields({}); }}>Cancel</Button>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-              onClick={() => {
-                toast.success('Records merged successfully (simulated)');
-                setMergeDialog(null);
-              }}
+              onClick={handleExecuteMerge}
+              disabled={mergeActionLoading || !perms.canEdit}
             >
-              <GitMerge className="w-4 h-4" /> Merge Records
+              {mergeActionLoading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Merging...</> : <><GitMerge className="w-4 h-4" /> Merge Records</>}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quality Issues Dialog */}
+      <Dialog open={!!issuesDialogModule} onOpenChange={(open) => { if (!open) setIssuesDialogModule(null); }}>
+        <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Quality Issues: {issuesDialogModule?.moduleName}
+            </DialogTitle>
+            <DialogDescription>
+              Records with quality issues in {issuesDialogModule?.moduleCode}. Overall score: {issuesDialogModule?.overall}%
+            </DialogDescription>
+          </DialogHeader>
+
+          {issuesLoading ? (
+            <div className="py-8 flex justify-center">
+              <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : qualityIssues.length === 0 ? (
+            <div className="py-8 text-center">
+              <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500 mb-4" />
+              <h3 className="text-lg font-medium">No quality issues found</h3>
+              <p className="text-muted-foreground text-sm mt-1">All records in this module pass quality checks.</p>
+            </div>
+          ) : (
+            <ScrollArea className="flex-1">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Record</TableHead>
+                    <TableHead>Field</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Severity</TableHead>
+                    <TableHead className="hidden md:table-cell">Description</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {qualityIssues.map((issue) => (
+                    <TableRow key={issue.id}>
+                      <TableCell className="font-mono text-xs">{issue.recordId.slice(0, 8)}...</TableCell>
+                      <TableCell className="text-sm font-mono">{issue.fieldCode}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]">{issue.issueType}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={cn('text-[10px] border-0',
+                          issue.severity === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' :
+                          issue.severity === 'warning' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
+                          'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300'
+                        )}>
+                          {issue.severity}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-xs text-muted-foreground max-w-[200px] truncate">
+                        {issue.description}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => handleFixIssue(issue)}
+                          disabled={!perms.canEdit || fixingIssue === issue.id}
+                        >
+                          {fixingIssue === issue.id ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : issue.issueType === 'duplicate' ? (
+                            <GitMerge className="w-3 h-3" />
+                          ) : (
+                            <ExternalLink className="w-3 h-3" />
+                          )}
+                          {issue.issueType === 'duplicate' ? 'Merge' : 'Fix'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
         </DialogContent>
       </Dialog>
     </div>

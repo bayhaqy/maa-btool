@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Database, Plus, MoreVertical, Pencil, Trash2, ArrowRight,
   Package, DollarSign, Building2, Store, Truck, Tag, Gift,
-  Copy, Download, Clock, FileText, BarChart3, ToggleLeft,
+  Copy, Download, Clock, FileText, BarChart3,
   Settings2, Layers, MapPin, MonitorSmartphone,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -339,12 +339,7 @@ export default function ModulesPage() {
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Layers className="w-6 h-6 text-red-600" />
             Entity Types
-            {perms.isReadOnly && (
-              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-300 gap-1">
-                <ToggleLeft className="w-3 h-3" />
-                Read Only
-              </Badge>
-            )}
+
           </h2>
           <p className="text-muted-foreground text-sm mt-1">
             Stibo MDM — Manage entity types (modules) and their attribute schemas

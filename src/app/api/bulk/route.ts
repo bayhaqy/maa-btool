@@ -4,6 +4,11 @@ import { getTokenFromHeaders, STATUS_ACTIVE, STATUS_DRAFT } from '@/lib/auth';
 import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
+import { writeFile } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
+
+const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
 // Validate a single row against META_FIELDS (reused from records)
 async function validatePayload(moduleId: string, payload: Record<string, unknown>) {
@@ -32,6 +37,13 @@ async function validatePayload(moduleId: string, payload: Record<string, unknown
     }
     if (field.dataType === 'URL' && typeof value === 'string' && !/^https?:\/\/.+/.test(value)) {
       errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid URL`);
+    }
+    // IMAGE type: accept URLs or empty values
+    if (field.dataType === 'IMAGE' && typeof value === 'string' && value.trim() !== '') {
+      // IMAGE fields accept URLs — validate it looks like a URL
+      if (!/^https?:\/\/.+/i.test(value) && !/^\/api\/uploads\//i.test(value)) {
+        errors.push(`Field "${field.fieldName}" (${field.fieldCode}) must be a valid image URL (http:// or https://)`);
+      }
     }
 
     for (const validation of field.validations) {
@@ -67,6 +79,100 @@ async function validatePayload(moduleId: string, payload: Record<string, unknown
   }
 
   return errors;
+}
+
+/**
+ * Download an image from a URL and save it locally, creating a FileAsset and ImageAsset.
+ * Returns the local file path (e.g. /api/uploads/xxx) or the original URL if download fails.
+ */
+async function downloadAndUploadImage(
+  imageUrl: string,
+  recordId: string,
+  fieldName: string | null,
+): Promise<string> {
+  try {
+    // Skip if already a local path
+    if (imageUrl.startsWith('/api/uploads/')) {
+      return imageUrl;
+    }
+
+    const response = await fetch(imageUrl, {
+      signal: AbortSignal.timeout(15000), // 15s timeout
+    });
+
+    if (!response.ok) {
+      console.warn(`[bulk import] Failed to download image: ${imageUrl} (status: ${response.status})`);
+      return imageUrl; // Return original URL if download fails
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const isImage = contentType.startsWith('image/') ||
+      /\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|heic|heif|avif|svg)(\?.*)?$/i.test(imageUrl);
+
+    if (!isImage) {
+      console.warn(`[bulk import] URL does not appear to be an image: ${imageUrl} (content-type: ${contentType})`);
+      return imageUrl;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    // Determine file extension
+    const extMatch = imageUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|heic|heif|avif|svg)(\?.*)?$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
+
+    const mimeMap: Record<string, string> = {
+      'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+      'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
+      'heic': 'image/heic', 'heif': 'image/heif',
+      'avif': 'image/avif', 'svg': 'image/svg+xml',
+      'bmp': 'image/bmp', 'tiff': 'image/tiff', 'tif': 'image/tiff',
+    };
+    const mimeType = mimeMap[ext] || contentType || 'image/png';
+
+    let filePath: string;
+
+    // Save to disk
+    if (!existsSync(UPLOAD_DIR)) {
+      const { mkdir } = await import('fs/promises');
+      await mkdir(UPLOAD_DIR, { recursive: true });
+    }
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const safeName = `bulk_import_${timestamp}_${randomSuffix}.${ext}`;
+    await writeFile(join(UPLOAD_DIR, safeName), buffer);
+    filePath = `/api/uploads/${safeName}`;
+
+    // Also store in database for consistency
+    await db.fileAsset.create({
+      data: {
+        fileName: safeName,
+        fileData: buffer,
+        mimeType,
+        fileSize: buffer.length,
+        category: 'image',
+      },
+    });
+
+    // Create ImageAsset for the record
+    const existingCount = await db.imageAsset.count({ where: { recordId } });
+    await db.imageAsset.create({
+      data: {
+        recordId,
+        fieldName,
+        fileName: safeName,
+        filePath,
+        fileSize: buffer.length,
+        mimeType,
+        sortOrder: existingCount,
+        isPrimary: existingCount === 0,
+      },
+    });
+
+    return filePath;
+  } catch (error) {
+    console.warn(`[bulk import] Error downloading image ${imageUrl}:`, error);
+    return imageUrl; // Return original URL if download fails
+  }
 }
 
 // GET /api/bulk?action=template&moduleId=xxx - Generate Excel template
@@ -111,20 +217,23 @@ export async function GET(request: NextRequest) {
       orderBy: { sortOrder: 'asc' },
     });
 
-    // Generate template with headers from META_FIELDS
+    // Generate template with headers from META_FIELDS (including IMAGE type)
     if (action === 'template') {
       const headers = fields.map((f) => ({
         fieldCode: f.fieldCode,
         fieldName: f.fieldName,
         dataType: f.dataType,
         isRequired: f.isRequired,
-        placeholder: f.placeholder || '',
+        placeholder: f.dataType === 'IMAGE'
+          ? 'https://example.com/image.jpg'
+          : (f.placeholder || ''),
+        isImage: f.dataType === 'IMAGE',
       }));
 
       return NextResponse.json({ headers, moduleName: metaModule.moduleName, moduleCode: metaModule.moduleCode });
     }
 
-    // Export all ACTIVE records for the module
+    // Export all ACTIVE records for the module (with image URLs)
     if (action === 'export') {
       const isSuperAdmin = tokenPayload.roles.includes('Super Admin');
 
@@ -142,11 +251,37 @@ export async function GET(request: NextRequest) {
         orderBy: { updatedAt: 'desc' },
         include: {
           company: { select: { companyCode: true, companyName: true } },
+          images: {
+            orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+            select: {
+              id: true,
+              fieldName: true,
+              filePath: true,
+              isPrimary: true,
+              mimeType: true,
+            },
+          },
         },
       });
 
+      // Build a set of IMAGE field codes for this module
+      const imageFieldCodes = new Set(
+        fields.filter((f) => f.dataType === 'IMAGE').map((f) => f.fieldCode)
+      );
+
       const data = records.map((r) => {
         const payload = JSON.parse(r.currentPayload);
+
+        // For IMAGE fields in the payload, ensure URLs are included
+        // Also build image URL entries from the ImageAsset records
+        const imageUrls: Record<string, string> = {};
+        for (const img of r.images) {
+          const key = img.fieldName || '_images';
+          if (!imageUrls[key]) {
+            imageUrls[key] = img.filePath;
+          }
+        }
+
         return {
           _id: r.id,
           _status: r.status,
@@ -154,6 +289,10 @@ export async function GET(request: NextRequest) {
           _createdAt: r.createdAt,
           _updatedAt: r.updatedAt,
           ...payload,
+          // Override IMAGE fields with full URLs from ImageAsset if available
+          ...Object.fromEntries(
+            Object.entries(imageUrls).filter(([key]) => key !== '_images')
+          ),
         };
       });
 
@@ -162,7 +301,11 @@ export async function GET(request: NextRequest) {
         total: data.length,
         moduleName: metaModule.moduleName,
         moduleCode: metaModule.moduleCode,
-        fields: fields.map((f) => f.fieldCode),
+        fields: fields.map((f) => ({
+          fieldCode: f.fieldCode,
+          dataType: f.dataType,
+          isImage: f.dataType === 'IMAGE',
+        })),
       });
     }
 
@@ -225,6 +368,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Module not found' }, { status: 404 });
       }
 
+      // Get IMAGE type fields for this module
+      const imageFields = await db.metaField.findMany({
+        where: { moduleId, isActive: true, dataType: 'IMAGE' },
+        select: { fieldCode: true, fieldName: true },
+      });
+      const imageFieldCodes = new Set(imageFields.map((f) => f.fieldCode));
+
       // Create async job to track
       const job = await db.asyncBatchJob.create({
         data: {
@@ -238,6 +388,7 @@ export async function POST(request: NextRequest) {
 
       let validRows = 0;
       let invalidRows = 0;
+      let imageDownloadCount = 0;
       const errors: Array<{ row: number; errors: string[] }> = [];
 
       for (let i = 0; i < data.length; i++) {
@@ -247,7 +398,20 @@ export async function POST(request: NextRequest) {
           errors.push({ row: i + 1, errors: rowErrors });
         } else {
           validRows++;
-          await db.dataRecord.create({
+
+          // Extract image URLs from IMAGE fields before saving the record
+          const imageUrls: Record<string, string> = {};
+          for (const fieldCode of imageFieldCodes) {
+            const value = data[i][fieldCode];
+            if (typeof value === 'string' && value.trim() !== '' && /^https?:\/\/.+/i.test(value)) {
+              imageUrls[fieldCode] = value;
+              // Remove the URL from the payload; we'll replace it with the local path after download
+              data[i][fieldCode] = '';
+            }
+          }
+
+          // Create the record
+          const record = await db.dataRecord.create({
             data: {
               moduleId,
               companyId: tokenPayload.companyId,
@@ -257,6 +421,32 @@ export async function POST(request: NextRequest) {
               updatedById: tokenPayload.userId,
             },
           });
+
+          // Download and upload images for IMAGE fields
+          if (Object.keys(imageUrls).length > 0) {
+            const updatedPayload = { ...data[i] };
+
+            for (const [fieldCode, url] of Object.entries(imageUrls)) {
+              try {
+                const localPath = await downloadAndUploadImage(url, record.id, fieldCode);
+                updatedPayload[fieldCode] = localPath;
+                imageDownloadCount++;
+              } catch (err) {
+                // If image download fails, keep the original URL in the payload
+                updatedPayload[fieldCode] = url;
+                console.warn(`[bulk import] Image download failed for row ${i + 1}, field ${fieldCode}:`, err);
+              }
+            }
+
+            // Update the record with the local image paths
+            await db.dataRecord.update({
+              where: { id: record.id },
+              data: {
+                currentPayload: JSON.stringify(updatedPayload),
+                updatedById: tokenPayload.userId,
+              },
+            });
+          }
         }
       }
 
@@ -277,6 +467,7 @@ export async function POST(request: NextRequest) {
         totalRows: data.length,
         validRows,
         invalidRows,
+        imageDownloadCount,
         errors,
       });
     }
@@ -304,11 +495,30 @@ export async function POST(request: NextRequest) {
         orderBy: { updatedAt: 'desc' },
         include: {
           company: { select: { companyCode: true, companyName: true } },
+          images: {
+            orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+            select: {
+              id: true,
+              fieldName: true,
+              filePath: true,
+              isPrimary: true,
+            },
+          },
         },
       });
 
       const data = records.map((r) => {
         const payload = JSON.parse(r.currentPayload);
+
+        // Build image URLs from ImageAsset records
+        const imageUrls: Record<string, string> = {};
+        for (const img of r.images) {
+          const key = img.fieldName;
+          if (key && !imageUrls[key]) {
+            imageUrls[key] = img.filePath;
+          }
+        }
+
         return {
           _id: r.id,
           _status: r.status,
@@ -316,6 +526,7 @@ export async function POST(request: NextRequest) {
           _createdAt: r.createdAt,
           _updatedAt: r.updatedAt,
           ...payload,
+          ...imageUrls,
         };
       });
 

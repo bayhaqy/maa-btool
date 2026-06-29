@@ -1098,3 +1098,194 @@ Task: Stibo-style multi-tenant overhaul - Company/Users/Roles rework + Custom AI
 2. Force-reset on every build to ensure clean state (data re-seeded automatically)
 3. Git pre-commit hook ensures schema.prisma always has PostgreSQL provider
 4. Company Admin role provides tenant self-management without global Super Admin access
+
+---
+Task ID: 3
+Agent: AI Assistant Fix Agent
+Task: Fix AI Assistant and add GLM-5.1 custom provider
+
+Work Log:
+- Read all AI-related source files to understand the current architecture
+- Identified root cause: No AI provider configuration was seeded in the database (AppSettings table was empty, TenantAiConfig table was empty)
+- Seeded global AI config in AppSettings: Gemini (gemini-2.0-flash) as the default global provider with API key
+- Seeded MAPA tenant AI config in TenantAiConfig: Custom provider (DashScope/GLM-5.1) with dedicated API key, base URL, and model
+- Fixed streaming route (/api/ai/chat/stream/route.ts): 
+  - Changed from getAIProviderConfig (global-only) to getTenantAIProviderConfig (tenant-scoped)
+  - Added hasPermission RBAC check instead of manual role array check
+  - Added rate limiting via rateLimitByCategory
+  - Added customHeaders support in streamFromProvider function
+  - Added reasoning_content handling for GLM-5.1 thinking model
+  - Added Gemini non-streaming fallback when streaming fails or returns empty
+  - Added OpenAI-compatible non-streaming fallback when provider doesn't return SSE stream
+- Fixed AI env route (/api/ai/env/route.ts):
+  - Added GET handler to check AI availability and configuration status
+  - Reports whether AI is configured, the source (database/environment/none), and provider
+- Fixed AiSettingsPage (/src/components/mdm/AiSettingsPage.tsx):
+  - Removed hardcoded API key from handlePreFillDashScope (security fix)
+  - Pre-fill now sets URL and model only, leaving API key empty for user to enter
+- Fixed AiAssistantPage (/src/components/mdm/AiAssistantPage.tsx):
+  - Added reasoning field to ChatMessage interface for thinking/reasoning content
+  - Added handling for 'reasoning' SSE event type from GLM-5.1
+  - Added collapsible "Show thinking process" section in message display for reasoning content
+  - Streaming now properly tracks both content and reasoning deltas
+
+Stage Summary:
+- AI Assistant now works end-to-end with multi-provider support
+- Global default: Google Gemini (gemini-2.0-flash) for all companies except MAPA
+- MAPA tenant: Custom/DashScope provider with GLM-5.1 model
+- Streaming works with all providers including fallback for non-streaming providers
+- GLM-5.1 thinking/reasoning content is properly displayed in a collapsible section
+- All API keys are properly secured (not hardcoded in frontend)
+- Rate limiting and RBAC are properly enforced on all AI endpoints
+- AI Settings page allows proper configuration of all 5 providers (ZAI, Gemini, OpenAI, Azure, Custom)
+
+---
+Task ID: 5
+Agent: Roles & Bulk Import Fix Agent
+Task: Fix roles scope issues and bulk import/export image support
+
+Work Log:
+- Read all relevant source files (AdminRolesPage.tsx, roles API, BulkImportPage.tsx, bulk API, Prisma schema)
+- Changed scope values from "MODULE" to "MODULE_LEVEL" for clarity
+- Added module selection UI with checkboxes in role create/edit dialog
+- Added Select All / Clear buttons for module selection
+- Updated permission matrix to only show selected modules when scope is MODULE_LEVEL
+- Added module assignment display in role cards (module badges + warning when none assigned)
+- Added API and SFTP role types to ROLE_TYPE_INFO in rbac.ts
+- Updated summary cards grid from 7 to 9 columns for new role types
+- Added MODULE_LEVEL scope validation in roles API (requires at least one module)
+- Migrated 6 existing roles from scope=MODULE to scope=MODULE_LEVEL in database
+- Added handleScopeChange to auto-select all modules when switching to GLOBAL scope
+- Implemented image URL download and upload during bulk import
+- Added image field detection and validation in bulk import API
+- Created downloadAndUploadImage function for downloading and storing images locally
+- Updated bulk export to include ImageAsset URLs alongside record payloads
+- Updated template generation to include IMAGE type fields with URL placeholders
+- Added isImage flag to template header info
+- Updated BulkImportPage UI with image field indicators, info banners, and download count
+- Verified lint passes for all changed files
+- Verified dev server compiles successfully
+
+Stage Summary:
+- Roles now have proper MODULE_LEVEL scope with visual module selection UI
+- Module badges display in role cards showing assigned modules
+- Warning shown when MODULE_LEVEL scope has no modules assigned
+- API Manager and SFTP Manager role types now display correctly in UI
+- Bulk import automatically downloads and stores images from URLs
+- Bulk export includes image URLs from ImageAsset records
+- Template generation includes IMAGE fields with URL placeholders
+- All changes pass lint checks and compile successfully
+
+---
+Task ID: 4
+Agent: Data Features Fix Agent
+Task: Fix Data Stewardship, Data Quality, Data Catalog - make buttons functional, remove read-only labels
+
+Work Log:
+- Read and analyzed all relevant component files: DataStewardshipPage.tsx, DataQualityPage.tsx, DataCatalogPage.tsx
+- Read API routes: /api/stewardship, /api/data-quality, /api/data-catalog
+- Read app store navigation system and permissions hook
+- Completely rewrote DataStewardshipPage.tsx to fetch tasks from /api/stewardship API
+- Added functional Review dialog with notes and status change to IN_PROGRESS
+- Added functional Merge dialog that starts the merge process and links to Data Quality dedup panel
+- Added functional Complete dialog with resolution text
+- Added functional Reassign dialog with user select dropdown
+- Added functional Create Task dialog with module, type, priority, description fields
+- Added functional Assign Steward dialog on ownership tab
+- Added dismiss task action (sets status to CANCELLED)
+- Added resolve alert functionality on Alerts tab
+- All stewardship actions call the /api/stewardship API (PATCH for updates, POST for creation)
+- Completely rewrote DataQualityPage.tsx with functional buttons
+- Added "Run Quality Check" button that POSTs to /api/data-quality to persist scores then refreshes
+- Added quality issues dialog per module (click "Issues" button on each module row)
+- Issues dialog shows real data: missing values, invalid emails, duplicates
+- Added "Fix" button on quality issues that navigates to record editing or stewardship for dedup
+- Added functional Auto-Merge button that creates a stewardship task
+- Added functional Merge Records button in compare dialog that creates a merge task via API
+- Completely rewrote DataCatalogPage.tsx to fetch real data from /api/data-catalog API
+- Added "View Records" button that navigates to data-records page with moduleId filter
+- Added "View Lineage" button that opens a full lineage dialog with upstream sources and downstream consumers
+- Added taxonomy tree built from real API domain groups
+- Added taxonomy node click-through to open asset detail
+- Added loading skeletons for initial data fetch
+- Added Refresh button to all three pages
+- Removed "Read Only" badges from 8 component files:
+  - AdminUsersPage.tsx
+  - AdminRolesPage.tsx
+  - AdminCompaniesPage.tsx
+  - BusinessRulesPage.tsx
+  - RecordDetailPage.tsx
+  - ModulesPage.tsx
+  - DataRecordsPage.tsx
+  - AiAssistantPage.tsx
+  - AiSettingsPage.tsx
+- Cleaned up unused icon imports (Lock, Eye, ToggleLeft) after badge removal
+- Added POST endpoint to /api/data-quality for persisting quality scores to DataQualityScore table
+- The POST endpoint calculates and saves per-module overall + dimension scores
+- This enables quality trend tracking over time
+- Verified all API routes work correctly
+- All changes pass ESLint checks
+- Dev server compiles successfully with no errors
+
+Stage Summary:
+- DataStewardshipPage: All buttons (Review, Merge, Assign Ownership, Complete, Reassign, Dismiss, Create Task) now functional with API integration and proper dialogs
+- DataQualityPage: All buttons (Run Quality Check, Issues, Fix, Auto-Merge, Compare/Merge) now functional with API integration
+- DataCatalogPage: View Records navigates to filtered data records, View Lineage opens lineage dialog, data fetched from real API
+- All "Read Only" visual badges removed from 8 pages (isReadOnly permission check still works for disabling buttons)
+- Data Quality API now has POST endpoint for persisting quality check results
+- Taxonomy tree reflects real module/category data from the database
+
+---
+Task ID: 2
+Agent: Seed Data Overhaul Agent
+Task: Massive seed data overhaul
+
+Work Log:
+- Read existing worklog, Prisma schema, and both seed files to understand current state
+- Expanded seed/route.ts: 28 users (from 10), 16 roles (from 9), 12 modules (from 7), 18+ lookups, 3 hierarchies, TenantAiConfig, AppSettings
+- Expanded seed-data/route.ts: 25+ articles, 20+ stores, 20+ customers, 16 brands, 15+ categories, 11 suppliers, 15+ pricing, 11 promotions, 20+ inventory, 15+ employees, 12 business rules, 16 digital assets, 5 stewardship tasks, workflow template
+- Fixed business rules to use correct schema fields (conditionJson/actionJson instead of expression)
+- Made seed-data idempotent with missing module creation and user fallbacks
+- All lint checks pass
+
+Stage Summary:
+- Comprehensive retail MDM seed data with realistic MAP Active Adiperkasa data
+- 28 users across 6 companies with per-company roles and permissions
+- 12 modules covering full retail lifecycle (articles, stores, suppliers, pricing, promotions, customers, brands, categories, inventory, employees, budgets, assets)
+- 150+ data records across all modules with Indonesian retail context
+- 12 business rules with proper Stibo CONDITION/ACTION/FUNCTION types
+- 16 digital assets with placeholder images
+- 3 hierarchy models (Product, Geographic, Organization)
+- 18+ lookup tables with cascading values
+- AI configuration for both tenant (MAPA) and global level
+
+---
+Task ID: QC-FIX-1
+Agent: Main Agent
+Task: Comprehensive QC and fix all user-reported issues
+
+Work Log:
+- Fixed seed data: expanded from 7→12 modules, 5→25+ records per module, added 6 MAP Group companies, 28 users across all companies
+- Fixed AI Assistant: added GLM-5.1 custom provider, seeded AI config in DB, fixed streaming route, fixed tenant-scoped AI config
+- Fixed Data Stewardship: all buttons now functional (review, merge, complete, reassign, create task)
+- Fixed Data Quality: Run Quality Check button works, issues button shows real data, fix/merge actions functional
+- Fixed Data Catalog: View Records navigates to Data Records, View Lineage shows dialog, fetches real data from API
+- Fixed Roles: MODULE_LEVEL scope now shows module selector, API Manager & SFTP Manager have modules assigned
+- Removed "Read Only" badges from all pages (AdminUsersPage, AdminRolesPage, BusinessRulesPage, etc.)
+- Fixed Bulk Import/Export: added image URL support (auto-download on import, include URLs on export)
+- Fixed Business Rules: added 12 sample rules with proper conditionJson/actionJson
+- Fixed Digital Assets: added 16 sample assets (product images, brand logos, store photos)
+- Fixed Hierarchy: added 3 hierarchies (Product Category, Geographic, Organization) with nodes
+- Fixed Lookups: added 18+ lookup tables with values (brands, sizes, colors, currencies, etc.)
+- Fixed TypeScript errors: seed-data/route.ts type issues, AppShell missing data-exchange, DataExchangePage missing getStatusColor, data-quality route
+- Added JWT_SECRET to .env for local dev
+- Added data-exchange breadcrumb path and title in AppShell
+
+Stage Summary:
+- All user-reported issues addressed
+- Sample data massively expanded with realistic MAP retail data
+- AI Assistant now works with both Gemini (global) and GLM-5.1 (MAPA tenant)
+- All interactive buttons in Data Stewardship, Data Quality, Data Catalog are functional
+- Roles with MODULE_LEVEL scope properly show module selection
+- Bulk Import/Export supports image URL fields
+- Ready for Vercel deployment
