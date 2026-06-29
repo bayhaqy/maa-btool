@@ -403,15 +403,19 @@ export async function POST(request: NextRequest) {
 
     // Get a super admin user for createdById
     const superAdminRole = await db.sysRole.findFirst({
-      where: { roleName: 'Super Admin', companyId: 'SYSTEM' },
+      where: { roleName: 'Super Admin' },
     });
+    // Find super admin user — try by role first, then by username
     const superAdminUserRole = superAdminRole
       ? await db.userRole.findFirst({ where: { roleId: superAdminRole.id } })
       : null;
-    const superAdmin = superAdminUserRole
+    let superAdmin = superAdminUserRole
       ? await db.sysUser.findUnique({ where: { id: superAdminUserRole.userId } })
       : null;
-    const adminId = superAdmin?.id ?? 'system';
+    if (!superAdmin) {
+      superAdmin = await db.sysUser.findFirst({ where: { username: 'superadmin' } });
+    }
+    const adminId: string | null = superAdmin?.id ?? null;
 
     // Build module ID map for easy access
     const moduleMap: Record<string, string> = {};
@@ -1259,12 +1263,16 @@ export async function POST(request: NextRequest) {
     ];
 
     // Filter out tasks where recordId is needed but article wasn't created
+    // Also filter out tasks with invalid assignedTo/assignedBy (null adminId)
     const validTasks = stewardshipTasks.filter((t) => {
+      if (t.assignedTo === null || t.assignedBy === null) return false;
       if (t.recordId === null) return true; // Module-level task
       return t.recordId !== undefined;
     });
 
-    await db.stewardshipTask.createMany({ data: validTasks });
+    if (validTasks.length > 0) {
+      await db.stewardshipTask.createMany({ data: validTasks });
+    }
     summary.created['StewardshipTask'] = validTasks.length;
     summary.steps.push(`Step 14: Created ${validTasks.length} StewardshipTask records`);
     console.info(`[reseed-map-data] Step 14 complete: ${validTasks.length} stewardship tasks`);
