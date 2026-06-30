@@ -228,7 +228,7 @@ function parseSlaConfig(raw: unknown): { defaultDeadlineHours: number; escalatio
 
 function parseAutoApproveRules(raw: unknown): Array<{ condition: string; targetState: string; description?: string }> | null {
   if (!raw) return null;
-  const p = parsePayload<unknown[]>(raw, null);
+  const p = parsePayload<unknown[]>(raw, undefined as unknown as unknown[]);
   return Array.isArray(p) ? p as Array<{ condition: string; targetState: string; description?: string }> : null;
 }
 
