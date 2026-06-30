@@ -97,3 +97,61 @@ Pending:
 - Vercel deployment for login page update still in progress (login quick buttons)
 - The API fix (parsePayload) is already working correctly in the current deployed version
 - TypeScript strict mode errors remain but don't block builds (ignoreBuildErrors: true)
+
+---
+Task ID: 5
+Agent: Main
+Task: Add Cloudflare R2 storage, AI write operations, and Stibo-like AI enrichment
+
+Work Log:
+- Researched best practices for Cloudflare R2 integration with Next.js/MDM
+- Created `/src/lib/r2.ts` — Full R2 client library with S3-compatible API
+  - Upload with variant generation (thumbnail, small, medium, large)
+  - Pre-signed URLs for secure access (getSignedReadUrl, getSignedUploadUrl)
+  - Download from R2 and external URLs
+  - Delete with variants
+  - Public URL resolution
+- Updated Prisma schema — Added r2Key and storageType fields:
+  - ImageAsset: r2Key (String?), storageType (String, default "local")
+  - ImageVariant: r2Key (String?)
+  - DigitalAsset: r2Key (String?), storageType (String, default "local")
+- Created `/src/app/api/r2-image/route.ts` — R2 image proxy API
+  - GET /api/r2-image?key=xxx — Redirects to signed URL
+  - GET /api/r2-image?key=xxx&download=true — Forces download
+- Updated `/src/app/api/images/route.ts` — R2 as first storage option
+  - Priority: R2 (when configured) → FileAsset (Vercel) → Disk (local dev)
+  - R2 uploads include automatic variant generation
+  - Delete cleans up R2 objects for R2-stored images
+- Updated `/src/app/api/digital-assets/route.ts` — R2 as first storage option
+  - Images get variant generation, non-images get direct upload
+  - Delete cleans up R2 objects
+- Created `/src/app/api/r2-migrate/route.ts` — Migration and sync API
+  - POST {action: 'migrate-existing'} — Migrates local/FileAsset images to R2
+  - POST {action: 'sync-external', urls: [...]} — Downloads external URLs → R2 → DigitalAsset
+  - POST {action: 'sync-to-dam'} — Creates DigitalAssets from existing ImageAssets
+- Created `/src/app/api/db-migrate/route.ts` — PostgreSQL schema migration API
+  - Adds r2Key and storageType columns to ImageAsset, ImageVariant, DigitalAsset
+- Enhanced AI Assistant with write operations:
+  - Added 9 tools: search_records, get_record, create_record, update_record, delete_record, submit_for_approval, approve_record, get_data_quality, list_modules
+  - Tool calls parsed from AI response using [TOOL_CALL:name(args)] pattern
+  - Server-side execution with permission checks
+  - Frontend updated to display tool results in chat
+- Created `/src/app/api/ai-enrichment/route.ts` — Stibo-like AI features
+  - Auto-classification: Suggest categories, tags, attributes based on existing data
+  - Auto-enrichment: Fill missing fields with smart defaults (PENDING_REVIEW workflow)
+  - Data quality check: Identify issues and suggest fixes with severity levels
+  - Image analysis: Generate alt text, descriptions, SEO keywords
+  - Bulk enrichment: Process multiple records at once
+- Tested R2 integration:
+  - Bucket name confirmed: 'maa-btool' (not 'maa-btool-assets')
+  - Upload/read/variant generation all working
+  - Environment variables configured locally
+
+Stage Summary:
+- R2 storage fully integrated and tested
+- AI Assistant now supports write operations (search, create, update, delete records)
+- Stibo-like AI enrichment features added
+- Database migration API created for production
+- Code pushed to GitHub for Vercel deployment
+- NEEDS: Vercel environment variables for R2 (R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET)
+- NEEDS: Run /api/db-migrate on production to add new columns
