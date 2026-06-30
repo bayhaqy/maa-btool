@@ -6,6 +6,7 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { jsonVal, jsonParse } from '@/lib/db-json';
+import { isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl, uploadToR2 } from '@/lib/r2';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'digital-assets');
 
@@ -206,8 +207,28 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     let filePath: string;
+    let r2Key: string | null = null;
+    let storageType = 'local';
 
-    if (isReadOnlyFs()) {
+    if (isR2Configured()) {
+      // R2 storage (preferred) — upload to Cloudflare R2 with variants
+      const key = generateR2Key('digital-assets', recordId || 'unlinked', file.name);
+      if (assetType === 'IMAGE') {
+        // Generate variants for images
+        await uploadWithVariants(buffer, key, mimeType, {
+          metadata: { 'original-name': file.name, 'category': category || '' },
+        });
+        filePath = getR2PublicUrl(key) || `/api/r2-image?key=${encodeURIComponent(key)}/original`;
+      } else {
+        // Non-image assets: just upload original
+        await uploadToR2(buffer, key, mimeType, {
+          metadata: { 'original-name': file.name, 'category': category || '' },
+        });
+        filePath = getR2PublicUrl(key) || `/api/r2-image?key=${encodeURIComponent(key)}`;
+      }
+      r2Key = key;
+      storageType = 'r2';
+    } else if (isReadOnlyFs()) {
       const fileAsset = await db.fileAsset.create({
         data: {
           fileName: file.name,
@@ -278,6 +299,8 @@ export async function POST(request: NextRequest) {
         uploadedById: tokenPayload.userId,
         isPrimary: false,
         sortOrder: 0,
+        r2Key,
+        storageType,
       },
       include: {
         variants: true,
@@ -338,15 +361,20 @@ export async function PUT(request: NextRequest) {
               results.push({ id: assetId, success: false, error: 'Not found' });
               continue;
             }
-            const fileId = asset.filePath.split('/').pop() || '';
-            const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
-            if (isCuid) {
-              try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+            // R2 cleanup
+            if (asset.storageType === 'r2' && asset.r2Key) {
+              try { await deleteWithVariants(asset.r2Key); } catch { /* best effort */ }
             } else {
-              try {
-                const { unlink } = await import('fs/promises');
-                await unlink(join(process.cwd(), 'public', asset.filePath));
-              } catch { /* ok */ }
+              const fileId = asset.filePath.split('/').pop() || '';
+              const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
+              if (isCuid) {
+                try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+              } else {
+                try {
+                  const { unlink } = await import('fs/promises');
+                  await unlink(join(process.cwd(), 'public', asset.filePath));
+                } catch { /* ok */ }
+              }
             }
             try {
               const variants = await db.digitalAssetVariant.findMany({
@@ -490,15 +518,20 @@ export async function DELETE(request: NextRequest) {
         if (!asset) { errors++; continue; }
         if (!isSA && asset.companyId !== companyId) { errors++; continue; }
 
-        const fileId = asset.filePath.split('/').pop() || '';
-        const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
-        if (isCuid) {
-          try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+        // R2 cleanup
+        if (asset.storageType === 'r2' && asset.r2Key) {
+          try { await deleteWithVariants(asset.r2Key); } catch { /* best effort */ }
         } else {
-          try {
-            const { unlink } = await import('fs/promises');
-            await unlink(join(process.cwd(), 'public', asset.filePath));
-          } catch { /* ok */ }
+          const fileId = asset.filePath.split('/').pop() || '';
+          const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
+          if (isCuid) {
+            try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+          } else {
+            try {
+              const { unlink } = await import('fs/promises');
+              await unlink(join(process.cwd(), 'public', asset.filePath));
+            } catch { /* ok */ }
+          }
         }
 
         try {

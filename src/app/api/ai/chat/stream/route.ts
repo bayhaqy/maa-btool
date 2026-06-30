@@ -4,6 +4,7 @@ import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import { getTenantAIProviderConfig, type AIProvider } from '@/lib/ai';
 import { rateLimitByCategory } from '@/lib/rate-limit';
+import { jsonVal, jsonParse } from '@/lib/db-json';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,20 +19,310 @@ Key information about the system:
 - Record statuses: DRAFT → IN_REVIEW → ACTIVE/REJECTED → ARCHIVED
 - Features: CRUD operations, approval workflow, bulk import/export, hierarchy management, image upload, API keys, SFTP sync, documentation
 
+You have access to the following tools that allow you to interact with the MDM system:
+- search_records: Search for records by module, keyword, or status
+- get_record: Get detailed record information
+- create_record: Create new records (DRAFT status)
+- update_record: Update existing records (triggers amendment workflow for ACTIVE records)
+- delete_record: Delete DRAFT records
+- submit_for_approval: Submit DRAFT records for review
+- approve_record: Approve records in review
+- get_data_quality: Get data quality scores
+- list_modules: List all available modules
+
+When users ask you to perform actions, use the appropriate tool. Always confirm with the user before making destructive changes (delete, approve).
+
+When you need to call a tool, output it in this exact format on its own line:
+[TOOL_CALL:tool_name(JSON arguments)]
+
+For example:
+[TOOL_CALL:search_records({"moduleCode": "ARTICLE_MASTER", "search": "Nike"})]
+[TOOL_CALL:list_modules({})]
+[TOOL_CALL:create_record({"moduleCode": "ARTICLE_MASTER", "data": {"name": "New Product", "code": "ART-001"}})]
+
+You can call multiple tools in a single response if needed. After the tool results are returned, you will summarize the results for the user.
+
 Format your responses using Markdown when helpful: use **bold** for emphasis, bullet lists, numbered steps, and fenced code blocks for code or commands. Be concise but thorough.`;
 
 interface SSEEvent {
-  type: 'delta' | 'reasoning' | 'done' | 'error';
+  type: 'delta' | 'reasoning' | 'tool_result' | 'done' | 'error';
   content?: string;
   conversationId?: string;
   messageId?: string;
   tokensUsed?: number;
   aiConfigured?: boolean;
   message?: string;
+  toolCalls?: Array<{ name: string; args: Record<string, unknown> }>;
+  toolResults?: Array<{ name: string; result: unknown }>;
 }
 
 function sseEncode(event: SSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+// ─── AI Tool definitions ──────────────────────────────────────────
+
+const AI_TOOLS = [
+  {
+    name: 'search_records',
+    description: 'Search for data records in the MDM system. Returns matching records with their data.',
+    parameters: {
+      type: 'object',
+      properties: {
+        moduleCode: { type: 'string', description: 'Module code (e.g., ARTICLE_MASTER, STORE_MASTER)' },
+        search: { type: 'string', description: 'Search query' },
+        status: { type: 'string', description: 'Filter by status (DRAFT, IN_REVIEW, ACTIVE, REJECTED, ARCHIVED)' },
+        limit: { type: 'number', description: 'Max results (default 10)' },
+      },
+      required: ['moduleCode'],
+    },
+  },
+  {
+    name: 'get_record',
+    description: 'Get detailed information about a specific data record by ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID' },
+      },
+      required: ['recordId'],
+    },
+  },
+  {
+    name: 'create_record',
+    description: 'Create a new data record in the MDM system. The record will be created in DRAFT status.',
+    parameters: {
+      type: 'object',
+      properties: {
+        moduleCode: { type: 'string', description: 'Module code' },
+        data: { type: 'object', description: 'Record data as key-value pairs' },
+      },
+      required: ['moduleCode', 'data'],
+    },
+  },
+  {
+    name: 'update_record',
+    description: 'Update an existing data record. For ACTIVE records, this triggers the amendment workflow.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID' },
+        data: { type: 'object', description: 'Fields to update as key-value pairs' },
+      },
+      required: ['recordId', 'data'],
+    },
+  },
+  {
+    name: 'delete_record',
+    description: 'Delete a data record (only DRAFT records can be deleted directly).',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID' },
+      },
+      required: ['recordId'],
+    },
+  },
+  {
+    name: 'submit_for_approval',
+    description: 'Submit a DRAFT record for approval (changes status to IN_REVIEW).',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID' },
+      },
+      required: ['recordId'],
+    },
+  },
+  {
+    name: 'approve_record',
+    description: 'Approve a record that is IN_REVIEW (changes status to ACTIVE).',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID' },
+        comment: { type: 'string', description: 'Optional approval comment' },
+      },
+      required: ['recordId'],
+    },
+  },
+  {
+    name: 'get_data_quality',
+    description: 'Get data quality scores and issues for records.',
+    parameters: {
+      type: 'object',
+      properties: {
+        moduleCode: { type: 'string', description: 'Module code' },
+        recordId: { type: 'string', description: 'Optional specific record ID' },
+      },
+    },
+  },
+  {
+    name: 'list_modules',
+    description: 'List all available modules in the MDM system.',
+    parameters: { type: 'object', properties: {} },
+  },
+];
+
+// ─── Tool execution engine ────────────────────────────────────────
+
+async function executeToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  companyId: string,
+  _userId: string,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  try {
+    switch (toolName) {
+      case 'search_records': {
+        const { moduleCode, search, status, limit = 10 } = args;
+        const mod = await db.metaModule.findFirst({ where: { moduleCode: String(moduleCode) } });
+        if (!mod) return { success: false, error: `Module ${moduleCode} not found` };
+
+        const where: Record<string, unknown> = { moduleId: mod.id, companyId };
+        if (status) where.status = String(status);
+
+        let records = await db.dataRecord.findMany({
+          where,
+          take: Number(limit) * 3, // Fetch extra to allow in-memory search filtering
+          orderBy: { updatedAt: 'desc' },
+          include: { module: { select: { moduleCode: true, moduleName: true } } },
+        });
+
+        // If a search term is provided, filter in-memory on JSON payload fields
+        if (search) {
+          const term = String(search).toLowerCase();
+          records = records.filter(r => {
+            const payload = jsonParse<Record<string, unknown>>(r.currentPayload) || {};
+            return Object.values(payload).some(v =>
+              String(v).toLowerCase().includes(term),
+            );
+          });
+        }
+
+        return { success: true, data: records.slice(0, Number(limit)) };
+      }
+
+      case 'get_record': {
+        const record = await db.dataRecord.findUnique({
+          where: { id: String(args.recordId) },
+          include: { module: { select: { moduleCode: true, moduleName: true } } },
+        });
+        if (!record) return { success: false, error: 'Record not found' };
+        return { success: true, data: record };
+      }
+
+      case 'create_record': {
+        const { moduleCode, data } = args;
+        const mod = await db.metaModule.findFirst({ where: { moduleCode: String(moduleCode) } });
+        if (!mod) return { success: false, error: `Module ${moduleCode} not found` };
+
+        const recordData = (data as Record<string, unknown>) || {};
+        const record = await db.dataRecord.create({
+          data: {
+            moduleId: mod.id,
+            companyId,
+            currentPayload: jsonVal({
+              ...recordData,
+              name: recordData.name || recordData.recordName || 'New Record',
+              code: recordData.code || recordData.recordCode || `REC-${Date.now()}`,
+            }),
+            status: 'DRAFT',
+            createdById: _userId,
+          },
+        });
+        return { success: true, data: record };
+      }
+
+      case 'update_record': {
+        const { recordId, data } = args;
+        const record = await db.dataRecord.findUnique({ where: { id: String(recordId) } });
+        if (!record) return { success: false, error: 'Record not found' };
+
+        // Merge with existing payload
+        const existingPayload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+        const updatedPayload = { ...existingPayload, ...(data as Record<string, unknown>) };
+
+        if (record.status === 'ACTIVE') {
+          // Amendment workflow: create a DataVersion snapshot and set to REVISION_PENDING
+          const versionCount = await db.dataVersion.count({ where: { recordId: record.id } });
+          await db.dataVersion.create({
+            data: {
+              recordId: record.id,
+              payloadSnapshot: jsonVal(updatedPayload),
+              versionNumber: versionCount + 1,
+              changeReason: 'AI Assistant update',
+              status: 'REVISION_PENDING',
+            },
+          });
+          await db.dataRecord.update({
+            where: { id: String(recordId) },
+            data: { status: 'REVISION_PENDING', currentPayload: jsonVal(updatedPayload) },
+          });
+        } else {
+          await db.dataRecord.update({
+            where: { id: String(recordId) },
+            data: { currentPayload: jsonVal(updatedPayload) },
+          });
+        }
+        return { success: true, data: { recordId, updated: Object.keys(data as Record<string, unknown>) } };
+      }
+
+      case 'delete_record': {
+        const record = await db.dataRecord.findUnique({ where: { id: String(args.recordId) } });
+        if (!record) return { success: false, error: 'Record not found' };
+        if (record.status !== 'DRAFT') return { success: false, error: 'Only DRAFT records can be deleted' };
+        await db.dataRecord.delete({ where: { id: String(args.recordId) } });
+        return { success: true, data: { deleted: true } };
+      }
+
+      case 'submit_for_approval': {
+        const record = await db.dataRecord.findUnique({ where: { id: String(args.recordId) } });
+        if (!record) return { success: false, error: 'Record not found' };
+        if (record.status !== 'DRAFT') return { success: false, error: 'Only DRAFT records can be submitted for approval' };
+        await db.dataRecord.update({ where: { id: String(args.recordId) }, data: { status: 'IN_REVIEW' } });
+        return { success: true, data: { status: 'IN_REVIEW' } };
+      }
+
+      case 'approve_record': {
+        const record = await db.dataRecord.findUnique({ where: { id: String(args.recordId) } });
+        if (!record) return { success: false, error: 'Record not found' };
+        if (record.status !== 'IN_REVIEW' && record.status !== 'REVISION_PENDING') {
+          return { success: false, error: 'Record is not in review (status: ' + record.status + ')' };
+        }
+        await db.dataRecord.update({ where: { id: String(args.recordId) }, data: { status: 'ACTIVE' } });
+        return { success: true, data: { status: 'ACTIVE' } };
+      }
+
+      case 'get_data_quality': {
+        const { moduleCode, recordId } = args;
+        if (recordId) {
+          const scores = await db.dataQualityScore.findMany({
+            where: { recordId: String(recordId) },
+          });
+          return { success: true, data: scores };
+        }
+        const where: Record<string, unknown> = {};
+        if (moduleCode) {
+          const mod = await db.metaModule.findFirst({ where: { moduleCode: String(moduleCode) } });
+          if (mod) where.moduleId = mod.id;
+        }
+        const scores = await db.dataQualityScore.findMany({ where, take: 20, orderBy: { score: 'asc' } });
+        return { success: true, data: scores };
+      }
+
+      case 'list_modules': {
+        const modules = await db.metaModule.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } });
+        return { success: true, data: modules.map(m => ({ code: m.moduleCode, name: m.moduleName, entityType: m.entityType })) };
+      }
+
+      default:
+        return { success: false, error: `Unknown tool: ${toolName}` };
+    }
+  } catch (error) {
+    console.error(`Tool execution error (${toolName}):`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
 
 // ─── Multi-provider streaming AI call ─────────────────────────────
@@ -533,6 +824,81 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // ── Tool call processing ──────────────────────────────────────
+        // After the AI generates its response, check for [TOOL_CALL:...] patterns.
+        // If found, execute the tool calls and generate a summary response.
+
+        const toolCallRegex = /\[TOOL_CALL:(\w+)\((.+?\))\]/g;
+        let match: RegExpExecArray | null;
+        const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+        while ((match = toolCallRegex.exec(fullResponse)) !== null) {
+          try {
+            const toolName = match[1];
+            const argsStr = match[2];
+            const args = JSON.parse(argsStr);
+            toolCalls.push({ name: toolName, args });
+          } catch {
+            // Invalid tool call format, skip
+          }
+        }
+
+        if (toolCalls.length > 0) {
+          // Strip tool call patterns from the displayed response
+          const cleanedResponse = fullResponse.replace(/\[TOOL_CALL:\w+\(.+?\)\]/g, '').trim();
+
+          // Execute tool calls
+          const toolResults: Array<{ name: string; result: unknown }> = [];
+          for (const tc of toolCalls) {
+            const result = await executeToolCall(tc.name, tc.args, tokenPayload.companyId, tokenPayload.userId);
+            toolResults.push({ name: tc.name, result });
+          }
+
+          // Send tool results as an event so the frontend can display them
+          send({ type: 'tool_result', toolCalls, toolResults });
+
+          // Generate a follow-up summary response based on tool results
+          const toolResultSummary = JSON.stringify(toolResults, null, 2);
+          const summaryPrompt: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            ...aiMessages,
+            { role: 'assistant', content: cleanedResponse || 'I will look that up for you.' },
+            {
+              role: 'user',
+              content: `[TOOL RESULTS]\n${toolResultSummary}\n\nBased on these tool results, provide a clear and helpful summary to the user. If the tool call was successful, describe what was done or what data was found. If it failed, explain the error and suggest next steps. Do not mention the tool call mechanism — just present the information naturally.`,
+            },
+          ];
+
+          try {
+            const config = await getTenantAIProviderConfig(tokenPayload.companyId);
+            if (config.apiKey) {
+              const summaryResult = await streamFromProvider(config.provider, config, summaryPrompt, send);
+              fullResponse = cleanedResponse + '\n\n' + summaryResult.fullResponse;
+              tokensUsed += summaryResult.tokensUsed;
+            } else {
+              // Demo mode: generate a simple summary
+              const demoSummary = generateToolResultSummary(toolResults);
+              fullResponse = cleanedResponse + '\n\n' + demoSummary;
+              const chunkSize = 8;
+              for (let i = 0; i < demoSummary.length; i += chunkSize) {
+                const chunk = demoSummary.slice(i, i + chunkSize);
+                send({ type: 'delta', content: chunk });
+                await new Promise(r => setTimeout(r, 12));
+              }
+            }
+          } catch (summaryError) {
+            console.error('AI summary generation error:', summaryError);
+            // Fall back to a raw tool result display
+            const fallbackSummary = generateToolResultSummary(toolResults);
+            fullResponse = cleanedResponse + '\n\n' + fallbackSummary;
+            const chunkSize = 8;
+            for (let i = 0; i < fallbackSummary.length; i += chunkSize) {
+              const chunk = fallbackSummary.slice(i, i + chunkSize);
+              send({ type: 'delta', content: chunk });
+              await new Promise(r => setTimeout(r, 12));
+            }
+          }
+        }
+
         // 4. Save assistant message
         const assistantMessage = await db.aiMessage.create({
           data: {
@@ -690,4 +1056,116 @@ Try asking me:
   }
 
   return prefix + body;
+}
+
+// ── Tool result summary generator (fallback when AI is not configured) ──
+
+function generateToolResultSummary(
+  toolResults: Array<{ name: string; result: unknown }>,
+): string {
+  const lines: string[] = [];
+
+  for (const tr of toolResults) {
+    const result = tr.result as { success?: boolean; data?: unknown; error?: string } | undefined;
+    if (!result) {
+      lines.push(`**${tr.name}**: No result returned.`);
+      continue;
+    }
+
+    if (result.success) {
+      switch (tr.name) {
+        case 'search_records': {
+          const records = result.data as Array<Record<string, unknown>> | undefined;
+          if (!records || records.length === 0) {
+            lines.push('**Search Results**: No records found matching your criteria.');
+          } else {
+            lines.push(`**Search Results**: Found **${records.length}** record(s):`);
+            for (const r of records.slice(0, 10)) {
+              const payload = (r.currentPayload as Record<string, unknown>) || r;
+              const name = String(payload.name || payload.recordName || r.id || 'Unknown');
+              const status = String(r.status || '');
+              lines.push(`- **${name}** (${status}) — ID: \`${r.id}\``);
+            }
+          }
+          break;
+        }
+        case 'get_record': {
+          const record = result.data as Record<string, unknown> | undefined;
+          if (record) {
+            const payload = (record.currentPayload as Record<string, unknown>) || {};
+            lines.push('**Record Details**:');
+            lines.push(`- **ID**: ${record.id}`);
+            lines.push(`- **Status**: ${record.status}`);
+            lines.push(`- **Version**: ${record.version}`);
+            lines.push(`- **Data**: ${JSON.stringify(payload, null, 2)}`);
+          }
+          break;
+        }
+        case 'create_record': {
+          const record = result.data as Record<string, unknown> | undefined;
+          lines.push(`**Record Created** ✅`);
+          if (record) {
+            lines.push(`- **ID**: \`${record.id}\``);
+            lines.push(`- **Status**: DRAFT`);
+          }
+          break;
+        }
+        case 'update_record': {
+          const data = result.data as { recordId?: string; updated?: string[] } | undefined;
+          lines.push(`**Record Updated** ✅`);
+          if (data) {
+            lines.push(`- **ID**: \`${data.recordId}\``);
+            lines.push(`- **Updated fields**: ${data.updated?.join(', ')}`);
+          }
+          break;
+        }
+        case 'delete_record': {
+          lines.push('**Record Deleted** ✅');
+          break;
+        }
+        case 'submit_for_approval': {
+          const data = result.data as { status?: string } | undefined;
+          lines.push(`**Record Submitted for Approval** ✅`);
+          if (data) lines.push(`- **New Status**: ${data.status}`);
+          break;
+        }
+        case 'approve_record': {
+          const data = result.data as { status?: string } | undefined;
+          lines.push(`**Record Approved** ✅`);
+          if (data) lines.push(`- **New Status**: ${data.status}`);
+          break;
+        }
+        case 'get_data_quality': {
+          const scores = result.data as Array<Record<string, unknown>> | undefined;
+          if (!scores || scores.length === 0) {
+            lines.push('**Data Quality**: No quality scores found.');
+          } else {
+            lines.push('**Data Quality Scores**:');
+            for (const s of scores) {
+              lines.push(`- ${s.metricType}: **${s.score}**${s.message ? ` — ${s.message}` : ''}`);
+            }
+          }
+          break;
+        }
+        case 'list_modules': {
+          const modules = result.data as Array<{ code: string; name: string; entityType: string }> | undefined;
+          if (!modules || modules.length === 0) {
+            lines.push('**Modules**: No modules found.');
+          } else {
+            lines.push(`**Available Modules** (${modules.length}):`);
+            for (const m of modules) {
+              lines.push(`- **${m.name}** (\`${m.code}\`) — ${m.entityType}`);
+            }
+          }
+          break;
+        }
+        default:
+          lines.push(`**${tr.name}**: ${JSON.stringify(result.data, null, 2)}`);
+      }
+    } else {
+      lines.push(`**${tr.name}**: ❌ ${result.error || 'Unknown error'}`);
+    }
+  }
+
+  return lines.join('\n');
 }
