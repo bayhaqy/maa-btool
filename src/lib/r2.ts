@@ -167,8 +167,8 @@ export async function uploadToR2(
   const safeMetadata: Record<string, string> | undefined = options?.metadata
     ? Object.fromEntries(
         Object.entries(options.metadata).map(([k, v]) => [
-          k.replace(/[^a-zA-Z0-9._-]/g, '_'),
-          v.replace(/[^\x20-\x7E]/g, '_'),  // Only printable ASCII
+          String(k).replace(/[^a-zA-Z0-9._-]/g, '_'),
+          String(v).replace(/[^\x20-\x7E]/g, '_'),  // Only printable ASCII
         ])
       )
     : undefined;
