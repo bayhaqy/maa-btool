@@ -5,6 +5,7 @@
 // for the MAA BTOOL MDM platform's Digital Asset Management.
 //
 // Architecture:
+//   - Config source: AppSettings DB → env vars (database takes priority)
 //   - Production: All images/digital assets stored in Cloudflare R2
 //   - Legacy: Falls back to FileAsset DB storage for unmigrated assets
 //   - Pre-signed URLs: Secure access with configurable expiry
@@ -23,37 +24,114 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import sharp from 'sharp';
 
-// ─── R2 Client Configuration ────────────────────────────────────────────────
+// ─── R2 Configuration (loaded from DB or env vars) ──────────────────────────
 
-const R2_ENDPOINT = process.env.R2_ENDPOINT || '';
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
-const R2_BUCKET = process.env.R2_BUCKET || 'maa-btool-assets';
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
+interface R2Config {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  publicUrl: string;
+}
+
+/** Cached R2 config — initialized from env vars, then overridden by DB values */
+let _r2Config: R2Config = {
+  endpoint: process.env.R2_ENDPOINT || '',
+  accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+  bucket: process.env.R2_BUCKET || 'maa-btool',
+  publicUrl: process.env.R2_PUBLIC_URL || '',
+};
 
 let _r2Client: S3Client | null = null;
+let _configLoaded = false;
+let _configLoading: Promise<void> | null = null;
 
 /**
- * Check if R2 is configured (has endpoint + credentials)
+ * Ensure R2 config is loaded from AppSettings database.
+ * Database values take priority over environment variables.
+ * Safe to call multiple times — only loads once.
  */
-export function isR2Configured(): boolean {
-  return !!(R2_ENDPOINT && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY);
+export async function ensureR2Config(): Promise<void> {
+  if (_configLoaded) return;
+
+  // Deduplicate concurrent calls
+  if (_configLoading) return _configLoading;
+
+  _configLoading = (async () => {
+    try {
+      const { db } = await import('@/lib/db');
+      const settings = await db.appSettings.findMany({
+        where: {
+          settingKey: {
+            in: ['R2_ENDPOINT', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_URL'],
+          },
+        },
+      });
+
+      if (settings.length > 0) {
+        const configMap = Object.fromEntries(settings.map((s) => [s.settingKey, s.settingValue]));
+
+        // DB values override env vars
+        if (configMap.R2_ENDPOINT) _r2Config.endpoint = configMap.R2_ENDPOINT;
+        if (configMap.R2_ACCESS_KEY_ID) _r2Config.accessKeyId = configMap.R2_ACCESS_KEY_ID;
+        if (configMap.R2_SECRET_ACCESS_KEY) _r2Config.secretAccessKey = configMap.R2_SECRET_ACCESS_KEY;
+        if (configMap.R2_BUCKET) _r2Config.bucket = configMap.R2_BUCKET;
+        if (configMap.R2_PUBLIC_URL !== undefined) _r2Config.publicUrl = configMap.R2_PUBLIC_URL;
+
+        console.log('[R2] Config loaded from AppSettings database');
+      }
+    } catch (err) {
+      console.warn('[R2] Failed to load config from database (using env vars):', err instanceof Error ? err.message : err);
+    } finally {
+      _configLoaded = true;
+      _configLoading = null;
+    }
+  })();
+
+  return _configLoading;
 }
 
 /**
- * Get or create the R2 S3 client singleton
+ * Force reload R2 config (e.g., after updating settings via admin API)
+ */
+export async function reloadR2Config(): Promise<R2Config> {
+  _configLoaded = false;
+  _r2Client = null;
+  await ensureR2Config();
+  return { ..._r2Config };
+}
+
+/**
+ * Get current R2 config (for display/diagnostic purposes)
+ */
+export function getR2ConfigInfo(): R2Config {
+  return { ..._r2Config };
+}
+
+/**
+ * Check if R2 is configured (has endpoint + credentials).
+ * IMPORTANT: Call `await ensureR2Config()` before this to ensure DB config is loaded.
+ */
+export function isR2Configured(): boolean {
+  return !!(_r2Config.endpoint && _r2Config.accessKeyId && _r2Config.secretAccessKey);
+}
+
+/**
+ * Get or create the R2 S3 client singleton.
+ * IMPORTANT: Call `await ensureR2Config()` before this to ensure DB config is loaded.
  */
 export function getR2Client(): S3Client {
   if (!_r2Client) {
     if (!isR2Configured()) {
-      throw new Error('R2 storage is not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY environment variables.');
+      throw new Error('R2 storage is not configured. Set R2 credentials in AppSettings or environment variables.');
     }
     _r2Client = new S3Client({
       region: 'auto',
-      endpoint: R2_ENDPOINT,
+      endpoint: _r2Config.endpoint,
       credentials: {
-        accessKeyId: R2_ACCESS_KEY_ID,
-        secretAccessKey: R2_SECRET_ACCESS_KEY,
+        accessKeyId: _r2Config.accessKeyId,
+        secretAccessKey: _r2Config.secretAccessKey,
       },
     });
   }
@@ -87,7 +165,7 @@ export async function uploadToR2(
 
   await client.send(
     new PutObjectCommand({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Key: key,
       Body: buffer,
       ContentType: mimeType,
@@ -98,10 +176,10 @@ export async function uploadToR2(
 
   return {
     key,
-    bucket: R2_BUCKET,
+    bucket: _r2Config.bucket,
     size: buffer.length,
     mimeType,
-    publicUrl: R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : undefined,
+    publicUrl: _r2Config.publicUrl ? `${_r2Config.publicUrl}/${key}` : undefined,
   };
 }
 
@@ -188,7 +266,7 @@ export async function downloadFromR2(key: string): Promise<Buffer> {
   const client = getR2Client();
   const response = await client.send(
     new GetObjectCommand({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Key: key,
     })
   );
@@ -235,7 +313,7 @@ export async function getSignedReadUrl(key: string, expiresIn = 3600): Promise<s
   return getSignedUrl(
     client,
     new GetObjectCommand({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Key: key,
     }),
     { expiresIn }
@@ -254,7 +332,7 @@ export async function getSignedUploadUrl(
   return getSignedUrl(
     client,
     new PutObjectCommand({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Key: key,
       ContentType: mimeType,
     }),
@@ -271,7 +349,7 @@ export async function deleteFromR2(key: string): Promise<void> {
   const client = getR2Client();
   await client.send(
     new DeleteObjectCommand({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Key: key,
     })
   );
@@ -290,7 +368,7 @@ export async function deleteWithVariants(baseKey: string): Promise<void> {
   await Promise.all(
     keysToDelete.map((key) =>
       client
-        .send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }))
+        .send(new DeleteObjectCommand({ Bucket: _r2Config.bucket, Key: key }))
         .catch(() => {
           // Ignore errors for missing keys
         })
@@ -310,7 +388,7 @@ export async function getR2ObjectMetadata(
     const client = getR2Client();
     const response = await client.send(
       new HeadObjectCommand({
-        Bucket: R2_BUCKET,
+        Bucket: _r2Config.bucket,
         Key: key,
       })
     );
@@ -334,7 +412,7 @@ export async function listR2Objects(
   const client = getR2Client();
   const response = await client.send(
     new ListObjectsV2Command({
-      Bucket: R2_BUCKET,
+      Bucket: _r2Config.bucket,
       Prefix: prefix,
       MaxKeys: maxKeys,
     })
@@ -349,8 +427,8 @@ export async function copyWithinR2(sourceKey: string, destKey: string): Promise<
   const client = getR2Client();
   await client.send(
     new CopyObjectCommand({
-      Bucket: R2_BUCKET,
-      CopySource: `${R2_BUCKET}/${sourceKey}`,
+      Bucket: _r2Config.bucket,
+      CopySource: `${_r2Config.bucket}/${sourceKey}`,
       Key: destKey,
     })
   );
@@ -362,8 +440,8 @@ export async function copyWithinR2(sourceKey: string, destKey: string): Promise<
  * Get the public URL for an R2 object key (if public bucket is configured)
  */
 export function getR2PublicUrl(key: string): string | null {
-  if (!R2_PUBLIC_URL) return null;
-  return `${R2_PUBLIC_URL}/${key}`;
+  if (!_r2Config.publicUrl) return null;
+  return `${_r2Config.publicUrl}/${key}`;
 }
 
 /**

@@ -12,6 +12,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import {
+  ensureR2Config,
   isR2Configured,
   uploadWithVariants,
   uploadToR2,
@@ -119,7 +120,8 @@ export async function POST(request: NextRequest) {
   if ('error' in authResult) return authResult.error;
   const tokenPayload = authResult.token;
 
-  // ── R2 check ──
+  // ── R2 check (ensure config is loaded from DB) ──
+  await ensureR2Config();
   if (!isR2Configured()) {
     return NextResponse.json(
       { error: 'R2 storage is not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY environment variables.' },

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isR2Configured, getSignedReadUrl } from '@/lib/r2';
+import { ensureR2Config, isR2Configured, getSignedReadUrl } from '@/lib/r2';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +7,9 @@ export const dynamic = 'force-dynamic';
 // Generates a signed URL and redirects the client
 export async function GET(request: NextRequest) {
   try {
+    // Load R2 config from database first
+    await ensureR2Config();
+
     if (!isR2Configured()) {
       return NextResponse.json({ error: 'R2 storage is not configured' }, { status: 503 });
     }

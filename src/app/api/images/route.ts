@@ -6,7 +6,7 @@ import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { generateVariants, getVariantMap } from '@/lib/image-variants';
-import { isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl } from '@/lib/r2';
+import { ensureR2Config, isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl } from '@/lib/r2';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
@@ -95,6 +95,9 @@ export async function POST(request: NextRequest) {
       };
       mimeType = mimeMap[extLower] || 'image/png';
     }
+
+    // Ensure R2 config is loaded from database
+    await ensureR2Config();
 
     let filePath: string;
     let r2Key: string | null = null;

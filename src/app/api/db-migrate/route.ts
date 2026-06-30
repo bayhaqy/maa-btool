@@ -23,6 +23,22 @@ export async function POST(request: NextRequest) {
     const migrations: Array<{ sql: string; description: string; status: 'success' | 'skipped' | 'error'; error?: string }> = [];
 
     const allMigrations = [
+      // AppSettings: Ensure table exists (for R2 config storage)
+      {
+        sql: `CREATE TABLE IF NOT EXISTS "AppSettings" (
+          "id" TEXT NOT NULL,
+          "settingKey" TEXT NOT NULL,
+          "settingValue" TEXT NOT NULL,
+          "updatedById" TEXT,
+          "updatedAt" TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "AppSettings_pkey" PRIMARY KEY ("id")
+        )`,
+        description: 'Create AppSettings table if not exists',
+      },
+      {
+        sql: `CREATE UNIQUE INDEX IF NOT EXISTS "AppSettings_settingKey_key" ON "AppSettings"("settingKey")`,
+        description: 'Create unique index on AppSettings.settingKey',
+      },
       // ImageAsset: Add R2 fields
       {
         sql: `ALTER TABLE "ImageAsset" ADD COLUMN IF NOT EXISTS "r2Key" TEXT`,

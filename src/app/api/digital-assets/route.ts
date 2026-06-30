@@ -6,7 +6,7 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { jsonVal, jsonParse } from '@/lib/db-json';
-import { isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl, uploadToR2 } from '@/lib/r2';
+import { ensureR2Config, isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl, uploadToR2 } from '@/lib/r2';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'digital-assets');
 
@@ -205,6 +205,9 @@ export async function POST(request: NextRequest) {
     // Read file bytes
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+
+    // Ensure R2 config is loaded from database
+    await ensureR2Config();
 
     let filePath: string;
     let r2Key: string | null = null;
