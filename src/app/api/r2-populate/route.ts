@@ -100,15 +100,13 @@ export async function POST(request: NextRequest) {
               if (isImage) {
                 await uploadWithVariants(buffer, r2Key, mimeType, {
                   metadata: {
-                    'original-name': asset.originalFileName || asset.fileName,
-                    'source-url': asset.filePath,
+                    'original-name': (asset.originalFileName || asset.fileName).replace(/[^a-zA-Z0-9._-]/g, '_'),
                   },
                 });
               } else {
                 await uploadToR2(buffer, r2Key, mimeType, {
                   metadata: {
-                    'original-name': asset.originalFileName || asset.fileName,
-                    'source-url': asset.filePath,
+                    'original-name': (asset.originalFileName || asset.fileName).replace(/[^a-zA-Z0-9._-]/g, '_'),
                   },
                 });
               }
@@ -185,8 +183,7 @@ export async function POST(request: NextRequest) {
               // Upload with variants
               await uploadWithVariants(buffer, r2Key, mimeType, {
                 metadata: {
-                  'original-name': img.fileName,
-                  'source-url': img.filePath,
+                  'original-name': img.fileName.replace(/[^a-zA-Z0-9._-]/g, '_'),
                 },
               });
 
