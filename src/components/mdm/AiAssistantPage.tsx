@@ -89,13 +89,15 @@ const CATEGORIES = [
   { value: 'GENERAL', label: 'General', icon: MessageSquare, color: 'bg-slate-100 text-slate-800 dark:bg-slate-900/40 dark:text-slate-300' },
 ];
 
-const WELCOME_MESSAGE = "Hi! I'm your **MAA BTOOL AI Assistant** — aligned with Stibo Systems best practices. I can help you with:\n\n- 🛡️ **Data Quality Analysis** — Identify and resolve data issues\n- ✨ **Data Enrichment** — Suggest improvements and auto-fill fields\n- 🔗 **Data Mapping** — Assist with source-to-target field mappings\n- 📋 **General MDM** — Workflows, best practices, and more\n\nHow can I help you today?";
+const WELCOME_MESSAGE = "Hi! I'm your **MAA BTOOL AI Assistant** — aligned with Stibo Systems best practices. I can help you with:\n\n- 🛡️ **Data Quality Analysis** — Identify and resolve data issues\n- ✨ **Data Enrichment** — Suggest improvements and auto-fill fields\n- 🔗 **Data Mapping** — Assist with source-to-target field mappings\n- 📋 **General MDM** — Workflows, best practices, and more\n- 🔧 **Data Operations** — Search, create, update, and manage records\n- ✅ **Workflow Actions** — Submit for approval, approve records\n\nI can now **directly interact with your MDM data** — search records, create new entries, update fields, and manage approval workflows. Just ask!\n\nHow can I help you today?";
 
 const SUGGESTED_PROMPTS = [
   { icon: ShieldCheck, title: 'Data Quality Analysis', prompt: 'Analyze the data quality of our product master data and suggest improvements.', category: 'DATA_QUALITY' },
   { icon: Sparkles, title: 'Enrichment Suggestions', prompt: 'What fields can be enriched using AI for our supplier master data?', category: 'ENRICHMENT' },
+  { icon: Database, title: 'Search Records', prompt: 'Search for Nike products in the Article Master module.', category: 'GENERAL' },
+  { icon: FilePlus, title: 'Create a Record', prompt: 'Create a new article record in DRAFT status with name: Test Product, brand: Nike, category: Footwear.', category: 'GENERAL' },
+  { icon: Zap, title: 'Quick Actions', prompt: 'List all records that are in IN_REVIEW status for the Article Master module.', category: 'GENERAL' },
   { icon: ArrowLeftRight, title: 'Mapping Assistance', prompt: 'Help me create a field mapping from SAP to our MDM product schema.', category: 'MAPPING' },
-  { icon: FilePlus, title: 'Create a Record', prompt: 'How do I create a new record in the Article Master module?', category: 'GENERAL' },
 ];
 
 const PROVIDER_BADGES: Record<string, { label: string; color: string }> = {
@@ -105,6 +107,23 @@ const PROVIDER_BADGES: Record<string, { label: string; color: string }> = {
   'azure-openai': { label: 'Azure OpenAI', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
   custom: { label: 'Custom LLM', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
 };
+
+/** Format tool execution results for display in chat */
+function formatToolResults(results: Array<{ name: string; result: unknown }>): string {
+  if (!Array.isArray(results)) return String(results);
+  return results.map(r => {
+    if (r.result && typeof r.result === 'object' && r.result !== null) {
+      const res = r.result as { success?: boolean; data?: unknown; error?: string };
+      if (res.error) return `❌ **${r.name}**: ${res.error}`;
+      if (res.success && res.data) {
+        const dataStr = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2);
+        const truncated = dataStr.length > 2000 ? dataStr.slice(0, 2000) + '...' : dataStr;
+        return `✅ **${r.name}**:\n\`\`\`json\n${truncated}\n\`\`\``;
+      }
+    }
+    return `📋 **${r.name}**: ${JSON.stringify(r.result, null, 2).slice(0, 1000)}`;
+  }).join('\n\n');
+}
 
 export default function AiAssistantPage() {
   const { token, user } = useAppStore();
@@ -343,6 +362,17 @@ export default function AiAssistantPage() {
                 setActiveConversationId(finalConversationId);
               }
               if (finalAiConfigured !== null) setAiConfigured(finalAiConfigured);
+            } else if (evt.type === 'tool_result') {
+              // Tool execution result — append to the assistant message
+              const toolInfo = evt.toolCalls && evt.toolResults
+                ? `\n\n---\n**🔧 Tool Executed:** ${evt.toolCalls.map((tc: { name: string }) => tc.name).join(', ')}\n\n${formatToolResults(evt.toolResults)}\n---\n`
+                : evt.content ? `\n\n${evt.content}` : '';
+              fullContent += toolInfo;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, content: fullContent } : m
+                )
+              );
             } else if (evt.type === 'error') {
               toast.error(evt.message || 'AI request failed');
               setMessages((prev) => prev.filter((m) => m.id !== assistantId));

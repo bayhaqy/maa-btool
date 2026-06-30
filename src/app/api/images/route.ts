@@ -6,6 +6,7 @@ import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { generateVariants, getVariantMap } from '@/lib/image-variants';
+import { isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl } from '@/lib/r2';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
@@ -96,9 +97,20 @@ export async function POST(request: NextRequest) {
     }
 
     let filePath: string;
+    let r2Key: string | null = null;
+    let storageType = 'local';
 
-    if (isReadOnlyFs()) {
-      // Vercel/production: Store in database (FileAsset)
+    if (isR2Configured()) {
+      // R2 storage (preferred) — upload original + variants to Cloudflare R2
+      const key = generateR2Key('images', recordId, file.name);
+      await uploadWithVariants(buffer, key, mimeType, {
+        metadata: { 'original-name': file.name, 'uploaded-by': 'mdm-system' },
+      });
+      filePath = getR2PublicUrl(key) || `/api/r2-image?key=${encodeURIComponent(key)}/original`;
+      r2Key = key;
+      storageType = 'r2';
+    } else if (isReadOnlyFs()) {
+      // Vercel/production (legacy): Store in database (FileAsset)
       const fileAsset = await db.fileAsset.create({
         data: {
           fileName: file.name,
@@ -149,17 +161,23 @@ export async function POST(request: NextRequest) {
         altText: altText || null,
         sortOrder: existingCount,
         isPrimary: isPrimary || existingCount === 0,
+        r2Key,
+        storageType,
       },
     });
 
-    // Generate thumbnail/small/medium/large variants (STIBO Image Conversion
-    // Configuration). Run synchronously (NOT setTimeout) so it works on
+    // Generate thumbnail/small/medium/large variants.
+    // When R2 is used, variants are already uploaded by uploadWithVariants,
+    // so we skip the local variant generation.
+    // For non-R2 storage, run synchronously (NOT setTimeout) so it works on
     // Vercel serverless — the request stays open ~100-500ms longer. Wrapped
     // in try/catch so variant failure never blocks the upload response.
-    try {
-      await generateVariants(buffer, imageAsset.id, mimeType);
-    } catch (e) {
-      console.error('[images POST] Variant generation failed (non-blocking):', e);
+    if (storageType !== 'r2') {
+      try {
+        await generateVariants(buffer, imageAsset.id, mimeType);
+      } catch (e) {
+        console.error('[images POST] Variant generation failed (non-blocking):', e);
+      }
     }
 
     return NextResponse.json({ imageAsset }, { status: 201 });
@@ -255,22 +273,32 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // If filePath references a FileAsset ID, delete from database
-    const fileId = image.filePath.split('/').pop() || '';
-    const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
-    if (isCuid) {
+    // Clean up stored file based on storage type
+    if (image.storageType === 'r2' && image.r2Key) {
+      // R2 storage: delete original + all variants from Cloudflare R2
       try {
-        await db.fileAsset.delete({ where: { id: fileId } });
+        await deleteWithVariants(image.r2Key);
       } catch {
-        // FileAsset may already be deleted, that's OK
+        // R2 delete may fail (e.g., already deleted), that's OK
       }
     } else {
-      // Legacy: delete file from disk
-      const fullPath = join(process.cwd(), 'public', image.filePath);
-      try {
-        await unlink(fullPath);
-      } catch {
-        // File may already be deleted, that's OK
+      // Legacy storage: FileAsset (database) or disk
+      const fileId = image.filePath.split('/').pop() || '';
+      const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
+      if (isCuid) {
+        try {
+          await db.fileAsset.delete({ where: { id: fileId } });
+        } catch {
+          // FileAsset may already be deleted, that's OK
+        }
+      } else {
+        // Legacy: delete file from disk
+        const fullPath = join(process.cwd(), 'public', image.filePath);
+        try {
+          await unlink(fullPath);
+        } catch {
+          // File may already be deleted, that's OK
+        }
       }
     }
 
@@ -278,21 +306,24 @@ export async function DELETE(request: NextRequest) {
     // cascade-deleted with the ImageAsset below. We fetch the variant
     // filePaths first, delete the FileAsset rows, then delete the image
     // (which cascades the ImageVariant rows).
-    try {
-      const variants = await db.imageVariant.findMany({
-        where: { imageId },
-        select: { filePath: true },
-      });
-      const variantFileIds = variants
-        .map((v) => v.filePath.split('/').pop() || '')
-        .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
-      if (variantFileIds.length > 0) {
-        await db.fileAsset.deleteMany({
-          where: { id: { in: variantFileIds } },
+    // Skip this for R2-stored images since variants are in R2, not FileAsset.
+    if (image.storageType !== 'r2') {
+      try {
+        const variants = await db.imageVariant.findMany({
+          where: { imageId },
+          select: { filePath: true },
         });
+        const variantFileIds = variants
+          .map((v) => v.filePath.split('/').pop() || '')
+          .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
+        if (variantFileIds.length > 0) {
+          await db.fileAsset.deleteMany({
+            where: { id: { in: variantFileIds } },
+          });
+        }
+      } catch {
+        // Best-effort cleanup — don't block the delete
       }
-    } catch {
-      // Best-effort cleanup — don't block the delete
     }
 
     // Delete database record (ImageVariant rows cascade-delete)
@@ -353,27 +384,35 @@ export async function PUT(request: NextRequest) {
               results.push({ type, success: false, error: 'Access denied' });
               break;
             }
-            // Clean up file assets
-            const fileId = image.filePath.split('/').pop() || '';
-            const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
-            if (isCuid) {
-              try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+            // Clean up stored file based on storage type
+            if (image.storageType === 'r2' && image.r2Key) {
+              // R2 storage: delete original + all variants from Cloudflare R2
+              try { await deleteWithVariants(image.r2Key); } catch { /* ok */ }
             } else {
-              try { await unlink(join(process.cwd(), 'public', image.filePath)); } catch { /* ok */ }
-            }
-            // Clean up variant FileAssets
-            try {
-              const variants = await db.imageVariant.findMany({
-                where: { imageId },
-                select: { filePath: true },
-              });
-              const variantFileIds = variants
-                .map((v) => v.filePath.split('/').pop() || '')
-                .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
-              if (variantFileIds.length > 0) {
-                await db.fileAsset.deleteMany({ where: { id: { in: variantFileIds } } });
+              // Legacy storage: FileAsset (database) or disk
+              const fileId = image.filePath.split('/').pop() || '';
+              const isCuid = /^c[a-z0-9]{20,}$/i.test(fileId);
+              if (isCuid) {
+                try { await db.fileAsset.delete({ where: { id: fileId } }); } catch { /* ok */ }
+              } else {
+                try { await unlink(join(process.cwd(), 'public', image.filePath)); } catch { /* ok */ }
               }
-            } catch { /* best-effort */ }
+            }
+            // Clean up variant FileAssets (skip for R2-stored images)
+            if (image.storageType !== 'r2') {
+              try {
+                const variants = await db.imageVariant.findMany({
+                  where: { imageId },
+                  select: { filePath: true },
+                });
+                const variantFileIds = variants
+                  .map((v) => v.filePath.split('/').pop() || '')
+                  .filter((id) => /^c[a-z0-9]{20,}$/i.test(id));
+                if (variantFileIds.length > 0) {
+                  await db.fileAsset.deleteMany({ where: { id: { in: variantFileIds } } });
+                }
+              } catch { /* best-effort */ }
+            }
             await db.imageAsset.delete({ where: { id: imageId } });
             results.push({ type, success: true });
             break;
