@@ -72,6 +72,14 @@
       "memory": 512,
       "maxDuration": 30
     },
+    "src/app/api/r2-populate/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 120
+    },
+    "src/app/api/r2-migrate/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 120
+    },
     "src/app/api/uploads/**/*.ts": {
       "memory": 1024,
       "maxDuration": 60
