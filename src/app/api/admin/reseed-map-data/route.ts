@@ -354,9 +354,17 @@ const PROMOTION_COMPANY_MAP: Record<string, string> = {
 };
 
 // ── Image CDN URL helper ───────────────────────────────────────
+// Uses picsum.photos with seed for consistent, downloadable images
 function mapclubImageUrl(articleCode: string, index: number): string {
   const slug = articleCode.toLowerCase().replace('.', '-');
-  return `https://res.mapclub.com/resources/images/products/${slug}-${index}.webp`;
+  // picsum.photos/seed/{seed}/{width}/{height} returns consistent images per seed
+  return `https://picsum.photos/seed/${slug}-${index}/800/600`;
+}
+
+// DAM-specific image URLs (higher resolution)
+function damImageUrl(articleCode: string, variant: string): string {
+  const slug = articleCode.toLowerCase().replace('.', '-');
+  return `https://picsum.photos/seed/${slug}-${variant}/1200/900`;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -924,9 +932,9 @@ export async function POST(request: NextRequest) {
         assetType: 'IMAGE',
         fileName: `${seed.code.toLowerCase()}-hero.webp`,
         originalFileName: `${seed.name.replace(/\s+/g, '_')}_hero.webp`,
-        filePath: `https://res.mapclub.com/resources/dam/products/${seed.code.toLowerCase()}/hero.webp`,
+        filePath: damImageUrl(seed.code, 'hero'),
         fileSize: 55000 + Math.floor(Math.random() * 40000),
-        mimeType: 'image/webp',
+        mimeType: 'image/jpeg',
         title: `${seed.name} — Hero Image`,
         description: `Professional product hero shot for ${seed.name}`,
         altText: `${seed.name} hero image`,
@@ -946,9 +954,9 @@ export async function POST(request: NextRequest) {
           assetType: 'IMAGE',
           fileName: `${seed.code.toLowerCase()}-lifestyle.webp`,
           originalFileName: `${seed.name.replace(/\s+/g, '_')}_lifestyle.webp`,
-          filePath: `https://res.mapclub.com/resources/dam/products/${seed.code.toLowerCase()}/lifestyle.webp`,
+          filePath: damImageUrl(seed.code, 'lifestyle'),
           fileSize: 65000 + Math.floor(Math.random() * 50000),
-          mimeType: 'image/webp',
+          mimeType: 'image/jpeg',
           title: `${seed.name} — Lifestyle Shot`,
           description: `Lifestyle image for ${seed.name} showing product in use`,
           altText: `${seed.name} lifestyle image`,
