@@ -7,6 +7,8 @@
  * These helpers auto-detect the provider so a single codebase works with both.
  */
 
+import { Prisma } from '@prisma/client';
+
 let _isPostgreSQL: boolean | undefined;
 
 function isPostgreSQL(): boolean {
@@ -21,9 +23,9 @@ function isPostgreSQL(): boolean {
  * - PostgreSQL (Json column): return the object as-is so Prisma stores proper JSON
  * - SQLite (String column):   return JSON.stringify(obj) so the string is stored
  */
-export function jsonVal(obj: unknown): string | unknown {
-  if (obj === null || obj === undefined) return obj;
-  if (isPostgreSQL()) return obj;
+export function jsonVal(obj: unknown): Prisma.InputJsonValue {
+  if (obj === null || obj === undefined) return obj as unknown as Prisma.InputJsonValue;
+  if (isPostgreSQL()) return obj as Prisma.InputJsonValue;
   return JSON.stringify(obj);
 }
 

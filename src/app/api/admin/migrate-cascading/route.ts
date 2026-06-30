@@ -24,9 +24,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const summary: Record<string, unknown> = {
+    const summary: {
+      startedAt: string;
+      steps: string[];
+      completedAt?: string;
+      success?: boolean;
+    } = {
       startedAt: new Date().toISOString(),
-      steps: [] as string[],
+      steps: [],
     };
 
     // ── Step 1: Replace CATEGORY lookup values with mapclub.com taxonomy ──
