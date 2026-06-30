@@ -523,6 +523,8 @@ model ImageAsset {
   altText   String?
   sortOrder Int      @default(0)
   isPrimary Boolean  @default(false)
+  r2Key        String?
+  storageType  String   @default("local")
   createdAt DateTime @default(now())
 
   variants ImageVariant[]
@@ -569,6 +571,8 @@ model DigitalAsset {
   uploadedById  String?
   sortOrder     Int      @default(0)
   isPrimary     Boolean  @default(false)
+  r2Key         String?
+  storageType   String   @default("local")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1007,6 +1011,7 @@ model ImageVariant {
   height      Int      @default(0)
   bytes       Int      @default(0)
   format      String   @default("webp")
+  r2Key        String?
   createdAt   DateTime @default(now())
 
   image ImageAsset @relation(fields: [imageId], references: [id], onDelete: Cascade)
