@@ -1157,7 +1157,8 @@ export default function DigitalAssetPage() {
 
     let rightsInfo: Record<string, string> | null = null;
     if (detailAsset.rightsInfo) {
-      rightsInfo = parsePayload(detailAsset.rightsInfo, null);
+      const parsed = parsePayload<Record<string, string>>(detailAsset.rightsInfo);
+      rightsInfo = parsed && Object.keys(parsed).length > 0 ? parsed : null;
     }
 
     return (
