@@ -1,0 +1,1082 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+// ============================================================
+// 1. IAM & SECURITY DOMAIN (STIBO RBAC - Multi-tenant SaaS)
+// Stibo role types: Viewer (read-only), Editor, Approver,
+// Data Steward, Administrator, System Administrator
+// ============================================================
+
+model TenantCompany {
+  id            String   @id @default(cuid())
+  companyCode   String   @unique
+  companyName   String
+  description   String?
+  logoUrl       String?
+  website       String?
+  industry      String?
+  parentCode    String?
+  address       String?
+  phone         String?
+  email         String?
+  isActive      Boolean  @default(true)
+  tenantTier    String   @default("PROFESSIONAL") // STARTER | PROFESSIONAL | ENTERPRISE
+  maxUsers      Int      @default(50)
+  maxRecords    Int      @default(100000)
+  dataRetentionDays Int  @default(365)
+  // Tenant provisioning status (Stibo onboarding lifecycle)
+  onboardingStatus     String    @default("PENDING") // PENDING | PROVISIONING | ACTIVE | SUSPENDED
+  provisionedAt        DateTime?
+  defaultRoleTemplateId String?  // reference to a role template used during provisioning
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users       SysUser[]
+  roles       SysRole[]
+  dataRecords DataRecord[]
+  apiKeys     ApiKey[]
+  sftpConfigs SftpConfig[]
+  digitalAssets DigitalAsset[]
+  dataExchangeEndpoints DataExchangeEndpoint[]
+  aiConfigs   TenantAiConfig[]
+}
+
+model SysUser {
+  id           String   @id @default(cuid())
+  companyId    String
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  avatarUrl    String?
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company      TenantCompany  @relation(fields: [companyId], references: [id])
+  userRoles    UserRole[]
+  approvalTicketsRequested ApprovalTicket[] @relation("RequestedBy")
+  approvalTicketsReviewed ApprovalTicket[]  @relation("ReviewedBy")
+  asyncJobs    AsyncBatchJob[]
+  lockedRecords DataRecord[]   @relation("LockedBy")
+  dataVersions DataVersion[]
+  docArticles  Documentation[]
+  aiMessages   AiMessage[]
+  aiConversations AiConversation[]
+  apiKeys      ApiKey[]
+  auditLogs    AuditLog[] @relation("AuditLogUser")
+  savedViews      SavedView[]
+  bulkUpdateJobs  BulkUpdateJob[]
+  stewardshipAssigned StewardshipTask[] @relation("StewardshipAssignee")
+  stewardshipCreated  StewardshipTask[] @relation("StewardshipAssigner")
+  digitalAssetUploads DigitalAsset[] @relation("DigitalAssetUploader")
+}
+
+model SysRole {
+  id          String  @id @default(cuid())
+  companyId   String  // Tenant scope — roles are company-scoped for multi-tenant isolation
+  roleName    String
+  description String?
+  // STIBO role types: VIEWER (read-only), EDITOR (create/edit), APPROVER (review/approve),
+  // DATA_STEWARD (quality/correction), ADMINISTRATOR (config/manage), SYSTEM_ADMIN (full access)
+  roleType    String  @default("VIEWER")
+  // Scope: GLOBAL (all modules) | MODULE_LEVEL (specific modules via RolePermission)
+  scope       String  @default("MODULE_LEVEL")
+  // Is this a system role (cannot be deleted)?
+  isSystem    Boolean @default(false)
+  // Global roles apply across all tenants (e.g. Super Admin); isGlobal roles have companyId pointing to "SYSTEM"
+  isGlobal    Boolean @default(false)
+  color       String? // UI color for badges
+  icon        String? // UI icon name
+
+  company          TenantCompany  @relation(fields: [companyId], references: [id])
+  userRoles        UserRole[]
+  rolePermissions  RolePermission[]
+
+  @@unique([companyId, roleName])
+  @@index([companyId])
+  @@index([companyId, roleType])
+}
+
+model UserRole {
+  id        String @id @default(cuid())
+  userId    String
+  roleId    String
+  companyId String // Tenant context for the role assignment — ensures role assignments are tenant-scoped
+
+  user   SysUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   SysRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([companyId])
+}
+
+model RolePermission {
+  id                 String  @id @default(cuid())
+  roleId             String
+  moduleId           String
+  canRead            Boolean @default(false)
+  canCreate          Boolean @default(false)
+  canEdit            Boolean @default(false)
+  canDelete          Boolean @default(false)
+  canApprove         Boolean @default(false)
+  canExport          Boolean @default(false)
+  canImport          Boolean @default(false)
+  canBulkUpdate      Boolean @default(false)
+  // Column-level restrictions (JSON array of restricted field codes)
+  columnRestrictions Json?
+  // Row-level filter (JSON condition)
+  rowFilter          Json?
+  // Workflow-state based restrictions (JSON array of allowed states)
+  // Stibo privilege rules: restrict permissions to specific workflow states
+  // e.g. ["DRAFT","REVIEW"] means the role can only act on records in DRAFT or REVIEW state
+  // Combined with WorkflowState/WorkflowTransition models for full Stibo workflow governance
+  allowedStates      Json?
+  // DEPRECATED: Access companyId via role.companyId instead — kept for backward compat queries
+  companyId          String?
+
+  role   SysRole    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, moduleId])
+}
+
+// ============================================================
+// 2. METADATA & SCHEMA ENGINE (STIBO Data Model)
+// Stibo terminology: Entity Type, Attribute Group, Attribute
+// ============================================================
+
+model MetaModule {
+  id              String  @id @default(cuid())
+  moduleCode      String  @unique
+  moduleName      String
+  // STIBO entity types: PRODUCT, CUSTOMER, SUPPLIER, LOCATION, ASSET, DIGITAL_ASSET
+  entityType      String  @default("PRODUCT")
+  moduleIcon      String  @default("Database")
+  description     String?
+  requireApproval Boolean @default(true)
+  isActive        Boolean @default(true)
+  sortOrder       Int     @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fields          MetaField[]
+  dataRecords     DataRecord[]
+  hierarchyModels HierarchyModel[]
+  rolePermissions RolePermission[]
+  sftpConfigs     SftpConfig[]
+  businessRules   BusinessRule[]
+  savedViews      SavedView[]
+  bulkUpdateJobs  BulkUpdateJob[]
+  stewardshipTasks StewardshipTask[]
+  attributeGroups AttributeGroup[]
+  dataExchangeEndpoints DataExchangeEndpoint[] @relation("ModuleDataExchange")
+}
+
+model AttributeGroup {
+  id          String   @id @default(cuid())
+  moduleId    String
+  groupCode   String
+  groupName   String
+  description String?
+  sortOrder   Int      @default(0)
+  isCollapsed Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  fields MetaField[]
+}
+
+model MetaField {
+  id           String @id @default(cuid())
+  moduleId     String
+  fieldCode    String
+  fieldName    String
+  // STIBO attribute data types:
+  // TEXT, LONG_TEXT, RICH_TEXT, NUMBER, INTEGER, DECIMAL, CURRENCY,
+  // DATE, DATETIME, BOOLEAN, SELECT, MULTISELECT,
+  // LOV (List of Values - Stibo terminology),
+  // LOOKUP (cross-module reference),
+  // IMAGE, VIDEO, DOCUMENT, FILE,
+  // URL, EMAIL, PHONE, COLOR,
+  // COMPOUND (grouped attributes), CONTAINER (nested object)
+  dataType     String
+  isRequired   Boolean @default(false)
+  isUnique     Boolean @default(false)
+  defaultValue String?
+  placeholder  String?
+  description  String?
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+  // For SELECT/MULTISELECT/LOV: isMultiple allows multiple selections
+  isMultiple          Boolean @default(false)
+  // Cascading dropdown: parent field code
+  cascadesFromFieldCode String?
+  // STIBO: Attribute group (container for organized attributes)
+  groupId       String?
+  // STIBO: Inherited from parent classification
+  isInherited   Boolean @default(false)
+  // STIBO: Category-specific (only applies to certain classifications)
+  categoryScope Json? // JSON array of category codes
+  // Unit of measure (for NUMBER/DECIMAL/CURRENCY types)
+  unitOfMeasure String?
+  // Min/max for NUMBER/DECIMAL types
+  minValue     Float?
+  maxValue     Float?
+  // Max length for TEXT types
+  maxLength    Int?
+  // Regex pattern for validation
+  regexPattern String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  module       MetaModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  validations  FieldValidation[]
+  lookupId     String?
+  lookupMaster LookupMaster?     @relation(fields: [lookupId], references: [id])
+  group        AttributeGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@unique([moduleId, fieldCode])
+}
+
+model FieldValidation {
+  id           String  @id @default(cuid())
+  fieldId      String
+  // STIBO validation types: REQUIRED, UNIQUE, RANGE, LENGTH, PATTERN,
+  // LOV_VALIDATION, CROSS_FIELD, CONDITIONAL_REQUIRED
+  ruleType     String
+  ruleValue    String
+  errorMessage String?
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+
+  field MetaField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+}
+
+model LookupMaster {
+  id          String   @id @default(cuid())
+  lookupCode  String   @unique
+  lookupName  String
+  description String?
+  // STIBO LOV categories: System (built-in), Custom (user-defined), ISO (standard codes)
+  category    String?  // System / Custom / ISO
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fields MetaField[]
+  values LookupValue[]
+}
+
+model LookupValue {
+  id           String    @id @default(cuid())
+  lookupId     String
+  valueCode    String
+  displayValue String
+  description  String?
+  // Cascading lookup support
+  parentValueId   String?
+  parentValueCode String?
+  validFrom    DateTime?
+  validTo      DateTime?
+  isActive     Boolean   @default(true)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+
+  lookup LookupMaster @relation(fields: [lookupId], references: [id], onDelete: Cascade)
+  parent LookupValue? @relation("LookupValueTree", fields: [parentValueId], references: [id], onDelete: SetNull)
+  children LookupValue[] @relation("LookupValueTree")
+
+  @@unique([lookupId, valueCode])
+}
+
+// ============================================================
+// 3. CORE DATA & AUDIT (SCD Type 2)
+// STIBO: Records with workflow states, ownership, quality scores
+// ============================================================
+
+model DataRecord {
+  id             String   @id @default(cuid())
+  moduleId       String
+  companyId      String
+  // STIBO workflow states: DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
+  status         String   @default("DRAFT")
+  currentPayload Json
+  lockedBy       String?
+  version        Int      @default(1)
+  // STIBO: Data ownership
+  ownerId        String?
+  // STIBO: Quality score (computed from business rules + completeness)
+  qualityScore   Int      @default(0)
+  // STIBO: Completeness percentage
+  completenessScore Int   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+  updatedById    String?
+
+  module          MetaModule      @relation(fields: [moduleId], references: [id])
+  company         TenantCompany   @relation(fields: [companyId], references: [id])
+  locker          SysUser?        @relation("LockedBy", fields: [lockedBy], references: [id])
+  versions        DataVersion[]
+  approvalTickets ApprovalTicket[]
+  hierarchyNodes  HierarchyNode[]
+  images          ImageAsset[]
+  digitalAssets   DigitalAsset[]
+  stewardshipTasks StewardshipTask[]
+  qualityScores   DataQualityScore[]
+  aiOutputs       AiOutput[]
+}
+
+model DataVersion {
+  id              String   @id @default(cuid())
+  recordId        String
+  payloadSnapshot Json
+  versionNumber   Int
+  changedById     String?
+  changeReason    String?
+  status          String
+  validFrom       DateTime @default(now())
+  validTo         DateTime?
+  createdAt       DateTime @default(now())
+
+  record    DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  changedBy SysUser?   @relation(fields: [changedById], references: [id])
+}
+
+// ============================================================
+// 4. HIERARCHY ENGINE (STIBO Classification/Taxonomy)
+// ============================================================
+
+model HierarchyModel {
+  id            String   @id @default(cuid())
+  moduleId      String
+  hierarchyName String
+  description   String?
+  // STIBO: Hierarchy type - CLASSIFICATION (product taxonomy), ORG (organizational), GEO (geographic)
+  hierarchyType String   @default("CLASSIFICATION")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module MetaModule    @relation(fields: [moduleId], references: [id])
+  nodes  HierarchyNode[]
+}
+
+model HierarchyNode {
+  id               String   @id @default(cuid())
+  hierarchyId      String
+  recordId         String?
+  parentNodeId     String?
+  nodeLabel        String
+  materializedPath String   @default("")
+  depthLevel       Int      @default(0)
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  status           String   @default("DRAFT")
+  description      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  hierarchy HierarchyModel  @relation(fields: [hierarchyId], references: [id], onDelete: Cascade)
+  record    DataRecord?     @relation(fields: [recordId], references: [id])
+  parent    HierarchyNode?  @relation("HierarchyTree", fields: [parentNodeId], references: [id])
+  children  HierarchyNode[] @relation("HierarchyTree")
+}
+
+// ============================================================
+// 5. WORKFLOW ENGINE (STIBO Configurable Workflows)
+// Visual workflow designer with states, transitions, and conditions
+// ============================================================
+
+model ApprovalTicket {
+  id            String    @id @default(cuid())
+  recordId      String
+  requestedById String
+  reviewedById  String?
+  status        String    @default("PENDING")
+  deltaPayload  Json?
+  reviewNotes   String?
+  createdAt     DateTime  @default(now())
+  reviewedAt    DateTime?
+
+  // Multi-step workflow support
+  workflowType  String    @default("SIMPLE") // SIMPLE, MULTI_STEP, PARALLEL
+  currentStep   Int       @default(1)
+  totalSteps    Int       @default(1)
+  stepName      String?
+  deadline      DateTime?
+  escalatedTo   String?
+  delegatedFrom String?
+  priority      String    @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+  parentTicketId String?
+  workflowHistory Json?
+
+  record      DataRecord @relation(fields: [recordId], references: [id])
+  requestedBy SysUser    @relation("RequestedBy", fields: [requestedById], references: [id])
+  reviewedBy  SysUser?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  childTickets ApprovalTicket[] @relation("ParallelWorkflow")
+  parentTicket ApprovalTicket? @relation("ParallelWorkflow", fields: [parentTicketId], references: [id])
+}
+
+model WorkflowTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  moduleScope  String?
+  stepCount    Int      @default(1)
+  // STIBO: Visual workflow configuration
+  // JSON: { states: [{id, name, type, color}], transitions: [{from, to, condition, assignee}] }
+  stepConfig   Json
+  // STIBO: Auto-approval rules
+  // JSON: [{condition, targetState}]
+  autoApproveRules Json?
+  // STIBO: SLA configuration
+  // JSON: { defaultDeadlineHours, escalationRules: [{afterHours, assignToRole}] }
+  slaConfig    Json?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  states       WorkflowState[]  @relation("TemplateStates")
+  transitions  WorkflowTransition[] @relation("TemplateTransitions")
+}
+
+model WorkflowState {
+  id          String   @id @default(cuid())
+  templateId  String
+  stateCode   String
+  stateName   String
+  stateType   String   @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
+  color       String   @default("#6b7280")
+  isInitial   Boolean  @default(false)
+  isFinal     Boolean  @default(false)
+  sortOrder   Int      @default(0)
+
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, name: "TemplateStates")
+  fromTransitions WorkflowTransition[] @relation("FromState")
+  toTransitions   WorkflowTransition[] @relation("ToState")
+}
+
+model WorkflowTransition {
+  id            String   @id @default(cuid())
+  templateId    String
+  fromStateId   String
+  toStateId     String
+  transitionName String
+  // STIBO: Condition for transition (JSON expression)
+  condition     Json?
+  // STIBO: Role required to execute this transition
+  requiredRole  String?
+  // STIBO: Business rules to validate before transition
+  businessRuleIds Json? // JSON array of rule IDs
+  // STIBO: Auto-transition (when condition is met)
+  isAuto        Boolean  @default(false)
+  // STIBO: Notification config
+  notifyRoles   Json? // JSON array of role names to notify
+  sortOrder     Int      @default(0)
+
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, name: "TemplateTransitions")
+  fromState   WorkflowState @relation("FromState", fields: [fromStateId], references: [id], onDelete: Cascade)
+  toState     WorkflowState @relation("ToState", fields: [toStateId], references: [id], onDelete: Cascade)
+}
+
+model AsyncBatchJob {
+  id            String    @id @default(cuid())
+  userId        String
+  moduleId      String?
+  jobType       String
+  status        String    @default("PENDING")
+  totalRows     Int       @default(0)
+  processedRows Int       @default(0)
+  failedRows    Int       @default(0)
+  errorLog      String?
+  fileName      String?
+  resultFileUrl String?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  user SysUser @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// 6. DIGITAL ASSET MANAGEMENT (STIBO DAM)
+// Full DAM: images, videos, documents, metadata, variants, linking
+// ============================================================
+
+model ImageAsset {
+  id        String   @id @default(cuid())
+  recordId  String
+  fieldName String?
+  fileName  String
+  filePath  String
+  fileSize  Int      @default(0)
+  mimeType  String   @default("image/png")
+  altText   String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  variants ImageVariant[]
+
+  record DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+}
+
+// STIBO: Full Digital Asset Model (images, videos, documents, etc.)
+model DigitalAsset {
+  id            String   @id @default(cuid())
+  companyId     String
+  recordId      String?
+  // STIBO: Asset type - IMAGE, VIDEO, AUDIO, DOCUMENT, SPREADSHEET, PRESENTATION, OTHER
+  assetType     String   @default("IMAGE")
+  fileName      String
+  originalFileName String
+  filePath      String
+  fileSize      Int      @default(0)
+  mimeType      String
+  // STIBO: Asset metadata
+  title         String?
+  description   String?
+  altText       String?
+  // STIBO: Image-specific metadata
+  width         Int?
+  height        Int?
+  dpi           Int?
+  colorSpace    String?
+  // STIBO: Video-specific metadata
+  duration      Float?   // seconds
+  frameRate     Float?
+  // STIBO: Document-specific metadata
+  pageCount     Int?
+  // STIBO: Asset status and workflow
+  status        String   @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED
+  // STIBO: Asset tags and categories
+  tags          Json?  // JSON array of tags
+  category      String?
+  // STIBO: Expiry and rights management
+  validFrom     DateTime?
+  validTo       DateTime?
+  rightsInfo    Json?  // JSON: {license, owner, restrictions}
+  // STIBO: Upload tracking
+  uploadedById  String?
+  sortOrder     Int      @default(0)
+  isPrimary     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       TenantCompany @relation(fields: [companyId], references: [id])
+  record        DataRecord?   @relation(fields: [recordId], references: [id])
+  uploader      SysUser?      @relation("DigitalAssetUploader", fields: [uploadedById], references: [id])
+  variants      DigitalAssetVariant[]
+  metadata      DigitalAssetMeta[]
+}
+
+model DigitalAssetVariant {
+  id          String   @id @default(cuid())
+  assetId     String
+  variant     String   // thumbnail, small, medium, large, original, custom
+  filePath    String
+  width       Int      @default(0)
+  height      Int      @default(0)
+  bytes       Int      @default(0)
+  format      String   @default("webp")
+  quality     Int      @default(80)
+  createdAt   DateTime @default(now())
+
+  asset DigitalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+model DigitalAssetMeta {
+  id          String   @id @default(cuid())
+  assetId     String
+  metaKey     String
+  metaValue   String
+  createdAt   DateTime @default(now())
+
+  asset DigitalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, metaKey])
+}
+
+// File storage in database (for Vercel serverless / read-only filesystem)
+model FileAsset {
+  id        String   @id @default(cuid())
+  fileName  String
+  fileData  Bytes
+  mimeType  String   @default("application/octet-stream")
+  fileSize  Int      @default(0)
+  category  String   @default("general") // "image", "doc", "attachment", "digital-asset"
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// 7. API INTEGRATION MANAGEMENT
+// ============================================================
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  keyName     String
+  keyHash     String
+  keyPrefix   String
+  companyId   String?
+  userId      String?
+  permissions Json
+  rateLimit   Int       @default(100)
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  company    TenantCompany? @relation(fields: [companyId], references: [id])
+  user       SysUser?       @relation(fields: [userId], references: [id])
+  accessLogs ApiAccessLog[]
+}
+
+model ApiAccessLog {
+  id          String   @id @default(cuid())
+  apiKeyId    String
+  endpoint    String
+  method      String
+  statusCode  Int
+  responseMs  Int
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 7b. DATA EXCHANGE (STIBO Integration Endpoints - IEPs)
+// STIBO: Data as a Service, Data Integration, Import/Export
+// ============================================================
+
+model DataExchangeEndpoint {
+  id            String   @id @default(cuid())
+  companyId     String
+  endpointName  String
+  endpointCode  String   @unique
+  description   String?
+  // STIBO: Endpoint types
+  // REST_API, SOAP_API, SFTP, DATABASE, FILE_IMPORT, FILE_EXPORT,
+  // WEBHOOK, MESSAGE_QUEUE, ODATA, GRAPHQL
+  endpointType  String   @default("REST_API")
+  // STIBO: Direction - INBOUND (import), OUTBOUND (export), BIDIRECTIONAL
+  direction     String   @default("INBOUND")
+  // STIBO: Connection configuration (JSON)
+  // REST: {url, method, headers, authType, authToken}
+  // SFTP: {host, port, username, authType, path}
+  // DATABASE: {connectionString, query}
+  connectionConfig Json
+  // STIBO: Data mapping configuration (JSON)
+  // {fieldMappings: [{source, target, transform}], primaryKey, conflictResolution}
+  mappingConfig Json?
+  // STIBO: Schedule configuration (JSON)
+  // {type: 'cron'|'interval'|'manual', expression: '0 */6 * * *', timezone}
+  scheduleConfig Json?
+  // STIBO: Transform rules (JSON array)
+  // [{type: 'RENAME'|'FILTER'|'MAP'|'CONCAT'|'SPLIT'|'LOOKUP', config: {...}}]
+  transformRules Json?
+  // STIBO: Error handling
+  // {onError: 'skip'|'stop'|'log', maxRetries: 3, retryDelay: 1000}
+  errorHandling Json?
+  // STIBO: Module scope
+  moduleId      String?
+  isActive      Boolean  @default(true)
+  lastRunAt     DateTime?
+  lastRunStatus String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       TenantCompany @relation(fields: [companyId], references: [id])
+  module        MetaModule?   @relation(fields: [moduleId], references: [id], name: "ModuleDataExchange")
+  runLogs       DataExchangeLog[]
+}
+
+model DataExchangeLog {
+  id            String    @id @default(cuid())
+  endpointId    String
+  runStatus     String    @default("RUNNING") // RUNNING, COMPLETED, FAILED, PARTIAL
+  recordsProcessed Int    @default(0)
+  recordsSuccess   Int    @default(0)
+  recordsFailed    Int    @default(0)
+  errorDetail      String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  endpoint DataExchangeEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 8. SFTP INTEGRATION MANAGEMENT
+// ============================================================
+
+model SftpConfig {
+  id             String    @id @default(cuid())
+  configName     String
+  host           String
+  port           Int       @default(22)
+  username       String
+  authType       String    @default("PASSWORD")
+  authCredential String
+  remotePath     String    @default("/")
+  schedule       String?
+  syncDirection  String    @default("INBOUND")
+  filePattern    String    @default("*.*")
+  moduleId       String?
+  isActive       Boolean   @default(true)
+  lastSyncAt     DateTime?
+  companyId      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  module    MetaModule?    @relation(fields: [moduleId], references: [id])
+  company   TenantCompany? @relation(fields: [companyId], references: [id])
+  syncLogs  SftpSyncLog[]
+}
+
+model SftpSyncLog {
+  id            String    @id @default(cuid())
+  sftpConfigId  String
+  syncStatus    String
+  filesSynced   Int       @default(0)
+  filesFailed   Int       @default(0)
+  errorDetail   String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  sftpConfig SftpConfig @relation(fields: [sftpConfigId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 9. DOCUMENTATION / KNOWLEDGE BASE
+// ============================================================
+
+model Documentation {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  content     String
+  category    String
+  tags        String?
+  authorId    String?
+  version     Int       @default(1)
+  sortOrder   Int       @default(0)
+  isPublished Boolean   @default(false)
+  viewCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  author SysUser? @relation(fields: [authorId], references: [id])
+}
+
+// ============================================================
+// 10. APP SETTINGS & AI CONFIG
+// ============================================================
+
+model AppSettings {
+  id          String   @id @default(cuid())
+  settingKey  String   @unique
+  settingValue String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// 10b. AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String?
+  moduleName  String?
+  description String
+  oldValues   Json?
+  newValues   Json?
+  companyId   String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        SysUser? @relation("AuditLogUser", fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AiConversation {
+  id           String    @id @default(cuid())
+  userId       String
+  title        String?
+  bookmarked   Boolean   @default(false)
+  bookmarkedAt DateTime?
+  pinned       Boolean   @default(false)
+  // STIBO: Conversation categories
+  category     String?   // DATA_QUALITY, ENRICHMENT, MAPPING, GENERAL
+  tags         Json?   // JSON array of tags
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user     SysUser    @relation(fields: [userId], references: [id])
+  messages AiMessage[]
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String?
+  role           String
+  content        String
+  tokensUsed     Int      @default(0)
+  // STIBO: Message metadata
+  feedback       String?  // positive, negative, none
+  editedContent  String?  // For edited messages
+  isEdited       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         SysUser?       @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// 11. BUSINESS RULES (STIBO 3 Types)
+// Stibo has 3 types: Business Conditions, Business Actions, Business Functions
+// Trigger types: Validation, Completeness, Derivation, Conditional
+// ============================================================
+
+model BusinessRule {
+  id            String   @id @default(cuid())
+  moduleId      String
+  name          String
+  description   String?
+  // STIBO: Rule type
+  // CONDITION (evaluate data state), ACTION (perform operation), FUNCTION (reusable logic)
+  ruleType      String   @default("CONDITION")
+  // STIBO: Condition type for CONDITION rules
+  // CROSS_FIELD (compare two fields), LOV_CROSS (parent-child LOV),
+  // SCRIPTED (custom expression), REQUIRED_IF (conditional required),
+  // COMPLETENESS (check required fields), UNIQUENESS (check unique constraint),
+  // RANGE (check value range), PATTERN (regex validation)
+  conditionType String   @default("CROSS_FIELD")
+  // JSON: condition configuration
+  conditionJson Json
+  // STIBO: Action type for ACTION rules
+  // BLOCK (prevent save), SET_VALUE (compute field), SEND_EMAIL, WARN,
+  // SET_STATUS (change record status), TRANSITION (workflow state change),
+  // TRIGGER_WEBHOOK (call external API), CREATE_TASK (create stewardship task)
+  actionType    String   @default("BLOCK")
+  // JSON for action configuration
+  actionJson    Json?
+  // STIBO: Error/warning message
+  errorMessage  String?
+  // STIBO: Severity: ERROR (blocks save), WARNING (shows warning), INFO (informational)
+  severity      String   @default("ERROR")
+  // STIBO: Trigger: SAVE, APPROVE, IMPORT, TRANSITION, SCHEDULED
+  trigger       String   @default("SAVE")
+  // STIBO: Scope: RECORD (single record), BULK (batch operation), ALL
+  scope         String   @default("RECORD")
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 12. SAVED VIEWS & SAVED SEARCHES (STIBO User Configurable Views)
+// ============================================================
+
+model SavedView {
+  id          String   @id @default(cuid())
+  userId      String
+  moduleId    String
+  name        String
+  scope       String   @default("COMBINED")
+  columnConfig Json?
+  filterConfig Json?
+  sortConfig   Json?
+  sharedWith   Json?
+  isDefault    Boolean  @default(false)
+  lastUsedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    SysUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module  MetaModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 13. BULK UPDATE ENGINE (STIBO Bulk Operations)
+// ============================================================
+
+model BulkUpdateJob {
+  id            String    @id @default(cuid())
+  userId        String
+  moduleId      String
+  name          String?
+  targetFilter  Json
+  operations    Json
+  status        String    @default("QUEUED")
+  mode          String    @default("APPLY")
+  totalRecords  Int       @default(0)
+  okRecords     Int       @default(0)
+  failedRecords Int       @default(0)
+  results       Json?
+  errorLog      String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  user   SysUser    @relation(fields: [userId], references: [id])
+  module MetaModule @relation(fields: [moduleId], references: [id])
+}
+
+// ============================================================
+// 14. AI PROMPT LIBRARY + GENAI REVIEW (STIBO ProductGen AI)
+// ============================================================
+
+model AiPrompt {
+  id              String   @id @default(cuid())
+  name            String
+  useCase         String
+  description     String?
+  systemPrompt    String
+  userPromptTemplate String
+  inputAttributes  Json?
+  outputAttribute String?
+  maxChars        Int      @default(500)
+  persona         String?
+  audience        String?
+  tone            String?
+  language        String?
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  outputs AiOutput[]
+}
+
+model AiOutput {
+  id              String   @id @default(cuid())
+  promptId        String
+  recordId        String
+  userId          String?
+  output          String
+  confidenceScore Int      @default(0)
+  reasons         Json?
+  suggestions     Json?
+  status          String   @default("PENDING_REVIEW")
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  tokensUsed      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  prompt AiPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  record DataRecord? @relation(fields: [recordId], references: [id])
+}
+
+model AiUsageMetric {
+  id          String   @id @default(cuid())
+  userId      String?
+  promptId    String?
+  tokensUsed  Int      @default(0)
+  timestamp   DateTime @default(now())
+}
+
+// ============================================================
+// 15. IMAGE VARIANTS
+// ============================================================
+
+model ImageVariant {
+  id          String   @id @default(cuid())
+  imageId     String
+  variant     String
+  filePath    String
+  width       Int      @default(0)
+  height      Int      @default(0)
+  bytes       Int      @default(0)
+  format      String   @default("webp")
+  createdAt   DateTime @default(now())
+
+  image ImageAsset @relation(fields: [imageId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 16. DATA QUALITY SUFFICIENCY (STIBO Data Governance)
+// ============================================================
+
+model DataQualityScore {
+  id          String   @id @default(cuid())
+  recordId    String
+  moduleId    String
+  metricType  String   @default("OVERALL")
+  metricCode  String?
+  score       Int      @default(0)
+  message     String?
+  calculatedAt DateTime @default(now())
+
+  record DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, metricType, metricCode])
+}
+
+// ============================================================
+// 17. DATA STEWARDSHIP (STIBO Data Governance)
+// ============================================================
+
+model StewardshipTask {
+  id          String    @id @default(cuid())
+  moduleId    String
+  recordId    String?
+  taskType    String    @default("QUALITY_REVIEW")
+  title       String
+  description String?
+  priority    String    @default("NORMAL")
+  status      String    @default("PENDING")
+  assignedTo  String?
+  assignedBy  String?
+  dueDate     DateTime?
+  completedAt DateTime?
+  resolution  String?
+  context     Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  module      MetaModule @relation(fields: [moduleId], references: [id])
+  record      DataRecord? @relation(fields: [recordId], references: [id])
+  assignee    SysUser?   @relation("StewardshipAssignee", fields: [assignedTo], references: [id])
+  assigner    SysUser?   @relation("StewardshipAssigner", fields: [assignedBy], references: [id])
+}
+
+// ============================================================
+// 18. TENANT AI CONFIGURATION (Per-company AI provider settings)
+// ============================================================
+
+model TenantAiConfig {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  company     TenantCompany @relation(fields: [companyId], references: [id])
+  provider    String   @default("zai")  // zai | gemini | openai | azure | custom
+  apiKey      String?
+  baseUrl     String?
+  model       String?
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(4096)
+  customHeaders Json?  // for custom provider headers (PostgreSQL uses Json for native JSONB)
+  isActive    Boolean  @default(true)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
