@@ -68,12 +68,12 @@ const DEMO_ACCOUNTS: {
   icon: LucideIcon;
 }[] = [
   { username: 'superadmin', password: 'Admin@123', role: 'Super Admin', tone: 'red', scope: 'Full access', icon: ShieldCheck },
-  { username: 'manager_mapi', password: 'Manager@123', role: 'Manager', tone: 'violet', scope: 'Operations + approvals', icon: BarChart3 },
-  { username: 'dataentry_mapi', password: 'DataEntry@123', role: 'Data Entry', tone: 'sky', scope: 'Create & submit data', icon: Database },
-  { username: 'viewer', password: 'Viewer@123', role: 'Viewer', tone: 'slate', scope: 'Read-only access', icon: Eye },
-  { username: 'docwriter', password: 'DocWriter@123', role: 'Doc Writer', tone: 'amber', scope: 'Documentation Hub only', icon: BookOpen },
-  { username: 'api_manager', password: 'ApiManager@123', role: 'API Manager', tone: 'emerald', scope: 'API Management only', icon: Cpu },
-  { username: 'ai_user', password: 'AiUser@123', role: 'AI User', tone: 'rose', scope: 'AI Assistant + Docs', icon: Sparkles },
+  { username: 'admin_mapi', password: 'Admin@123', role: 'Company Admin MAPI', tone: 'violet', scope: 'MAPI operations + approvals', icon: BarChart3 },
+  { username: 'editor_mapi1', password: 'Admin@123', role: 'Editor', tone: 'sky', scope: 'Create & edit data', icon: Database },
+  { username: 'viewer_mapi', password: 'Admin@123', role: 'Viewer', tone: 'slate', scope: 'Read-only access', icon: Eye },
+  { username: 'steward_mapi', password: 'Admin@123', role: 'Data Steward', tone: 'amber', scope: 'Data quality & governance', icon: BookOpen },
+  { username: 'api_manager', password: 'Admin@123', role: 'API Manager', tone: 'emerald', scope: 'API Management only', icon: Cpu },
+  { username: 'approver_mapi', password: 'Admin@123', role: 'Approver', tone: 'rose', scope: 'Review & approve data', icon: Sparkles },
 ];
 
 const TONE_CLASSES: Record<DemoTone, { bg: string; text: string; border: string; iconBg: string; hoverBg: string }> = {
