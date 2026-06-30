@@ -163,6 +163,16 @@ export async function uploadToR2(
   const client = getR2Client();
   const cacheControl = options?.cacheControl ?? 'public, max-age=31536000, immutable';
 
+  // S3 metadata values must be ASCII-only. Sanitize any non-ASCII chars.
+  const safeMetadata: Record<string, string> | undefined = options?.metadata
+    ? Object.fromEntries(
+        Object.entries(options.metadata).map(([k, v]) => [
+          k.replace(/[^a-zA-Z0-9._-]/g, '_'),
+          v.replace(/[^\x20-\x7E]/g, '_'),  // Only printable ASCII
+        ])
+      )
+    : undefined;
+
   await client.send(
     new PutObjectCommand({
       Bucket: _r2Config.bucket,
@@ -170,7 +180,7 @@ export async function uploadToR2(
       Body: buffer,
       ContentType: mimeType,
       CacheControl: cacheControl,
-      Metadata: options?.metadata,
+      Metadata: safeMetadata,
     })
   );
 
