@@ -64,3 +64,36 @@ Current Project Status:
 - Production data populated with 142+ records
 - Inline edit bug fixed (action=update + body key)
 - Remaining issues from previous sessions still pending (roles, AI, UI improvements, etc.)
+
+---
+Task ID: 4
+Agent: Main
+Task: Fix DataRecord values showing null + login issues + production deployment
+
+Work Log:
+- Investigated: Data records values still showing "-" in production UI
+- Root cause confirmed: `JSON.parse(currentPayload)` on PostgreSQL jsonb objects → fails → `{}` → null values
+- Created `/src/lib/parse-payload.ts` with `parsePayload()` that handles both object and string
+- Created `/src/lib/db-json.ts` with `jsonVal()` and `jsonParse()` that auto-detect DB provider
+- Fixed ALL `JSON.parse(currentPayload/deltaPayload)` across 8 frontend + 7 backend files
+- Fixed `build.sh`: removed `--force-reset` that was deleting all data on every deploy
+- Created `prisma/schema.supabase.prisma`: PostgreSQL schema with `Json` types (37 fields)
+- Updated `build.sh` to auto-detect PostgreSQL vs SQLite and use appropriate schema
+- Fixed login page quick buttons: old users (manager_mapi, dataentry_mapi) didn't exist
+- New quick login buttons: admin_mapi, editor_mapi1, viewer_mapi, steward_mapi, api_manager, approver_mapi
+- All production users use password: `Admin@123`
+- Fixed seed route: `canWrite` → `canCreate`/`canEdit` (matching RolePermission schema)
+- Fixed TypeScript errors in GridEditorPage, DigitalAssetPage, WorkflowPage, reseed-map-data, migrate-cascading
+
+QC Results (Production API - https://maa-btool.bayhaqy.my.id):
+- ✅ All 7 user types can log in (superadmin, admin_mapi, editor_mapi1, viewer_mapi, steward_mapi, api_manager, approver_mapi)
+- ✅ Data records return currentPayload as dict (native JS object)
+- ✅ Article Master: 65 records with article_name, brand, category, selling_price all visible
+- ✅ Store Master: 20 records with store_name, store_code visible
+- ✅ RLS working: editor_mapi1 can see MAPI company records only
+- ✅ Viewer can see records (read-only)
+
+Pending:
+- Vercel deployment for login page update still in progress (login quick buttons)
+- The API fix (parsePayload) is already working correctly in the current deployed version
+- TypeScript strict mode errors remain but don't block builds (ignoreBuildErrors: true)
