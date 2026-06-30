@@ -251,7 +251,7 @@ const BRAND_SEEDS = [
   { code: 'BRD-004', name: 'The North Face', category: 'OUTDOOR', countryOfOrigin: 'United States', website: 'https://www.thenorthface.com', description: 'The North Face — premium outdoor equipment and apparel for exploration.' },
   { code: 'BRD-005', name: 'Under Armour', category: 'SPORTSWEAR', countryOfOrigin: 'United States', website: 'https://www.underarmour.com', description: 'Under Armour — performance apparel, footwear, and sport accessories.' },
   { code: 'BRD-006', name: 'New Balance', category: 'SPORTSWEAR', countryOfOrigin: 'United States', website: 'https://www.newbalance.com', description: 'New Balance Athletics — premium running and lifestyle footwear.' },
-] as const;
+];
 
 // ── Pricing seed data (20 records) ─────────────────────────────
 // Each references a valid article_code from ARTICLE_SEEDS
@@ -310,7 +310,7 @@ const INVENTORY_SEEDS = [
   { code: 'INV-013', articleCode: 'ART-021', storeCode: 'STR-013', quantityOnHand: 14, quantityReserved: 2, reorderPoint: 5, lastRestockDate: '2024-05-08', binLocation: 'FW-BT-01' },
   { code: 'INV-014', articleCode: 'ART-048', storeCode: 'STR-003', quantityOnHand: 7, quantityReserved: 1, reorderPoint: 3, lastRestockDate: '2024-04-25', binLocation: 'AC-WT-01' },
   { code: 'INV-015', articleCode: 'ART-030', storeCode: 'STR-014', quantityOnHand: 25, quantityReserved: 3, reorderPoint: 8, lastRestockDate: '2024-05-01', binLocation: 'AP-HD-01' },
-] as const;
+];
 
 // ── Company assignment map (article code prefix → company code) ─
 const ARTICLE_COMPANY_MAP: Record<string, string> = {
