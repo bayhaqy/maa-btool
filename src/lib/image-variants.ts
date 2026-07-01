@@ -13,11 +13,23 @@
 // (e.g. SVG with bad markup) doesn't block the others.
 //
 // NOTE: This module runs server-side only — `sharp` is a native dep and
-// must not be bundled into the client.
+// must not be bundled into the client. It is loaded lazily to reduce
+// memory pressure on constrained environments.
 // ============================================================================
 
-import sharp from 'sharp';
 import { db } from '@/lib/db';
+
+// Lazy-load sharp to avoid loading ~50MB of native code at module level.
+// This is critical in sandbox environments with limited RAM.
+type SharpModule = typeof import('sharp');
+let _sharp: SharpModule | null = null;
+
+async function loadSharp(): Promise<SharpModule> {
+  if (!_sharp) {
+    _sharp = await import('sharp');
+  }
+  return _sharp;
+}
 
 export interface VariantConfig {
   /** Variant name: thumbnail | small | medium | large */
@@ -106,6 +118,7 @@ export async function generateVariants(
 
   const useLenientDecode = SPECIAL_INPUT_TYPES.has(mimeType);
   const baseName = original.fileName.replace(/\.[^.]+$/, '');
+  const sharp = await loadSharp();
 
   for (const cfg of VARIANT_CONFIGS) {
     try {
@@ -113,7 +126,7 @@ export async function generateVariants(
       // truncated/corrupt input doesn't crash the whole upload — the
       // original file is already persisted, so partial variants are
       // strictly better than failing the upload.
-      let chain = sharp(buffer, { failOnError: false }).resize(cfg.width, cfg.height, {
+      let chain = sharp.default(buffer, { failOnError: false }).resize(cfg.width, cfg.height, {
         fit: 'inside',
         withoutEnlargement: true,
       });

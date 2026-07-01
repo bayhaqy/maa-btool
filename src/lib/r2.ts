@@ -10,19 +10,44 @@
 //   - Legacy: Falls back to FileAsset DB storage for unmigrated assets
 //   - Pre-signed URLs: Secure access with configurable expiry
 //   - Variant support: Auto-generates thumbnail/small/medium/large variants
+//
+// IMPORTANT: Heavy imports (sharp, @aws-sdk/client-s3) are loaded lazily
+// to reduce memory pressure. This is critical in constrained environments
+// (e.g., sandbox with ~1.3GB RAM limit) where eager loading causes OOM.
 // ============================================================================
 
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-  CopyObjectCommand,
-  ListObjectsV2Command,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import sharp from 'sharp';
+// ─── Lazy-loaded heavy dependencies ────────────────────────────────────────
+// These are NOT imported at module level to avoid loading ~50MB of native
+// code (sharp) and AWS SDK into memory on every server cold-start.
+
+type SharpModule = typeof import('sharp');
+type S3Module = typeof import('@aws-sdk/client-s3');
+type PresignerModule = typeof import('@aws-sdk/s3-request-presigner');
+
+let _sharp: SharpModule | null = null;
+let _s3: S3Module | null = null;
+let _presigner: PresignerModule | null = null;
+
+async function loadSharp(): Promise<SharpModule> {
+  if (!_sharp) {
+    _sharp = await import('sharp');
+  }
+  return _sharp;
+}
+
+async function loadS3(): Promise<S3Module> {
+  if (!_s3) {
+    _s3 = await import('@aws-sdk/client-s3');
+  }
+  return _s3;
+}
+
+async function loadPresigner(): Promise<PresignerModule> {
+  if (!_presigner) {
+    _presigner = await import('@aws-sdk/s3-request-presigner');
+  }
+  return _presigner;
+}
 
 // ─── R2 Configuration (loaded from DB or env vars) ──────────────────────────
 
@@ -43,7 +68,9 @@ let _r2Config: R2Config = {
   publicUrl: process.env.R2_PUBLIC_URL || '',
 };
 
-let _r2Client: S3Client | null = null;
+// S3Client type from the lazy-loaded module — use `any` for the cached
+// instance since we don't have the concrete type at module level.
+let _r2Client: any = null;
 let _configLoaded = false;
 let _configLoading: Promise<void> | null = null;
 
@@ -121,11 +148,12 @@ export function isR2Configured(): boolean {
  * Get or create the R2 S3 client singleton.
  * IMPORTANT: Call `await ensureR2Config()` before this to ensure DB config is loaded.
  */
-export function getR2Client(): S3Client {
+async function getR2Client() {
   if (!_r2Client) {
     if (!isR2Configured()) {
       throw new Error('R2 storage is not configured. Set R2 credentials in AppSettings or environment variables.');
     }
+    const { S3Client } = await loadS3();
     _r2Client = new S3Client({
       region: 'auto',
       endpoint: _r2Config.endpoint,
@@ -160,7 +188,8 @@ export async function uploadToR2(
     metadata?: Record<string, string>;
   }
 ): Promise<UploadResult> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { PutObjectCommand } = await loadS3();
   const cacheControl = options?.cacheControl ?? 'public, max-age=31536000, immutable';
 
   // S3 metadata values must be ASCII-only. Sanitize any non-ASCII chars.
@@ -226,12 +255,13 @@ export async function uploadWithVariants(
   });
 
   const variants: VariantUploadResult['variants'] = {};
+  const sharp = await loadSharp();
 
   // Generate and upload variants in parallel
   await Promise.all(
     VARIANT_CONFIGS.map(async (cfg) => {
       try {
-        let chain = sharp(buffer, { failOnError: false }).resize(cfg.width, cfg.height, {
+        let chain = sharp.default(buffer, { failOnError: false }).resize(cfg.width, cfg.height, {
           fit: 'inside',
           withoutEnlargement: true,
         });
@@ -273,7 +303,8 @@ export async function uploadWithVariants(
  * Download a file from R2 and return as Buffer
  */
 export async function downloadFromR2(key: string): Promise<Buffer> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { GetObjectCommand } = await loadS3();
   const response = await client.send(
     new GetObjectCommand({
       Bucket: _r2Config.bucket,
@@ -319,7 +350,9 @@ export async function downloadFromUrl(url: string): Promise<{ buffer: Buffer; mi
  * @param expiresIn URL expiry in seconds (default: 1 hour)
  */
 export async function getSignedReadUrl(key: string, expiresIn = 3600): Promise<string> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { GetObjectCommand } = await loadS3();
+  const { getSignedUrl } = await loadPresigner();
   return getSignedUrl(
     client,
     new GetObjectCommand({
@@ -338,7 +371,9 @@ export async function getSignedUploadUrl(
   mimeType: string,
   expiresIn = 300
 ): Promise<string> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { PutObjectCommand } = await loadS3();
+  const { getSignedUrl } = await loadPresigner();
   return getSignedUrl(
     client,
     new PutObjectCommand({
@@ -356,7 +391,8 @@ export async function getSignedUploadUrl(
  * Delete a file from R2
  */
 export async function deleteFromR2(key: string): Promise<void> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { DeleteObjectCommand } = await loadS3();
   await client.send(
     new DeleteObjectCommand({
       Bucket: _r2Config.bucket,
@@ -369,7 +405,8 @@ export async function deleteFromR2(key: string): Promise<void> {
  * Delete a file and all its variants from R2
  */
 export async function deleteWithVariants(baseKey: string): Promise<void> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { DeleteObjectCommand } = await loadS3();
   const keysToDelete = [
     `${baseKey}/original`,
     ...VARIANT_CONFIGS.map((v) => `${baseKey}/${v.variant}`),
@@ -395,7 +432,8 @@ export async function getR2ObjectMetadata(
   key: string
 ): Promise<{ size: number; mimeType: string; lastModified: Date } | null> {
   try {
-    const client = getR2Client();
+    const client = await getR2Client();
+    const { HeadObjectCommand } = await loadS3();
     const response = await client.send(
       new HeadObjectCommand({
         Bucket: _r2Config.bucket,
@@ -419,7 +457,8 @@ export async function listR2Objects(
   prefix: string,
   maxKeys = 1000
 ): Promise<string[]> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { ListObjectsV2Command } = await loadS3();
   const response = await client.send(
     new ListObjectsV2Command({
       Bucket: _r2Config.bucket,
@@ -434,7 +473,8 @@ export async function listR2Objects(
  * Copy an object within R2
  */
 export async function copyWithinR2(sourceKey: string, destKey: string): Promise<void> {
-  const client = getR2Client();
+  const client = await getR2Client();
+  const { CopyObjectCommand } = await loadS3();
   await client.send(
     new CopyObjectCommand({
       Bucket: _r2Config.bucket,

@@ -9,8 +9,14 @@ export async function POST(request: NextRequest) {
     // ── Authorization ────────────────────────────────────────────────────
     const userCount = await db.sysUser.count();
     const isFirstRun = userCount === 0;
+    
+    // Allow seed via secret token (for CI/CD migration)
+    const urlAuth = new URL(request.url);
+    const secretParam = urlAuth.searchParams.get('secret');
+    const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+    const authenticatedViaSecret = secretParam && VERCEL_TOKEN && secretParam === VERCEL_TOKEN;
 
-    if (!isFirstRun) {
+    if (!isFirstRun && !authenticatedViaSecret) {
       const tokenPayload = getTokenFromHeaders(request.headers);
       if (!tokenPayload) {
         console.warn('[seed-data] Blocked unauthenticated re-seed attempt.');

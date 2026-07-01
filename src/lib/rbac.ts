@@ -89,6 +89,7 @@ export const STIBO_TERMS = {
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   'Super Admin': ['*'], // Full access to ALL permissions (System Admin)
+  'System Administrator': ['*'], // Alias — same as Super Admin (Stibo role type)
 
   'Administrator': [
     'data:read', 'data:create', 'data:edit', 'data:delete', 'data:approve', 'data:export', 'data:import', 'data:bulk',
@@ -294,7 +295,7 @@ export async function checkModulePermission(
   action: 'read' | 'create' | 'edit' | 'delete' | 'approve' | 'export' | 'import' | 'bulk'
 ): Promise<boolean> {
   // Super Admin bypasses all checks
-  if (roles.includes('Super Admin')) return true;
+  if (roles.includes('Super Admin') || roles.includes('System Administrator')) return true;
 
   // Check role-level permissions
   const actionMap: Record<string, string> = {
@@ -368,12 +369,12 @@ export function checkAuthAndPermission(
 
 // Check if user is Super Admin
 export function isSuperAdmin(roles: string[]): boolean {
-  return roles.includes('Super Admin');
+  return roles.includes('Super Admin') || roles.includes('System Administrator');
 }
 
 // Check if user is Company Admin (admin of their own company, NOT necessarily Super Admin)
 export function isCompanyAdmin(roles: string[]): boolean {
-  return roles.includes('Company Admin');
+  return roles.includes('Company Admin') || roles.includes('Administrator');
 }
 
 // Check if user is Viewer only (read-only)

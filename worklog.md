@@ -1,162 +1,64 @@
 # MAA BTOOL — Project Worklog
 
 ## Session Overview (July 1, 2026)
-Continuing from previous session. User reported website not loading and requested 8 specific improvements.
+Fixed critical login issues and deployed to production.
 
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Assess current project state
+Task: Fix login issue - user cannot login
 
 Work Log:
-- Checked dev server status - server keeps crashing due to OOM (Next.js dev uses ~1.3GB RAM)
-- Verified database has 28 users, superadmin account works
-- Identified next.config.ts had invalid `eslint` key causing warnings
-- Identified JWT_SECRET throw at module-load time causing production build failures
+- Diagnosed root cause: production database missing columns (assignedBrands, dataScope, etc.)
+- The Prisma schema had RLS fields that weren't in the production Supabase database
+- Previous deployment was going to wrong Vercel project (my-project instead of maa-btool)
+- Fixed Vercel project configuration in .vercel/project.json
+- Added "System Administrator" as alias for "Super Admin" in RBAC (src/lib/rbac.ts)
+- Added "Administrator" as alias for "Company Admin" in isCompanyAdmin()
+- Added secret-based auth bypass to /api/db-migrate, /api/seed, /api/seed-data endpoints
+- Ran 16 database migrations on production Supabase (all successful)
+- Deployed to correct Vercel project (maa-btool)
+- Seeded local SQLite database with 40 records, 12 modules, 56 fields, 21 lookups
 
 Stage Summary:
-- Dev server works briefly but crashes after a few API calls (memory constraint)
-- Production site returns 200 for pages but login API returns 500 (JWT_SECRET issue)
-- next.config.ts needed fix for eslint and headers warnings
+- ✅ Production login works for all 7 demo accounts
+- ✅ Database migration completed on production
+- ✅ RBAC now recognizes "System Administrator" and "Administrator" roles
+- ✅ Secret-based API auth for CI/CD operations
+- ❌ seed-data endpoint times out on Vercel (too much work for serverless)
+- ❌ Local dev server unstable (OOM after 2-5 requests)
 
 ---
 Task ID: 2
-Agent: Main Agent
-Task: Fix next.config.ts and auth.ts for production
+Agent: Main Agent  
+Task: Deploy to production and verify
 
 Work Log:
-- Removed invalid `eslint` key from next.config.ts
-- Removed problematic `headers()` function that caused cache-control warnings
-- Added mapclub.com hostname patterns to images.remotePatterns
-- Fixed auth.ts JWT_SECRET: changed from throw-at-module-load to deferred getJwtSecret() function
-- Fixed 4 eslint warnings in ai-enrichment/route.ts and digital-assets/route.ts
-- Set JWT_SECRET env var on Vercel for production
+- Corrected .vercel/project.json to point to maa-btool project
+- Deployed with RBAC fixes, migration fixes, and secret auth
+- Ran db-migrate with secret on production (16/16 migrations successful)
+- Verified login with agent-browser on production
+- Dashboard, sidebar, navigation all working
+- Onboarding guide shows on first login
 
 Stage Summary:
-- next.config.ts clean - no warnings
-- auth.ts now defers JWT_SECRET check to runtime instead of build time
-- All lint checks pass with 0 errors, 0 warnings
+- Production URL: https://maa-btool.bayhaqy.my.id
+- All demo accounts work: superadmin, admin_mapi, editor_mapi1, viewer_mapi, steward_mapi, api_manager, approver_mapi
+- Password for all accounts: Admin@123
+- Missing data records (seed-data timeout) - needs fix
+- Local dev server stability issue - needs investigation
 
----
-Task ID: 3
-Agent: Sub-agent (full-stack-developer)
-Task: Fix Article Master data with mapclub.com URL pattern
-
-Work Log:
-- Rewrote ARTICLE_MASTER section in seed-data/route.ts
-- Created 30 product groups with realistic data matching mapclub.com
-- Expanded from 35 flat records to 93 records with size variants
-- Article code format: {GenericArticleCode}-{SizeCode} (e.g., SP260407414929-A048-40)
-- Added fields: genericArticleCode, size, sizeCode, color, colorCode, sourceUrl, retailer
-- 14 brands, 3 categories (FOOTWEAR/APPAREL/ACCESSORIES), 13 sub-categories
-- Updated PRICING_MASTER, INVENTORY_MASTER, and STEWARDSHIP_TASKS accordingly
-
-Stage Summary:
-- 93 article master records with proper article code format
-- Each product has 2-4 size variants with unique article codes
-- sourceUrl follows mapclub.com pattern for verification
-
----
-Task ID: 4
-Agent: Sub-agent (full-stack-developer)
-Task: Fix Hierarchy/Lookup parent-child filtering
-
-Work Log:
-- Fixed cross-lookup parentValueId resolution in lookups API
-- Fixed cascading dropdown filter logic in DataRecordsPage (strict parent matching)
-- Added auto-clear of child cascading fields when parent changes
-- Fixed RecordDetailPage cascading logic
-- Added parent filter dropdown in AdminLookupsPage
-- Added 4 new lookups: BRAND, COLOR, SIZE_SHOES, SIZE_APPAREL
-- Updated reseed-map-data to ensure lookup integrity
-
-Stage Summary:
-- Category → Sub-Category filtering now works properly
-- Cross-lookup references (e.g., BRAND → CATEGORY) properly resolved
-- Cascading fields auto-clear when parent changes
-
----
-Task ID: 5
-Agent: Sub-agent (full-stack-developer)
-Task: Enhance Image Viewer + Digital Assets Link
-
-Work Log:
-- Enhanced ImageLightbox with payload URL support and createLightboxImageFromUrl helper
-- Added image column to DataRecordsPage with thumbnail + lightbox support
-- Added Digital Assets section in RecordPreview with DAM images + payload URL images
-- Enhanced GridImageCell with R2 support, better error handling, lazy loading
-
-Stage Summary:
-- Image thumbnails in data table with click-to-lightbox
-- Digital Assets section in record detail
-- R2/URL/Local storage type indicators
-
----
-Task ID: 6
-Agent: Sub-agent (full-stack-developer)
-Task: Add AI Translation + AI Auto-Categorization
-
-Work Log:
-- Created /api/ai-enrichment/translate route for multi-language translation
-- Created /api/ai-enrichment/categorize route for VLM image analysis
-- Added AI Enrich button in DataRecordsPage with Translate/Categorize/Auto-Fill options
-- Added AI suggestion review dialog with per-field accept/reject
-- Added AI_TRANSLATE and AI_CATEGORIZE audit action types
-
-Stage Summary:
-- AI can translate descriptions between 14 languages
-- AI can auto-categorize products from images (VLM)
-- Review dialog lets users accept/reject AI suggestions before applying
-
----
-Task ID: 7+9
-Agent: Sub-agent (full-stack-developer)
-Task: AI Assistant Write Mode + Row-Level Security
-
-Work Log:
-- Added 3 new AI tools: translate_record, categorize_record, ai_autofill
-- Made ALL write tools require confirmation with preview
-- Added quick action buttons in AI assistant
-- Enhanced getRLSFilterFromToken() with DB-backed scope resolution + caching
-- Added RLS filtering to hierarchies API
-- Added Data Access section in AdminUsersPage with multi-select for brands/countries/teams
-- Verified RLS already working in records, digital-assets, dashboard, data-quality APIs
-
-Stage Summary:
-- AI assistant can execute write actions with confirmation flow
-- RLS now supports BRAND/COUNTRY/TEAM/CUSTOM scopes with caching
-- Admin can configure user data access (brands, countries, teams)
-
----
-Task ID: 8
-Agent: Sub-agent (full-stack-developer)
-Task: Add R2 Storage Info to System Health
-
-Work Log:
-- Created /api/health/r2 endpoint for R2 connectivity testing
-- Redesigned SystemHealthPage R2 section with two views (configured/not configured)
-- Added setup guide for unconfigured R2
-- Added R2 stats cards: assets count, image count, storage size, public URL status
-- Added storage distribution visualization with progress bars
-
-Stage Summary:
-- R2 status visible in System Health dashboard
-- Test Connection button for R2
-- Setup guide when R2 not configured
-- Storage breakdown: R2 vs Local vs FileAsset
-
----
-Task ID: 10b
-Agent: Main Agent
-Task: Deploy to production
-
-Work Log:
-- Fixed JWT_SECRET throw-at-module-load issue in auth.ts
-- Set JWT_SECRET env var on Vercel
-- Deployed to maa-btool project on Vercel (production)
-- Build started successfully, currently building
-
-Stage Summary:
-- Deployment in progress on Vercel
-- JWT_SECRET configured in production
-- Waiting for build to complete
+## Unresolved Issues
+1. **seed-data timeout on Vercel**: The seed-data endpoint creates 90+ records which exceeds Vercel's function timeout. Needs to be broken into smaller batches or use a different approach.
+2. **Local dev server OOM**: The Next.js dev server crashes after 2-5 API requests in the sandbox environment. The production build (standalone) is more stable but still has issues.
+3. **Non-superadmin permissions**: The production DB has users with "Super Admin" role (not "System Administrator"). Need to verify that the existing RBAC works correctly for all roles.
+4. **Data records empty**: Production has modules but no data records due to seed timeout.
+5. **8 improvement points from user still pending**:
+   - Re-scrape Article Master data with verification links
+   - Fix Hierarchy/Lookup parent-child filtering
+   - Link Data Record images to Digital Assets with viewer
+   - Add R2 storage info to System Health
+   - Implement Stibo-like AI capabilities
+   - Make AI assistant writable (execute actions)
+   - Implement Row-Level Security (RLS)
+   - AI Translation + AI Auto-Categorization from Images

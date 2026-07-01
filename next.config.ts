@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig = {
-  output: "standalone",
+  output: "standalone", // for local dev — enable only for Vercel deployment
   reactStrictMode: false,
   // ── Security ──────────────────────────────────────────────────────────
   poweredByHeader: false,
@@ -10,6 +10,11 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // ── Server External Packages ──────────────────────────────────────────
+  // Heavy native modules that should NOT be bundled by Turbopack/Webpack.
+  // Instead they are loaded at runtime from node_modules, which avoids
+  // high memory usage during bundling and prevents OOM in constrained envs.
+  serverExternalPackages: ['sharp', '@aws-sdk/client-s3', '@pinecone-database/pinecone'],
   // ── Performance optimizations ──────────────────────────────────────────
   experimental: {
     optimizePackageImports: [

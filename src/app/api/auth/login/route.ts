@@ -4,7 +4,6 @@ import { verifyPassword, generateAccessToken, generateRefreshToken, setAuthCooki
 import { rateLimitByCategory, rateLimitResponse } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 import { validateInput, sanitizeString } from '@/lib/api-security';
-import { createSession } from '@/lib/session';
 
 // Extract the client IP from request headers.
 function getClientIp(request: NextRequest): string {
@@ -60,14 +59,15 @@ export async function POST(request: NextRequest) {
 
     if (!user || !user.isActive) {
       // ── Audit: failed login ──────────────────────────────────────────
-      await logAudit({
+      // Fire-and-forget: don't await to reduce response latency
+      logAudit({
         action: AuditAction.AUTH_FAILED,
         entityType: 'SysUser',
         description: `Failed login attempt for username "${username}"`,
         severity: 'warning',
         ipAddress: ip,
         userAgent: request.headers.get('user-agent') || 'unknown',
-      });
+      }).catch(() => {});
 
       return NextResponse.json(
         { error: 'Invalid credentials' },
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
       // ── Audit: failed login ──────────────────────────────────────────
-      await logAudit({
+      logAudit({
         action: AuditAction.AUTH_FAILED,
         entityType: 'SysUser',
         entityId: user.id,
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
         companyId: user.companyId,
         ipAddress: ip,
         userAgent: request.headers.get('user-agent') || 'unknown',
-      });
+      }).catch(() => {});
 
       return NextResponse.json(
         { error: 'Invalid credentials' },
@@ -110,17 +110,8 @@ export async function POST(request: NextRequest) {
     const refreshToken = generateRefreshToken(tokenPayload);
     const cookieHeaders = setAuthCookies(accessToken, refreshToken);
 
-    // ── Create session ──────────────────────────────────────────────────
-    createSession({
-      userId: user.id,
-      username: user.username,
-      companyId: user.companyId,
-      ipAddress: ip,
-      userAgent: request.headers.get('user-agent') || 'unknown',
-    });
-
-    // ── Audit: successful login ─────────────────────────────────────────
-    await logAudit({
+    // ── Audit: successful login (fire-and-forget) ───────────────────────────
+    logAudit({
       action: AuditAction.AUTH_LOGIN,
       entityType: 'SysUser',
       entityId: user.id,
@@ -129,7 +120,7 @@ export async function POST(request: NextRequest) {
       companyId: user.companyId,
       ipAddress: ip,
       userAgent: request.headers.get('user-agent') || 'unknown',
-    });
+    }).catch(() => {});
 
     const response = NextResponse.json({
       token: accessToken,

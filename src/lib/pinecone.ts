@@ -7,9 +7,21 @@
  * empty results so the rest of the app keeps working without vector search.
  *
  * Configure with `PINECONE_API_KEY` and `PINECONE_INDEX_NAME`.
+ *
+ * IMPORTANT: The @pinecone-database/pinecone SDK is loaded lazily to reduce
+ * memory pressure on constrained environments.
  */
 
-import { Pinecone, type Index } from '@pinecone-database/pinecone';
+// Lazy-load Pinecone SDK to avoid loading it at module level
+type PineconeModule = typeof import('@pinecone-database/pinecone');
+let _pineconeModule: PineconeModule | null = null;
+
+async function loadPinecone(): Promise<PineconeModule> {
+  if (!_pineconeModule) {
+    _pineconeModule = await import('@pinecone-database/pinecone');
+  }
+  return _pineconeModule;
+}
 
 /** A single search hit returned by {@link searchDocs}. */
 export interface DocSearchHit {
@@ -26,7 +38,7 @@ export const EMBEDDING_DIMENSION = 1536;
  *
  * Returns `null` when `PINECONE_API_KEY` is missing or empty.
  */
-export function getPineconeIndex(): Index<Record<string, unknown>> | null {
+export async function getPineconeIndex() {
   const apiKey = process.env.PINECONE_API_KEY;
   if (!apiKey || apiKey.trim() === '') {
     return null;
@@ -34,6 +46,7 @@ export function getPineconeIndex(): Index<Record<string, unknown>> | null {
   const indexName =
     process.env.PINECONE_INDEX_NAME || 'maa-btool-docs';
   try {
+    const { Pinecone } = await loadPinecone();
     const pinecone = new Pinecone({ apiKey });
     return pinecone.index<Record<string, unknown>>(indexName);
   } catch (err) {
@@ -55,7 +68,7 @@ export async function upsertDocEmbedding(
   embedding: number[],
   metadata: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   if (!index) {
     console.warn('[pinecone] upsertDocEmbedding skipped — not configured');
     return { success: false, error: 'Pinecone not configured' };
@@ -88,7 +101,7 @@ export async function searchDocs(
   queryEmbedding: number[],
   topK = 5,
 ): Promise<DocSearchHit[]> {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   if (!index) {
     console.warn('[pinecone] searchDocs skipped — not configured');
     return [];
@@ -120,7 +133,7 @@ export async function searchDocs(
 export async function deleteDocEmbedding(
   docId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   if (!index) {
     console.warn('[pinecone] deleteDocEmbedding skipped — not configured');
     return { success: false, error: 'Pinecone not configured' };

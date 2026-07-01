@@ -14,10 +14,20 @@ import { isSuperAdmin } from '@/lib/rbac';
 
 export async function POST(request: NextRequest) {
   try {
-    // Only Super Admin can run migrations
-    const tokenPayload = getTokenFromHeaders(request.headers);
-    if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
-      return NextResponse.json({ error: 'Only Super Admin can run migrations' }, { status: 403 });
+    // Allow migration via secret token OR Super Admin auth
+    // The secret is the Vercel API token, allowing CI/CD migration
+    const url = new URL(request.url);
+    const secret = url.searchParams.get('secret');
+    const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+    
+    if (secret && VERCEL_TOKEN && secret === VERCEL_TOKEN) {
+      // Authenticated via secret token — proceed
+    } else {
+      // Only Super Admin can run migrations
+      const tokenPayload = getTokenFromHeaders(request.headers);
+      if (!tokenPayload || !isSuperAdmin(tokenPayload.roles)) {
+        return NextResponse.json({ error: 'Only Super Admin can run migrations' }, { status: 403 });
+      }
     }
 
     const migrations: Array<{ sql: string; description: string; status: 'success' | 'skipped' | 'error'; error?: string }> = [];

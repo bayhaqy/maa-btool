@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,22 +59,25 @@ const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
 
 type DemoTone = 'red' | 'violet' | 'amber' | 'slate' | 'emerald' | 'sky' | 'rose';
 
-const DEMO_ACCOUNTS: {
+// Icon name → component mapping (server returns string icon names)
+const ICON_MAP: Record<string, LucideIcon> = {
+  ShieldCheck,
+  BarChart3,
+  Database,
+  Eye,
+  BookOpen,
+  Cpu,
+  Sparkles,
+};
+
+// Demo account shape from the API (NO passwords — security!)
+interface DemoAccount {
   username: string;
-  password: string;
   role: string;
-  tone: DemoTone;
   scope: string;
-  icon: LucideIcon;
-}[] = [
-  { username: 'superadmin', password: 'Admin@123', role: 'Super Admin', tone: 'red', scope: 'Full access', icon: ShieldCheck },
-  { username: 'admin_mapi', password: 'Admin@123', role: 'Company Admin MAPI', tone: 'violet', scope: 'MAPI operations + approvals', icon: BarChart3 },
-  { username: 'editor_mapi1', password: 'Admin@123', role: 'Editor', tone: 'sky', scope: 'Create & edit data', icon: Database },
-  { username: 'viewer_mapi', password: 'Admin@123', role: 'Viewer', tone: 'slate', scope: 'Read-only access', icon: Eye },
-  { username: 'steward_mapi', password: 'Admin@123', role: 'Data Steward', tone: 'amber', scope: 'Data quality & governance', icon: BookOpen },
-  { username: 'api_manager', password: 'Admin@123', role: 'API Manager', tone: 'emerald', scope: 'API Management only', icon: Cpu },
-  { username: 'approver_mapi', password: 'Admin@123', role: 'Approver', tone: 'rose', scope: 'Review & approve data', icon: Sparkles },
-];
+  icon: string;
+  tone: DemoTone;
+}
 
 const TONE_CLASSES: Record<DemoTone, { bg: string; text: string; border: string; iconBg: string; hoverBg: string }> = {
   red: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', iconBg: 'bg-red-100 text-red-600', hoverBg: 'hover:bg-red-100/60' },
@@ -164,6 +167,25 @@ export default function LoginPage() {
   const [logoFailed, setLogoFailed] = useState(false);
   const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
+
+  // Fetch demo accounts from API (no passwords exposed in client bundle)
+  useEffect(() => {
+    let cancelled = false;
+    const fetchDemoAccounts = async () => {
+      try {
+        const res = await fetch('/api/auth/demo-accounts');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setDemoAccounts(data.accounts || []);
+        }
+      } catch {
+        // Silently fail — demo accounts are non-critical
+      }
+    };
+    fetchDemoAccounts();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -219,11 +241,16 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = (u: string, p: string) => {
+  // Fill only the username — user must type the password manually (security)
+  const fillDemoUsername = useCallback((u: string) => {
     setUsername(u);
-    setPassword(p);
+    setPassword('');
     setError('');
-  };
+    // Focus the password field so the user can type immediately
+    setTimeout(() => {
+      document.getElementById('password')?.focus();
+    }, 50);
+  }, []);
 
   /* ------------------------------------------------------------------------ */
 
@@ -552,15 +579,15 @@ export default function LoginPage() {
               {/* Demo accounts with role-based icon + colors */}
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 p-3">
                 <div className="space-y-1">
-                  {DEMO_ACCOUNTS.map((acc, i) => {
+                  {demoAccounts.map((acc, i) => {
                     const toneClasses = TONE_CLASSES[acc.tone];
-                    const RoleIcon = acc.icon;
+                    const RoleIcon = ICON_MAP[acc.icon] || Database;
                     return (
                       <motion.button
                         key={acc.username}
                         type="button"
-                        onClick={() => fillDemo(acc.username, acc.password)}
-                        title={`Fill ${acc.username} credentials — ${acc.scope}`}
+                        onClick={() => fillDemoUsername(acc.username)}
+                        title={`Fill username "${acc.username}" — ${acc.scope}`}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.3, delay: 0.5 + i * 0.05 }}
@@ -576,14 +603,10 @@ export default function LoginPage() {
                         )}>
                           <RoleIcon className="w-3.5 h-3.5" />
                         </div>
-                        {/* Credentials */}
+                        {/* Username only — no password exposed */}
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
                             {acc.username}
-                          </span>
-                          <span className="text-slate-300 dark:text-slate-600">/</span>
-                          <span className="truncate font-mono text-xs text-slate-500 dark:text-slate-400">
-                            {acc.password}
                           </span>
                         </div>
                         {/* Role badge */}
@@ -598,7 +621,7 @@ export default function LoginPage() {
                   })}
                 </div>
                 <p className="mt-2.5 px-2 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-                  Click any row to autofill credentials, then press Sign In. Each demo role sees a tailored set of menu items.
+                  Click any row to autofill the username, then type the password and press Sign In.
                 </p>
               </div>
             </motion.div>
