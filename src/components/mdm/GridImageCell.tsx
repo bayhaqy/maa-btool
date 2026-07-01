@@ -11,6 +11,9 @@ import {
   ZoomIn,
   CheckCircle2,
   Loader2,
+  Cloud,
+  AlertCircle,
+  Link2,
 } from 'lucide-react';
 
 // ============================================================================
@@ -28,6 +31,32 @@ export interface GridImageInfo {
   mimeType?: string;
   pending?: boolean;
   variants?: Record<string, string>;
+  /** Storage type: 'r2', 'local', or 'url' */
+  storageType?: string;
+  /** R2 object key (if stored in R2) */
+  r2Key?: string | null;
+  /** Whether this image is from a record payload URL field */
+  isPayloadUrl?: boolean;
+}
+
+/**
+ * Determine the best thumbnail URL for an image, handling R2 signed URLs
+ * and variant resolution. Falls back to filePath if no variants available.
+ */
+function resolveThumbnailUrl(img: GridImageInfo): string {
+  // If we have a thumbnail variant, prefer it
+  if (img.variants?.thumbnail) return img.variants.thumbnail;
+  // If we have a small variant, use it
+  if (img.variants?.small) return img.variants.small;
+  // Otherwise use the full filePath (may be signed URL or local path)
+  return img.filePath;
+}
+
+/**
+ * Determine if a URL is an R2 signed URL
+ */
+function isR2SignedUrl(url: string): boolean {
+  return url.includes('X-Amz-Signature') || url.includes('X-Amz-Credential') || url.includes('/api/r2-image');
 }
 
 interface GridImageCellProps {
@@ -66,6 +95,7 @@ export default function GridImageCell({
   const [isHovered, setIsHovered] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const primary = images.find((i) => i.isPrimary);
@@ -172,25 +202,33 @@ export default function GridImageCell({
             className={cn(
               'w-7 h-7 rounded border overflow-hidden p-0 transition-all',
               'border-border hover:ring-2 hover:ring-red-400 hover:border-red-400',
-              'cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-red-400'
+              'cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-red-400',
+              imageError === primary.id && 'bg-muted'
             )}
             aria-label={`Enlarge ${primary.fileName || 'image'}`}
             tabIndex={-1}
           >
-            <img
-              src={primary.variants?.thumbnail || primary.filePath}
-              alt={primary.altText || primary.fileName}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const imgEl = e.target as HTMLImageElement;
-                if (imgEl.src !== primary.filePath && !imgEl.dataset.fallback) {
-                  imgEl.dataset.fallback = '1';
-                  imgEl.src = primary.filePath;
-                } else {
-                  imgEl.style.opacity = '0.3';
-                }
-              }}
-            />
+            {imageError === primary.id ? (
+              <div className="w-full h-full flex items-center justify-center bg-muted">
+                <AlertCircle className="w-3 h-3 text-muted-foreground/50" />
+              </div>
+            ) : (
+              <img
+                src={resolveThumbnailUrl(primary)}
+                alt={primary.altText || primary.fileName}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  const imgEl = e.target as HTMLImageElement;
+                  if (imgEl.src !== primary.filePath && !imgEl.dataset.fallback) {
+                    imgEl.dataset.fallback = '1';
+                    imgEl.src = primary.filePath;
+                  } else {
+                    setImageError(primary.id);
+                  }
+                }}
+              />
+            )}
           </button>
         ) : (
           <div
@@ -215,9 +253,17 @@ export default function GridImageCell({
           <CheckCircle2 className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-emerald-500 fill-emerald-500 stroke-white" />
         )}
 
+        {/* R2 / URL indicator */}
+        {primary && (primary.storageType === 'r2' || isR2SignedUrl(primary.filePath)) && (
+          <Cloud className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 text-sky-500" />
+        )}
+        {primary && primary.isPayloadUrl && !isR2SignedUrl(primary.filePath) && (
+          <Link2 className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 text-violet-500" />
+        )}
+
         {/* Hover preview (120x120) */}
         <AnimatePresence>
-          {isHovered && primary && (
+          {isHovered && primary && imageError !== primary.id && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -230,6 +276,7 @@ export default function GridImageCell({
                   src={primary.variants?.small || primary.variants?.thumbnail || primary.filePath}
                   alt={primary.altText || primary.fileName}
                   className="w-full h-full object-cover"
+                  loading="lazy"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.opacity = '0.2';
                   }}

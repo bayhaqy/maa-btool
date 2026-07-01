@@ -142,8 +142,11 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('Login error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    // In production, only return generic error; in dev, include details
+    const isDev = process.env.NODE_ENV !== 'production';
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', ...(isDev ? { details: message } : {}) },
       { status: 500 }
     );
   }

@@ -29,6 +29,87 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// ─── Multi-Select Input Component ──────────────────────────────────
+
+/** A simple multi-select input that stores values as a JSON array string. */
+function MultiSelectInput({
+  placeholder,
+  value,
+  onChange,
+  suggestions,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (jsonArrayString: string) => void;
+  suggestions: string[];
+}) {
+  const [input, setInput] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Parse current value into an array
+  const items = useMemo(() => {
+    if (!value || value.trim() === '') return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      // Try comma-separated
+      return value.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }, [value]);
+
+  const filteredSuggestions = suggestions.filter(s => !items.includes(s) && s.toLowerCase().includes(input.toLowerCase()));
+
+  const addItem = (item: string) => {
+    const trimmed = item.trim();
+    if (!trimmed || items.includes(trimmed)) return;
+    const newArr = [...items, trimmed];
+    onChange(JSON.stringify(newArr));
+    setInput('');
+    setShowSuggestions(false);
+  };
+
+  const removeItem = (item: string) => {
+    const newArr = items.filter(i => i !== item);
+    onChange(newArr.length > 0 ? JSON.stringify(newArr) : '');
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 border rounded-md bg-background">
+        {items.map((item: string) => (
+          <span key={item} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-xs font-medium">
+            {item}
+            <button type="button" onClick={() => removeItem(item)} className="text-muted-foreground hover:text-destructive ml-0.5">×</button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setShowSuggestions(true); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && input.trim()) { e.preventDefault(); addItem(input); }
+            if (e.key === 'Backspace' && input === '' && items.length > 0) { removeItem(items[items.length - 1]); }
+          }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+          placeholder={items.length === 0 ? placeholder : 'Add another...'}
+          className="flex-1 min-w-[80px] outline-none text-xs bg-transparent"
+        />
+      </div>
+      {showSuggestions && filteredSuggestions.length > 0 && (
+        <div className="border rounded-md max-h-32 overflow-y-auto custom-scrollbar bg-background shadow-sm">
+          {filteredSuggestions.slice(0, 10).map((s) => (
+            <button key={s} type="button" onMouseDown={(e) => { e.preventDefault(); addItem(s); }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors">
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminUsersPage() {
   const { token, user: currentUser, impersonate } = useAppStore();
   const perms = usePermissions();
@@ -532,37 +613,65 @@ export default function AdminUsersPage() {
               </Select>
               <p className="text-xs text-muted-foreground">Controls which data records this user can access</p>
             </div>
-            {(form.dataScope === 'BRAND' || form.dataScope === 'CUSTOM') && (
-              <div className="space-y-2">
-                <Label>Assigned Brands (JSON array)</Label>
-                <Input
-                  placeholder='e.g. ["Nike","Adidas","New Balance"]'
-                  value={form.assignedBrands}
-                  onChange={(e) => setForm({ ...form, assignedBrands: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">User will only see records matching these brands</p>
-              </div>
-            )}
-            {(form.dataScope === 'COUNTRY' || form.dataScope === 'CUSTOM') && (
-              <div className="space-y-2">
-                <Label>Assigned Countries (JSON array)</Label>
-                <Input
-                  placeholder='e.g. ["ID","SG","MY"]'
-                  value={form.assignedCountries}
-                  onChange={(e) => setForm({ ...form, assignedCountries: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">User will only see records matching these country codes</p>
-              </div>
-            )}
-            {(form.dataScope === 'TEAM' || form.dataScope === 'CUSTOM') && (
-              <div className="space-y-2">
-                <Label>Assigned Teams (JSON array)</Label>
-                <Input
-                  placeholder='e.g. ["Map Corporate","MAPI Operations"]'
-                  value={form.assignedTeams}
-                  onChange={(e) => setForm({ ...form, assignedTeams: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">User will only see records for their assigned teams</p>
+
+            {/* Data Access Section — always visible for clarity */}
+            {(form.dataScope === 'BRAND' || form.dataScope === 'CUSTOM' || form.dataScope === 'ALL' || form.dataScope === '' || form.dataScope === 'COMPANY' || form.dataScope === 'COUNTRY' || form.dataScope === 'TEAM') && (
+              <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <ShieldAlert className="w-4 h-4 text-amber-600" />
+                  Data Access Control
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Configure which data this user can access. Available brands/countries/teams are populated from existing records.
+                </p>
+
+                {/* Assigned Brands — shown for BRAND and CUSTOM scopes */}
+                {(form.dataScope === 'BRAND' || form.dataScope === 'CUSTOM') && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Assigned Brands</Label>
+                    <MultiSelectInput
+                      placeholder="Add brand (e.g., Nike, Adidas)"
+                      value={form.assignedBrands}
+                      onChange={(v) => setForm({ ...form, assignedBrands: v })}
+                      suggestions={['Nike', 'Adidas', 'Puma', 'New Balance', 'Converse', 'Vans', 'Reebok', 'Under Armour', 'ASICS', 'Skechers', 'Fila', 'Columbia', 'The North Face', 'Timberland', 'Nautica', 'Superdry', 'Cotton On']}
+                    />
+                    <p className="text-[10px] text-muted-foreground">User will only see records matching these brands. Type and press Enter to add.</p>
+                  </div>
+                )}
+
+                {/* Assigned Countries — shown for COUNTRY and CUSTOM scopes */}
+                {(form.dataScope === 'COUNTRY' || form.dataScope === 'CUSTOM') && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Assigned Countries</Label>
+                    <MultiSelectInput
+                      placeholder="Add country code (e.g., ID, SG, MY)"
+                      value={form.assignedCountries}
+                      onChange={(v) => setForm({ ...form, assignedCountries: v })}
+                      suggestions={['ID', 'SG', 'MY', 'TH', 'VN', 'PH', 'KH', 'MM', 'TL', 'BN', 'LA']}
+                    />
+                    <p className="text-[10px] text-muted-foreground">User will only see records matching these country codes. Type and press Enter to add.</p>
+                  </div>
+                )}
+
+                {/* Assigned Teams — shown for TEAM and CUSTOM scopes */}
+                {(form.dataScope === 'TEAM' || form.dataScope === 'CUSTOM') && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Assigned Teams</Label>
+                    <MultiSelectInput
+                      placeholder="Add team name (e.g., Map Corporate)"
+                      value={form.assignedTeams}
+                      onChange={(v) => setForm({ ...form, assignedTeams: v })}
+                      suggestions={['Map Corporate', 'MAPI Operations', 'MAPA Sports', 'MBA Food & Bev', 'MAPD Digital', 'MAPP Property', 'MAPL Logistics', 'Merchandising', 'Finance', 'Marketing', 'IT', 'HR']}
+                    />
+                    <p className="text-[10px] text-muted-foreground">User will only see records for their assigned teams. Type and press Enter to add.</p>
+                  </div>
+                )}
+
+                {form.dataScope !== 'BRAND' && form.dataScope !== 'CUSTOM' && form.dataScope !== 'COUNTRY' && form.dataScope !== 'TEAM' && (
+                  <p className="text-xs text-muted-foreground italic">
+                    {form.dataScope === 'ALL' ? 'This user has unrestricted access to all data.' : 'This user can access all data within their company.'}
+                  </p>
+                )}
               </div>
             )}
           </div>

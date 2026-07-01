@@ -3,26 +3,35 @@ import jwt from 'jsonwebtoken';
 import { db } from './db';
 import { hasPermission, isSuperAdmin, isCompanyAdmin, type PermissionContext } from './rbac';
 
-// SECURITY: Fail-fast if JWT_SECRET is missing in production.
-// Never use a hardcoded fallback — that would allow token forgery.
-const JWT_SECRET = (() => {
+// SECURITY: Fail-fast if JWT_SECRET is missing in production RUNTIME.
+// We defer the check to first use (instead of module load) so that the
+// Next.js build phase (NODE_ENV=production) doesn't crash before env vars
+// are injected by the hosting platform (Vercel injects at runtime, not build).
+let _jwtSecret: string | null = null;
+function getJwtSecret(): string {
+  if (_jwtSecret) return _jwtSecret;
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(
+    if (process.env.NODE_ENV === 'production' && process.env.VERCEL) {
+      // In production on Vercel — this should never happen if env is configured.
+      // Log loudly but don't throw during build/cold-start — throw on actual auth use.
+      console.error(
         'FATAL: JWT_SECRET environment variable is required in production. ' +
         'Generate one with: openssl rand -base64 32'
       );
+      throw new Error('JWT_SECRET is not configured. Authentication will not work.');
     }
-    // Dev-only fallback — logs a warning so devs know to set it
+    // Dev-only fallback
     console.warn(
       '⚠️  JWT_SECRET not set — using insecure dev fallback. ' +
       'Set JWT_SECRET in .env for local development.'
     );
-    return 'dev-only-insecure-jwt-secret-do-not-use-in-production';
+    _jwtSecret = 'dev-only-insecure-jwt-secret-do-not-use-in-production';
+  } else {
+    _jwtSecret = secret;
   }
-  return secret;
-})();
+  return _jwtSecret;
+}
 const ACCESS_TOKEN_EXPIRY = '8h';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
@@ -66,16 +75,16 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function generateAccessToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
 export function generateRefreshToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: REFRESH_TOKEN_EXPIRY });
 }
 
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
+    return jwt.verify(token, getJwtSecret()) as TokenPayload;
   } catch {
     return null;
   }

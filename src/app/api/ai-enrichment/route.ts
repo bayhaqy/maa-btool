@@ -953,8 +953,7 @@ async function handleDuplicateDetect(body: EnrichmentRequest, companyId: string,
   const { moduleCode, recordIds, options } = body;
   const threshold = options?.threshold ?? 0.7;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: Record<string, any> = { companyId };
+  const where: Record<string, unknown> = { companyId };
   if (recordIds && recordIds.length > 0) {
     (where as Record<string, unknown>).id = { in: recordIds };
   }
@@ -1082,8 +1081,7 @@ Return ONLY the JSON object, no other text.`;
 function findRuleBasedDuplicates(records: Array<{
   id: string;
   recordCode: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  currentPayload: any;
+  currentPayload: Record<string, unknown>;
   module: { moduleCode: string };
 }>): Array<{
   record1: { id: string; recordCode: string; moduleCode: string };
@@ -1298,8 +1296,7 @@ async function handleBulkEnrich(body: EnrichmentRequest, companyId: string, aiCo
   const batchSize = options?.batchSize ?? 50;
   const dryRun = options?.dryRun ?? true;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: Record<string, any> = { companyId };
+  const where: Record<string, unknown> = { companyId };
   if (moduleCode) {
     const mod = await db.metaModule.findFirst({ where: { moduleCode } });
     if (mod) where.moduleId = mod.id;

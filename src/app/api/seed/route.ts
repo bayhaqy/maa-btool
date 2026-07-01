@@ -732,6 +732,74 @@ export async function POST(request: NextRequest) {
       }),
       db.lookupMaster.create({
         data: {
+          lookupCode: 'BRAND', lookupName: 'Brand', description: 'Product brands (MAP Group)', category: 'Custom',
+          values: { create: [
+            { valueCode: 'NIKE', displayValue: 'Nike', parentValueCode: 'FOOTWEAR', sortOrder: 0 },
+            { valueCode: 'ADIDAS', displayValue: 'Adidas', parentValueCode: 'FOOTWEAR', sortOrder: 1 },
+            { valueCode: 'PUMA', displayValue: 'Puma', parentValueCode: 'FOOTWEAR', sortOrder: 2 },
+            { valueCode: 'NEW_BALANCE', displayValue: 'New Balance', parentValueCode: 'FOOTWEAR', sortOrder: 3 },
+            { valueCode: 'ASICS', displayValue: 'Asics', parentValueCode: 'FOOTWEAR', sortOrder: 4 },
+            { valueCode: 'SKECHERS', displayValue: 'Skechers', parentValueCode: 'FOOTWEAR', sortOrder: 5 },
+            { valueCode: 'CONVERSE', displayValue: 'Converse', parentValueCode: 'FOOTWEAR', sortOrder: 6 },
+            { valueCode: 'VANS', displayValue: 'Vans', parentValueCode: 'FOOTWEAR', sortOrder: 7 },
+            { valueCode: 'REEBOK', displayValue: 'Reebok', parentValueCode: 'FOOTWEAR', sortOrder: 8 },
+            { valueCode: 'UNDER_ARMOUR', displayValue: 'Under Armour', parentValueCode: 'FOOTWEAR', sortOrder: 9 },
+            { valueCode: 'TIMBERLAND', displayValue: 'Timberland', parentValueCode: 'FOOTWEAR', sortOrder: 10 },
+            { valueCode: 'COLUMBIA', displayValue: 'Columbia', parentValueCode: 'FOOTWEAR', sortOrder: 11 },
+            { valueCode: 'ZARA', displayValue: 'Zara', parentValueCode: 'APPAREL', sortOrder: 12 },
+            { valueCode: 'HM', displayValue: 'H&M', parentValueCode: 'APPAREL', sortOrder: 13 },
+            { valueCode: 'UNIQLO', displayValue: 'Uniqlo', parentValueCode: 'APPAREL', sortOrder: 14 },
+            { valueCode: 'STARBUCKS', displayValue: 'Starbucks', parentValueCode: 'FOOD_BEVERAGE', sortOrder: 15 },
+            { valueCode: 'PIZZA_HUT', displayValue: 'Pizza Hut', parentValueCode: 'FOOD_BEVERAGE', sortOrder: 16 },
+          ] },
+        },
+      }),
+      db.lookupMaster.create({
+        data: {
+          lookupCode: 'COLOR', lookupName: 'Color', description: 'Common product colors', category: 'Custom',
+          values: { create: [
+            { valueCode: 'BLACK', displayValue: 'Black', sortOrder: 0 },
+            { valueCode: 'WHITE', displayValue: 'White', sortOrder: 1 },
+            { valueCode: 'RED', displayValue: 'Red', sortOrder: 2 },
+            { valueCode: 'BLUE', displayValue: 'Blue', sortOrder: 3 },
+            { valueCode: 'GREEN', displayValue: 'Green', sortOrder: 4 },
+            { valueCode: 'GREY', displayValue: 'Grey', sortOrder: 5 },
+            { valueCode: 'NAVY', displayValue: 'Navy', sortOrder: 6 },
+            { valueCode: 'PINK', displayValue: 'Pink', sortOrder: 7 },
+            { valueCode: 'BROWN', displayValue: 'Brown', sortOrder: 8 },
+            { valueCode: 'BEIGE', displayValue: 'Beige', sortOrder: 9 },
+          ] },
+        },
+      }),
+      db.lookupMaster.create({
+        data: {
+          lookupCode: 'SIZE_SHOES', lookupName: 'Size (Shoes)', description: 'Shoe sizes (EU)', category: 'Custom',
+          values: { create: [
+            { valueCode: '38', displayValue: '38', parentValueCode: 'FOOTWEAR', sortOrder: 0 },
+            { valueCode: '39', displayValue: '39', parentValueCode: 'FOOTWEAR', sortOrder: 1 },
+            { valueCode: '40', displayValue: '40', parentValueCode: 'FOOTWEAR', sortOrder: 2 },
+            { valueCode: '41', displayValue: '41', parentValueCode: 'FOOTWEAR', sortOrder: 3 },
+            { valueCode: '42', displayValue: '42', parentValueCode: 'FOOTWEAR', sortOrder: 4 },
+            { valueCode: '43', displayValue: '43', parentValueCode: 'FOOTWEAR', sortOrder: 5 },
+            { valueCode: '44', displayValue: '44', parentValueCode: 'FOOTWEAR', sortOrder: 6 },
+          ] },
+        },
+      }),
+      db.lookupMaster.create({
+        data: {
+          lookupCode: 'SIZE_APPAREL', lookupName: 'Size (Apparel)', description: 'Apparel sizes (letter)', category: 'Custom',
+          values: { create: [
+            { valueCode: 'XS', displayValue: 'XS', parentValueCode: 'APPAREL', sortOrder: 0 },
+            { valueCode: 'S', displayValue: 'S', parentValueCode: 'APPAREL', sortOrder: 1 },
+            { valueCode: 'M', displayValue: 'M', parentValueCode: 'APPAREL', sortOrder: 2 },
+            { valueCode: 'L', displayValue: 'L', parentValueCode: 'APPAREL', sortOrder: 3 },
+            { valueCode: 'XL', displayValue: 'XL', parentValueCode: 'APPAREL', sortOrder: 4 },
+            { valueCode: 'XXL', displayValue: 'XXL', parentValueCode: 'APPAREL', sortOrder: 5 },
+          ] },
+        },
+      }),
+      db.lookupMaster.create({
+        data: {
           lookupCode: 'GENDER', lookupName: 'Gender', description: 'Gender options', category: 'System',
           values: { create: [
             { valueCode: 'MALE', displayValue: 'Male', sortOrder: 0 },

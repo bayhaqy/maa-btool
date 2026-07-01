@@ -140,7 +140,7 @@ export const AI_TOOLS: ToolDef[] = [
   // ─── WRITE tools ──────────────────────────────────
   {
     name: 'create_record',
-    description: 'Create a new data record in the MDM system. The record will be created in DRAFT status. Requires data:create permission.',
+    description: 'Create a new data record in the MDM system. The record will be created in DRAFT status. ⚠️ Requires confirmation. Requires data:create permission.',
     parameters: {
       type: 'object',
       properties: {
@@ -150,13 +150,13 @@ export const AI_TOOLS: ToolDef[] = [
       required: ['moduleCode', 'data'],
     },
     requiredPermission: 'data:create',
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     isWrite: true,
     category: 'write',
   },
   {
     name: 'update_record',
-    description: 'Update an existing data record. For ACTIVE records, this triggers the amendment workflow (status changes to REVISION_PENDING). Requires data:edit permission.',
+    description: 'Update an existing data record. For ACTIVE records, this triggers the amendment workflow (status changes to REVISION_PENDING). ⚠️ Requires confirmation. Requires data:edit permission.',
     parameters: {
       type: 'object',
       properties: {
@@ -166,7 +166,7 @@ export const AI_TOOLS: ToolDef[] = [
       required: ['recordId', 'data'],
     },
     requiredPermission: 'data:edit',
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     isWrite: true,
     category: 'write',
   },
@@ -206,7 +206,7 @@ export const AI_TOOLS: ToolDef[] = [
   // ─── WORKFLOW tools ───────────────────────────────
   {
     name: 'submit_for_approval',
-    description: 'Submit a DRAFT record for approval. Changes status to IN_REVIEW. Requires data:edit permission.',
+    description: 'Submit a DRAFT record for approval. Changes status to IN_REVIEW. ⚠️ Requires confirmation. Requires data:edit permission.',
     parameters: {
       type: 'object',
       properties: {
@@ -215,7 +215,7 @@ export const AI_TOOLS: ToolDef[] = [
       required: ['recordId'],
     },
     requiredPermission: 'data:edit',
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     isWrite: true,
     category: 'workflow',
   },
@@ -304,7 +304,7 @@ export const AI_TOOLS: ToolDef[] = [
   // ─── ASSET tools ──────────────────────────────────
   {
     name: 'create_digital_asset',
-    description: 'Create a new digital asset in the DAM system. Requires dam:upload permission.',
+    description: 'Create a new digital asset in the DAM system. ⚠️ Requires confirmation. Requires dam:upload permission.',
     parameters: {
       type: 'object',
       properties: {
@@ -316,9 +316,60 @@ export const AI_TOOLS: ToolDef[] = [
       required: ['fileName', 'assetType'],
     },
     requiredPermission: 'dam:upload',
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     isWrite: true,
     category: 'asset',
+  },
+
+  // ─── AI ENRICHMENT tools ─────────────────────────
+  {
+    name: 'translate_record',
+    description: 'Translate a record\'s description field from one language to another using AI. Calls the /api/ai-enrichment/translate endpoint. Requires ai:write permission.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID whose description to translate' },
+        sourceLang: { type: 'string', description: 'Source language code (e.g., id, en)', enum: ['id', 'en', 'ms', 'zh', 'ja', 'ko', 'th', 'vi', 'de', 'fr', 'es', 'pt', 'ar', 'hi'] },
+        targetLang: { type: 'string', description: 'Target language code (e.g., en, id)', enum: ['id', 'en', 'ms', 'zh', 'ja', 'ko', 'th', 'vi', 'de', 'fr', 'es', 'pt', 'ar', 'hi'] },
+      },
+      required: ['recordId', 'targetLang'],
+    },
+    requiredPermission: 'ai:write',
+    requiresConfirmation: false,
+    isWrite: false,
+    category: 'ai',
+  },
+  {
+    name: 'categorize_record',
+    description: 'Categorize a product from its associated image using VLM (Vision Language Model). Calls the /api/ai-enrichment/categorize endpoint. Returns category, sub-category, brand, color, and suggested tags. Requires ai:write permission.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID to categorize from its image' },
+      },
+      required: ['recordId'],
+    },
+    requiredPermission: 'ai:write',
+    requiresConfirmation: false,
+    isWrite: false,
+    category: 'ai',
+  },
+  {
+    name: 'ai_autofill',
+    description: 'Auto-fill all AI fields for a record by running both translation and categorization. Translates the description and categorizes from the image. Calls /api/ai-enrichment/translate and /api/ai-enrichment/categorize. Requires ai:write permission.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'The record ID to auto-fill with AI' },
+        sourceLang: { type: 'string', description: 'Source language for translation (default: id)', enum: ['id', 'en', 'ms', 'zh', 'ja', 'ko', 'th', 'vi', 'de', 'fr', 'es', 'pt', 'ar', 'hi'] },
+        targetLang: { type: 'string', description: 'Target language for translation (default: en)', enum: ['id', 'en', 'ms', 'zh', 'ja', 'ko', 'th', 'vi', 'de', 'fr', 'es', 'pt', 'ar', 'hi'] },
+      },
+      required: ['recordId'],
+    },
+    requiredPermission: 'ai:write',
+    requiresConfirmation: false,
+    isWrite: false,
+    category: 'ai',
   },
 ];
 
@@ -379,12 +430,12 @@ You have access to the following tools that allow you to interact with the MDM s
   [TOOL_CALL:search_digital_assets({"search": "product image", "assetType": "IMAGE"})]
   \`\`\`
 
-### Write Tools (confirmation may be required for destructive ops)
-- **create_record**: Create new records (DRAFT status)
+### Write Tools (⚠️ ALL require confirmation before execution)
+- **create_record**: Create new records (DRAFT status) ⚠️ REQUIRES CONFIRMATION
   \`\`\`
   [TOOL_CALL:create_record({"moduleCode": "ARTICLE_MASTER", "data": {"name": "New Product", "code": "ART-001", "brand": "Nike", "category": "Footwear"}})]
   \`\`\`
-- **update_record**: Update existing records (triggers amendment for ACTIVE records)
+- **update_record**: Update existing records (triggers amendment for ACTIVE records) ⚠️ REQUIRES CONFIRMATION
   \`\`\`
   [TOOL_CALL:update_record({"recordId": "clxxx123", "data": {"selling_price": "599000"}})]
   \`\`\`
@@ -397,8 +448,8 @@ You have access to the following tools that allow you to interact with the MDM s
   [TOOL_CALL:bulk_update({"recordIds": ["id1", "id2"], "data": {"status_note": "Updated by AI"}, "moduleCode": "ARTICLE_MASTER"})]
   \`\`\`
 
-### Workflow Tools
-- **submit_for_approval**: Submit DRAFT records for review
+### Workflow Tools (⚠️ ALL require confirmation)
+- **submit_for_approval**: Submit DRAFT records for review ⚠️ REQUIRES CONFIRMATION
   \`\`\`
   [TOOL_CALL:submit_for_approval({"recordId": "clxxx123"})]
   \`\`\`
@@ -411,7 +462,7 @@ You have access to the following tools that allow you to interact with the MDM s
   [TOOL_CALL:reject_record({"recordId": "clxxx123", "reason": "Missing required fields"})]
   \`\`\`
 
-### AI-Powered Tools
+### AI-Powered Tools (no confirmation needed — read-only suggestions)
 - **enrich_record**: Suggest AI-powered field values for a record
   \`\`\`
   [TOOL_CALL:enrich_record({"recordId": "clxxx123"})]
@@ -424,9 +475,21 @@ You have access to the following tools that allow you to interact with the MDM s
   \`\`\`
   [TOOL_CALL:check_quality({"moduleCode": "ARTICLE_MASTER", "checkType": "all"})]
   \`\`\`
+- **translate_record**: Translate a record's description to another language
+  \`\`\`
+  [TOOL_CALL:translate_record({"recordId": "clxxx123", "targetLang": "en"})]
+  \`\`\`
+- **categorize_record**: Categorize a product from its image using VLM
+  \`\`\`
+  [TOOL_CALL:categorize_record({"recordId": "clxxx123"})]
+  \`\`\`
+- **ai_autofill**: Auto-fill all AI fields (translation + categorization)
+  \`\`\`
+  [TOOL_CALL:ai_autofill({"recordId": "clxxx123", "sourceLang": "id", "targetLang": "en"})]
+  \`\`\`
 
-### Asset Tools
-- **create_digital_asset**: Create a digital asset in DAM
+### Asset Tools (⚠️ require confirmation)
+- **create_digital_asset**: Create a digital asset in DAM ⚠️ REQUIRES CONFIRMATION
   \`\`\`
   [TOOL_CALL:create_digital_asset({"fileName": "product-photo.jpg", "assetType": "IMAGE", "recordId": "clxxx123"})]
   \`\`\`
@@ -435,11 +498,12 @@ You have access to the following tools that allow you to interact with the MDM s
 
 1. When users ask you to perform actions, use the appropriate tool by outputting \`[TOOL_CALL:tool_name(JSON arguments)]\` on its own line.
 2. You can call multiple tools in a single response if needed.
-3. For destructive operations (delete, bulk_update, approve, reject), the system will ask the user for confirmation before executing. You should inform the user what will happen and that confirmation is needed.
+3. ALL write operations (create, update, delete, bulk_update, submit, approve, reject, create_digital_asset) require user confirmation before execution. The system will show a confirmation dialog. You should inform the user what will happen and that confirmation is needed.
 4. After tool results are returned, summarize the results for the user in a clear and helpful way.
 5. If a tool fails due to permissions, inform the user that they don't have the required permission and suggest they contact their administrator.
 6. Always verify a record exists before trying to update or delete it — use get_record or search_records first.
 7. For update_record on ACTIVE records, explain that this will trigger the amendment workflow.
+8. When users ask to "translate a record", use translate_record. When they ask to "categorize a product", use categorize_record. When they ask to "auto-fill AI fields", use ai_autofill.
 
 ## Important Guidelines
 
@@ -613,6 +677,93 @@ async function generateConfirmationPreview(
               currentStatus: record.status,
               newStatus: 'REJECTED',
               reason: args.reason || '',
+            },
+          },
+        };
+      }
+
+      case 'create_record': {
+        const { moduleCode, data } = args;
+        const mod = await db.metaModule.findFirst({ where: { moduleCode: String(moduleCode) } });
+        if (!mod) return { success: false, error: `Module ${moduleCode} not found` };
+        const recordData = (data as Record<string, unknown>) || {};
+        return {
+          success: true,
+          preview: {
+            action: 'CREATE_RECORD',
+            target: `${recordData.name || recordData.recordName || 'New Record'}`,
+            details: {
+              moduleCode: String(moduleCode),
+              moduleName: mod.moduleName,
+              status: 'DRAFT',
+              fields: recordData,
+            },
+          },
+        };
+      }
+
+      case 'update_record': {
+        const record = await db.dataRecord.findUnique({
+          where: { id: String(args.recordId) },
+          include: { module: { select: { moduleCode: true, moduleName: true } } },
+        });
+        if (!record) return { success: false, error: 'Record not found' };
+        const payload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+        const updateData = (args.data as Record<string, unknown>) || {};
+        const changes: Record<string, { from: unknown; to: unknown }> = {};
+        for (const key of Object.keys(updateData)) {
+          changes[key] = { from: payload[key] ?? '(empty)', to: updateData[key] };
+        }
+        return {
+          success: true,
+          preview: {
+            action: 'UPDATE_RECORD',
+            target: `${payload.name || payload.recordName || record.id}`,
+            details: {
+              recordId: record.id,
+              moduleName: record.module?.moduleName,
+              currentStatus: record.status,
+              statusChange: record.status === 'ACTIVE' ? 'Will trigger amendment workflow → REVISION_PENDING' : 'No status change',
+              changes,
+            },
+          },
+        };
+      }
+
+      case 'submit_for_approval': {
+        const record = await db.dataRecord.findUnique({
+          where: { id: String(args.recordId) },
+          include: { module: { select: { moduleCode: true, moduleName: true } } },
+        });
+        if (!record) return { success: false, error: 'Record not found' };
+        if (record.status !== 'DRAFT') return { success: false, error: `Only DRAFT records can be submitted (current: ${record.status})` };
+        const payload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+        return {
+          success: true,
+          preview: {
+            action: 'SUBMIT_FOR_APPROVAL',
+            target: `${payload.name || payload.recordName || record.id}`,
+            details: {
+              recordId: record.id,
+              moduleName: record.module?.moduleName,
+              currentStatus: 'DRAFT',
+              newStatus: 'IN_REVIEW',
+            },
+          },
+        };
+      }
+
+      case 'create_digital_asset': {
+        const { fileName, assetType, recordId } = args;
+        return {
+          success: true,
+          preview: {
+            action: 'CREATE_DIGITAL_ASSET',
+            target: String(fileName || 'New Asset'),
+            details: {
+              fileName: String(fileName || ''),
+              assetType: String(assetType || 'IMAGE'),
+              recordId: recordId ? String(recordId) : 'Unlinked',
             },
           },
         };
@@ -1212,6 +1363,193 @@ async function performToolExecution(
       };
     }
 
+    // ─── AI ENRICHMENT tools ──────────────────────
+    case 'translate_record': {
+      const { recordId, sourceLang = 'id', targetLang = 'en' } = args;
+      const record = await db.dataRecord.findUnique({
+        where: { id: String(recordId) },
+        include: { module: { select: { moduleCode: true, moduleName: true } } },
+      });
+      if (!record) return { success: false, error: 'Record not found' };
+
+      const payload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+      const descriptionKeys = ['description', 'article_description', 'description_en', 'description_id', 'desc'];
+      let textToTranslate = '';
+      for (const key of descriptionKeys) {
+        if (payload[key] && typeof payload[key] === 'string' && payload[key].trim()) {
+          textToTranslate = String(payload[key]);
+          break;
+        }
+      }
+      if (!textToTranslate) {
+        textToTranslate = String(payload.name || payload.recordName || '');
+      }
+      if (!textToTranslate) return { success: false, error: 'No description text found in the record to translate' };
+
+      try {
+        const response = await fetch(`http://localhost:${process.env.PORT || 3000}/api/ai-enrichment/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `internal-${companyId}-${userId}` },
+          body: JSON.stringify({
+            text: textToTranslate,
+            sourceLang: String(sourceLang),
+            targetLang: String(targetLang),
+            recordId: String(recordId),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) return { success: false, error: result.error || 'Translation failed' };
+
+        return {
+          success: true,
+          data: {
+            recordId,
+            recordName: payload.name || payload.recordName || 'Unknown',
+            moduleName: record.module?.moduleName,
+            originalText: textToTranslate,
+            translatedText: result.translatedText,
+            sourceLang: result.sourceLang,
+            targetLang: result.targetLang,
+            tokensUsed: result.tokensUsed,
+          },
+        };
+      } catch (err) {
+        return { success: false, error: `Translation API error: ${err instanceof Error ? err.message : 'Unknown error'}` };
+      }
+    }
+
+    case 'categorize_record': {
+      const { recordId } = args;
+      const record = await db.dataRecord.findUnique({
+        where: { id: String(recordId) },
+        include: {
+          module: { select: { moduleCode: true, moduleName: true } },
+          images: { select: { id: true, filePath: true, mimeType: true }, take: 1 },
+        },
+      });
+      if (!record) return { success: false, error: 'Record not found' };
+
+      // Try to get an image URL for the record
+      const imageAsset = record.images?.[0];
+      if (!imageAsset) {
+        return { success: false, error: 'No image found for this record. Categorization requires a product image.' };
+      }
+
+      const imageUrl = imageAsset.filePath.startsWith('http') ? imageAsset.filePath : `${imageAsset.filePath}`;
+
+      try {
+        const response = await fetch(`http://localhost:${process.env.PORT || 3000}/api/ai-enrichment/categorize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `internal-${companyId}-${userId}` },
+          body: JSON.stringify({ imageUrl, recordId: String(recordId) }),
+        });
+        const result = await response.json();
+        if (!response.ok) return { success: false, error: result.error || 'Categorization failed' };
+
+        const payload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+        return {
+          success: true,
+          data: {
+            recordId,
+            recordName: payload.name || payload.recordName || 'Unknown',
+            moduleName: record.module?.moduleName,
+            categorization: result.categorization,
+            recordUpdated: result.recordUpdated,
+            tokensUsed: result.tokensUsed,
+          },
+        };
+      } catch (err) {
+        return { success: false, error: `Categorization API error: ${err instanceof Error ? err.message : 'Unknown error'}` };
+      }
+    }
+
+    case 'ai_autofill': {
+      const { recordId, sourceLang = 'id', targetLang = 'en' } = args;
+      const record = await db.dataRecord.findUnique({
+        where: { id: String(recordId) },
+        include: {
+          module: { select: { moduleCode: true, moduleName: true } },
+          images: { select: { id: true, filePath: true, mimeType: true }, take: 1 },
+        },
+      });
+      if (!record) return { success: false, error: 'Record not found' };
+
+      const payload = jsonParse<Record<string, unknown>>(record.currentPayload) || {};
+      const results: { translation?: unknown; categorization?: unknown; errors: string[] } = { errors: [] };
+
+      // 1. Run translation
+      const descriptionKeys = ['description', 'article_description', 'description_en', 'description_id', 'desc'];
+      let textToTranslate = '';
+      for (const key of descriptionKeys) {
+        if (payload[key] && typeof payload[key] === 'string' && payload[key].trim()) {
+          textToTranslate = String(payload[key]);
+          break;
+        }
+      }
+      if (!textToTranslate) textToTranslate = String(payload.name || payload.recordName || '');
+
+      if (textToTranslate) {
+        try {
+          const translateRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/ai-enrichment/translate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `internal-${companyId}-${userId}` },
+            body: JSON.stringify({ text: textToTranslate, sourceLang: String(sourceLang), targetLang: String(targetLang), recordId: String(recordId) }),
+          });
+          const translateData = await translateRes.json();
+          if (translateRes.ok) {
+            results.translation = {
+              translatedText: translateData.translatedText,
+              sourceLang: translateData.sourceLang,
+              targetLang: translateData.targetLang,
+            };
+          } else {
+            results.errors.push(`Translation: ${translateData.error || 'Failed'}`);
+          }
+        } catch (err) {
+          results.errors.push(`Translation: ${err instanceof Error ? err.message : 'Error'}`);
+        }
+      } else {
+        results.errors.push('Translation: No description text found');
+      }
+
+      // 2. Run categorization (if record has an image)
+      const imageAsset = record.images?.[0];
+      if (imageAsset) {
+        const imageUrl = imageAsset.filePath.startsWith('http') ? imageAsset.filePath : `${imageAsset.filePath}`;
+        try {
+          const catRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/ai-enrichment/categorize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `internal-${companyId}-${userId}` },
+            body: JSON.stringify({ imageUrl, recordId: String(recordId) }),
+          });
+          const catData = await catRes.json();
+          if (catRes.ok) {
+            results.categorization = catData.categorization;
+          } else {
+            results.errors.push(`Categorization: ${catData.error || 'Failed'}`);
+          }
+        } catch (err) {
+          results.errors.push(`Categorization: ${err instanceof Error ? err.message : 'Error'}`);
+        }
+      } else {
+        results.errors.push('Categorization: No image found for the record');
+      }
+
+      return {
+        success: true,
+        data: {
+          recordId,
+          recordName: payload.name || payload.recordName || 'Unknown',
+          moduleName: record.module?.moduleName,
+          translation: results.translation || null,
+          categorization: results.categorization || null,
+          errors: results.errors,
+          completedSteps: (results.translation ? 1 : 0) + (results.categorization ? 1 : 0),
+          totalSteps: 2,
+        },
+      };
+    }
+
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };
   }
@@ -1231,6 +1569,9 @@ function getAuditAction(toolName: string): string {
     create_digital_asset: 'RECORD_CREATE',
     enrich_record: 'AI_CONFIG_CHANGE',
     classify_record: 'AI_CONFIG_CHANGE',
+    translate_record: 'AI_TRANSLATE',
+    categorize_record: 'AI_CATEGORIZE',
+    ai_autofill: 'AI_AUTOFILL',
   };
   return mapping[toolName] || 'RECORD_UPDATE';
 }
@@ -1506,6 +1847,48 @@ export function generateToolResultSummary(
           lines.push(`- **ID**: \`${data.id}\``);
           lines.push(`- **File**: ${data.fileName} (${data.assetType})`);
           lines.push(`- **Status**: ${data.status}`);
+        }
+        break;
+      }
+      case 'translate_record': {
+        const data = result.data as { recordName?: string; originalText?: string; translatedText?: string; sourceLang?: string; targetLang?: string } | undefined;
+        lines.push(`**Record Translated** 🌐`);
+        if (data) {
+          lines.push(`- **Record**: ${data.recordName}`);
+          lines.push(`- **${data.sourceLang} → ${data.targetLang}**:`);
+          lines.push(`  - Original: ${data.originalText?.slice(0, 200)}`);
+          lines.push(`  - Translated: ${data.translatedText?.slice(0, 200)}`);
+        }
+        break;
+      }
+      case 'categorize_record': {
+        const data = result.data as { recordName?: string; categorization?: { category?: string; subCategory?: string; brand?: string; color?: string; suggestedTags?: string[] }; recordUpdated?: boolean } | undefined;
+        lines.push(`**Record Categorized** 🏷️`);
+        if (data) {
+          lines.push(`- **Record**: ${data.recordName}`);
+          if (data.categorization) {
+            lines.push(`- **Category**: ${data.categorization.category}`);
+            lines.push(`- **Sub-category**: ${data.categorization.subCategory}`);
+            lines.push(`- **Brand**: ${data.categorization.brand}`);
+            lines.push(`- **Color**: ${data.categorization.color}`);
+            if (data.categorization.suggestedTags) lines.push(`- **Tags**: ${data.categorization.suggestedTags.join(', ')}`);
+          }
+          if (data.recordUpdated) lines.push(`- ✅ Record fields updated with categorization data`);
+        }
+        break;
+      }
+      case 'ai_autofill': {
+        const data = result.data as { recordName?: string; translation?: { translatedText?: string }; categorization?: { category?: string; brand?: string }; errors?: string[]; completedSteps?: number; totalSteps?: number } | undefined;
+        lines.push(`**AI Auto-Fill** ✨`);
+        if (data) {
+          lines.push(`- **Record**: ${data.recordName}`);
+          lines.push(`- **Steps completed**: ${data.completedSteps}/${data.totalSteps}`);
+          if (data.translation) lines.push(`- **Translation**: ${data.translation.translatedText?.slice(0, 200)}`);
+          if (data.categorization) lines.push(`- **Categorization**: ${data.categorization.category} / ${data.categorization.brand}`);
+          if (data.errors && data.errors.length > 0) {
+            lines.push(`- **Warnings**:`);
+            for (const err of data.errors) lines.push(`  - ${err}`);
+          }
         }
         break;
       }

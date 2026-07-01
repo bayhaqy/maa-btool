@@ -132,23 +132,26 @@ const WELCOME_MESSAGE = `Hi! I'm your **MAA BTOOL AI Assistant** — aligned wit
 - **Check data quality** and hierarchy structures
 - **Search digital assets** in the DAM
 
-### ✏️ Write Operations
-- **Create new records** (saved as DRAFT)
-- **Update existing records** (triggers amendment for ACTIVE records)
-- **Delete DRAFT records** (with confirmation)
-- **Bulk update** multiple records (with confirmation)
+### ✏️ Write Operations (⚠️ all require confirmation)
+- **Create new records** (saved as DRAFT) — confirmation required
+- **Update existing records** (triggers amendment for ACTIVE records) — confirmation required
+- **Delete DRAFT records** — confirmation required
+- **Bulk update** multiple records — confirmation required
 
-### ✅ Workflow Actions
+### ✅ Workflow Actions (⚠️ all require confirmation)
 - **Submit for approval** — move DRAFT → IN_REVIEW
-- **Approve records** — move IN_REVIEW → ACTIVE (with confirmation)
-- **Reject records** — with reason (with confirmation)
+- **Approve records** — move IN_REVIEW → ACTIVE
+- **Reject records** — with reason
 
 ### 🤖 AI-Powered Features
 - **Enrich records** — AI suggests missing field values
 - **Classify records** — AI suggests categories and tags
 - **Quality checks** — completeness, consistency, accuracy analysis
+- **🌐 Translate records** — translate descriptions between languages (ID↔EN, etc.)
+- **🏷️ Categorize from image** — VLM auto-detects category, brand, color from product photos
+- **✨ Auto-fill AI fields** — runs both translation + categorization at once
 
-> ⚠️ Destructive operations require your confirmation before execution.
+> ⚠️ All write, workflow, and asset operations require your explicit confirmation before execution.
 
 How can I help you today?`;
 
@@ -159,6 +162,8 @@ const SUGGESTED_PROMPTS = [
   { icon: Sparkles, title: 'Enrichment', prompt: 'Find a record in Article Master and enrich its missing fields using AI.', category: 'ENRICHMENT' },
   { icon: ClipboardList, title: 'Workflow Actions', prompt: 'List all records that are in IN_REVIEW status for the Article Master module.', category: 'GENERAL' },
   { icon: FolderTree, title: 'View Hierarchy', prompt: 'Show me the hierarchy structure for the Article Master module.', category: 'GENERAL' },
+  { icon: ArrowLeftRight, title: 'Translate', prompt: 'Find a record in Article Master and translate its description from Indonesian to English.', category: 'ENRICHMENT' },
+  { icon: Tag, title: 'AI Auto-Fill', prompt: 'Find a record and auto-fill all AI fields (translation + categorization).', category: 'ENRICHMENT' },
 ];
 
 const PROVIDER_BADGES: Record<string, { label: string; color: string }> = {
@@ -1175,7 +1180,7 @@ export default function AiAssistantPage() {
                   })}
 
                   {/* Unavailable tools */}
-                  {availableTools.length < 17 && (
+                  {availableTools.length < 20 && (
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <Shield className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1202,6 +1207,8 @@ export default function AiAssistantPage() {
                   { label: '✏️ Create', prompt: 'Create a new article record with name: Test Product, brand: Nike, category: Footwear.' },
                   { label: '✅ Workflow', prompt: 'List all records in IN_REVIEW status.' },
                   { label: '🤖 Enrich', prompt: 'Run AI enrichment on a record and suggest missing fields.' },
+                  { label: '🌐 Translate', prompt: 'Find a record and translate its description to English.' },
+                  { label: '✨ Auto-Fill', prompt: 'Find a record and auto-fill all AI fields.' },
                 ].map((s) => (
                   <button key={s.label} onClick={() => handleSendMessage(s.prompt)} className="text-xs px-2.5 py-1.5 rounded-full border border-border bg-background hover:bg-accent hover:border-red-300 dark:hover:border-red-700 transition-colors text-muted-foreground hover:text-foreground">
                     {s.label}

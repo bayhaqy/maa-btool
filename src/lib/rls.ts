@@ -293,10 +293,16 @@ export async function canAccessRecord(
 }
 
 /**
- * Get RLS filter from a TokenPayload directly (avoids extra DB query for common case).
- * This is an optimized path for API routes that already have the token payload.
+ * Get RLS filter from a TokenPayload directly.
+ * Enhanced to also check assignedBrands, assignedCountries, assignedTeams
+ * by querying the user's RLS data from the DB (with caching).
+ *
+ * Cache: Results are cached in-memory for 60 seconds to avoid repeated DB queries.
  */
-export function getRLSFilterFromToken(tokenPayload: TokenPayload): RLSFilter {
+const rlsCache = new Map<string, { filter: RLSFilter; expiresAt: number }>();
+const RLS_CACHE_TTL_MS = 60_000; // 60 seconds
+
+export async function getRLSFilterFromToken(tokenPayload: TokenPayload): Promise<RLSFilter> {
   if (!tokenPayload) {
     return {
       where: {},
@@ -314,12 +320,105 @@ export function getRLSFilterFromToken(tokenPayload: TokenPayload): RLSFilter {
     };
   }
 
-  // All non-super-admin users are at minimum company-scoped
-  return {
-    where: { companyId: tokenPayload.companyId },
-    isRestricted: true,
-    description: `Company-scoped: ${tokenPayload.companyId}`,
-  };
+  // Check cache
+  const cacheKey = `${tokenPayload.userId}:${tokenPayload.companyId}`;
+  const cached = rlsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.filter;
+  }
+
+  // Query user's RLS data from DB
+  const filter = await buildEnhancedRLSFilter(tokenPayload);
+
+  // Cache the result
+  rlsCache.set(cacheKey, { filter, expiresAt: Date.now() + RLS_CACHE_TTL_MS });
+
+  // Prune stale entries periodically
+  if (rlsCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, entry] of rlsCache) {
+      if (entry.expiresAt <= now) rlsCache.delete(key);
+    }
+  }
+
+  return filter;
+}
+
+/**
+ * Build an enhanced RLS filter using the user's full data scope from the DB.
+ * Falls back to company-only filtering if DB query fails.
+ */
+async function buildEnhancedRLSFilter(tokenPayload: TokenPayload): Promise<RLSFilter> {
+  try {
+    const scope = await getUserDataScope(tokenPayload.userId);
+
+    // If ALL scope, no restrictions
+    if (scope.scope === 'ALL') {
+      return {
+        where: {},
+        isRestricted: false,
+        description: 'Full access (ALL scope)',
+      };
+    }
+
+    const conditions: Record<string, unknown>[] = [];
+    const parts: string[] = [];
+
+    // Company scope is always enforced (unless ALL)
+    if (scope.companyId) {
+      conditions.push({ companyId: scope.companyId });
+      parts.push(`company: ${scope.companyId}`);
+    }
+
+    // Brand filtering
+    if ((scope.scope === 'BRAND' || scope.scope === 'CUSTOM') && scope.brands.length > 0) {
+      conditions.push({
+        OR: [
+          { brand: { in: scope.brands } },
+          { brand: null },
+        ],
+      });
+      parts.push(`brands: [${scope.brands.join(',')}]`);
+    }
+
+    // Country filtering
+    if ((scope.scope === 'COUNTRY' || scope.scope === 'CUSTOM') && scope.countries.length > 0) {
+      conditions.push({
+        OR: [
+          { country: { in: scope.countries } },
+          { country: null },
+        ],
+      });
+      parts.push(`countries: [${scope.countries.join(',')}]`);
+    }
+
+    // Team filtering
+    if ((scope.scope === 'TEAM' || scope.scope === 'CUSTOM') && scope.teams.length > 0) {
+      parts.push(`teams: [${scope.teams.join(',')}]`);
+    }
+
+    // Combine all conditions with AND
+    const where: Record<string, unknown> = {};
+    if (conditions.length === 1) {
+      Object.assign(where, conditions[0]);
+    } else if (conditions.length > 1) {
+      where.AND = conditions;
+    }
+
+    return {
+      where,
+      isRestricted: true,
+      description: parts.length > 0 ? parts.join(' AND ') : 'Company-scoped',
+    };
+  } catch (error) {
+    console.error('Failed to build enhanced RLS filter, falling back to company-only:', error);
+    // Fallback to company-only filtering
+    return {
+      where: { companyId: tokenPayload.companyId },
+      isRestricted: true,
+      description: `Company-scoped: ${tokenPayload.companyId} (fallback)`,
+    };
+  }
 }
 
 /**

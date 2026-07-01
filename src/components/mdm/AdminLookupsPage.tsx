@@ -95,6 +95,7 @@ export default function AdminLookupsPage() {
   // need to load those parent lookup values for the parentValueCode selector.
   const [crossLookupParentValues, setCrossLookupParentValues] = useState<{ valueCode: string; displayValue: string }[]>([]);
   const [crossLookupParentName, setCrossLookupParentName] = useState<string>('');
+  const [parentFilter, setParentFilter] = useState<string>('ALL');
 
   // Detect if a lookup has cross-lookup parentValueCode references
   const getCrossLookupParent = useCallback((lookup: LookupItem): { lookupCode: string; name: string } | null => {
@@ -284,6 +285,7 @@ export default function AdminLookupsPage() {
       setCrossLookupParentName('');
     }
 
+    setParentFilter('ALL');
     setDialogOpen(true);
   };
 
@@ -295,6 +297,7 @@ export default function AdminLookupsPage() {
     });
     setCrossLookupParentValues([]);
     setCrossLookupParentName('');
+    setParentFilter('ALL');
     setDialogOpen(true);
   };
 
@@ -439,6 +442,50 @@ export default function AdminLookupsPage() {
                 {isExpanded && (
                   <CardContent className="pt-0">
                     {l.description && <p className="text-sm text-muted-foreground mb-3">{l.description}</p>}
+                    {/* Parent filter for cascading lookups */}
+                    {(l.values || []).some((v: any) => v.parentValueCode) && (() => {
+                      const crossParent = getCrossLookupParent(l);
+                      // Collect unique parent value codes
+                      const parentCodes = [...new Set((l.values || []).map((v: any) => v.parentValueCode).filter(Boolean))];
+                      // Build parent display map
+                      const parentDisplayMap = new Map<string, string>();
+                      for (const pc of parentCodes) {
+                        const sameLookupParent = l.values?.find((p: any) => p.valueCode === pc);
+                        if (sameLookupParent) {
+                          parentDisplayMap.set(pc, sameLookupParent.displayValue);
+                        } else if (crossParent) {
+                          const parentLookup = lookups.find((lk) => lk.lookupCode === crossParent.lookupCode);
+                          const crossVal = parentLookup?.values?.find((p: any) => p.valueCode === pc);
+                          parentDisplayMap.set(pc, crossVal?.displayValue || pc);
+                        } else {
+                          parentDisplayMap.set(pc, pc);
+                        }
+                      }
+                      return parentCodes.length > 0 ? (
+                        <div className="flex items-center gap-2 mb-3">
+                          <Label className="text-xs text-muted-foreground whitespace-nowrap">Filter by parent:</Label>
+                          <select
+                            value={parentFilter}
+                            onChange={(e) => setParentFilter(e.target.value)}
+                            className="h-7 text-xs rounded-md border border-input bg-background px-2 py-0 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <option value="ALL">All ({l.values?.length || 0})</option>
+                            <option value="__NONE__">No parent ({(l.values || []).filter((v: any) => !v.parentValueCode).length})</option>
+                            {parentCodes.map((pc: string) => (
+                              <option key={pc} value={pc}>
+                                {parentDisplayMap.get(pc) || pc} ({(l.values || []).filter((v: any) => v.parentValueCode === pc).length})
+                              </option>
+                            ))}
+                          </select>
+                          {crossParent && (
+                            <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-700 border-emerald-300">
+                              <GitBranch className="w-2.5 h-2.5 mr-0.5" />
+                              from {crossParent.name}
+                            </Badge>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -451,7 +498,11 @@ export default function AdminLookupsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {l.values?.map((v: any, idx: number) => {
+                        {l.values?.filter((v: any) => {
+                          if (parentFilter === 'ALL') return true;
+                          if (parentFilter === '__NONE__') return !v.parentValueCode;
+                          return v.parentValueCode === parentFilter;
+                        }).map((v: any, idx: number) => {
                           // Try to find display value: first in same lookup, then in cross-lookup parent
                           const sameLookupParent = l.values?.find((p: any) => p.valueCode === v.parentValueCode);
                           const crossParent = getCrossLookupParent(l);

@@ -77,14 +77,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ hierarchy });
     }
 
-    // List hierarchies
-    const where: Record<string, unknown> = {};
+    // List hierarchies with RLS filtering by companyId
+    const baseWhere: Record<string, unknown> = {};
     if (moduleId) {
-      where.moduleId = moduleId;
+      baseWhere.moduleId = moduleId;
+    }
+
+    // Apply RLS: filter hierarchies by company through their associated module
+    const rlsFilter = await getRLSFilter(tokenPayload.userId);
+    // For hierarchies, we filter by the module's data records' companyId through the module relation
+    // Super Admin sees all, others see only hierarchies in their company's data
+    if (rlsFilter.isRestricted && rlsFilter.where.companyId) {
+      // Get module IDs that have data records in the user's company
+      const companyRecords = await db.dataRecord.findMany({
+        where: { companyId: rlsFilter.where.companyId as string },
+        select: { moduleId: true },
+        distinct: ['moduleId'],
+      });
+      const moduleIds = companyRecords.map(r => r.moduleId);
+      if (moduleIds.length > 0) {
+        baseWhere.moduleId = moduleId && moduleIds.includes(moduleId) ? moduleId : { in: moduleIds };
+      } else {
+        // No modules with records in user's company → no hierarchies
+        return NextResponse.json({ hierarchies: [] });
+      }
     }
 
     const hierarchies = await db.hierarchyModel.findMany({
-      where,
+      where: baseWhere,
       orderBy: { createdAt: 'desc' },
       include: {
         module: { select: { id: true, moduleCode: true, moduleName: true } },

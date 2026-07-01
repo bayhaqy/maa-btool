@@ -76,8 +76,7 @@ export async function GET(request: NextRequest) {
     const companyId = tokenPayload.companyId;
 
     // Build where clause with RLS
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const baseWhere: Record<string, any> = {};
+    const baseWhere: Record<string, unknown> = {};
     if (!isSA) {
       baseWhere.companyId = companyId;
     }

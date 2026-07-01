@@ -4,22 +4,11 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: false,
   // ── Security ──────────────────────────────────────────────────────────
-  // Remove the X-Powered-By response header (security through obscurity,
-  // but still a 2026 best practice — reduces fingerprinting surface).
   poweredByHeader: false,
-  // Compress responses (gzip/brotli) — Vercel already does this at the edge,
-  // but enabling here helps self-hosted / preview environments too.
   compress: true,
-  // ── TypeScript & ESLint ────────────────────────────────────────────────
-  // Production builds should NEVER fail on type errors — Vercel uses this.
-  // (We run `bun run type-check` in CI for advisory checking instead.)
+  // ── TypeScript ────────────────────────────────────────────────────────
   typescript: {
     ignoreBuildErrors: true,
-  },
-  // Next.js 16 type defs no longer include `eslint`, but it is still honored
-  // at runtime. The whole object is cast to NextConfig below to silence TS2353.
-  eslint: {
-    ignoreDuringBuilds: true,
   },
   // ── Performance optimizations ──────────────────────────────────────────
   experimental: {
@@ -62,34 +51,13 @@ const nextConfig = {
       { protocol: 'https', hostname: 'www.skechers.com' },
       { protocol: 'https', hostname: 'www.asics.com' },
       { protocol: 'https', hostname: 'www.hoka.com' },
+      { protocol: 'https', hostname: 'www.mapclub.com' },
+      { protocol: 'https', hostname: 'mapclub.com' },
+      { protocol: 'https', hostname: 'cdn.mapclub.com' },
+      { protocol: 'https', hostname: 'img.mapclub.com' },
     ],
   },
-  // ── Static-page regeneration & headers ────────────────────────────────
-  async headers() {
-    return [
-      // Hash-named static assets — immutable forever
-      {
-        source: '/_next/static/(.*)',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
-        ],
-      },
-      // Common static file extensions
-      {
-        source: '/:path*{(png|jpg|jpeg|gif|webp|avif|svg|ico|woff|woff2|ttf|eot|css|js|map)}',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
-        ],
-      },
-      // Brand logo — preloaded, immutable
-      {
-        source: '/map-active-logo.png',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
-        ],
-      },
-    ];
-  },
+
 };
 
 export default nextConfig as NextConfig;

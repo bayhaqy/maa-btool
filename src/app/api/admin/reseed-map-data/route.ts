@@ -737,6 +737,234 @@ export async function POST(request: NextRequest) {
     summary.steps.push(`Step 1b: Ensured cascading lookup data integrity (${cascadingFixed} fixes)`);
     console.info(`[reseed-map-data] Step 1b complete: ${cascadingFixed} cascading fixes`);
 
+    // ── Step 1c: Ensure BRAND, COLOR, SIZE_SHOES, SIZE_APPAREL lookups ──
+    console.info('[reseed-map-data] Step 1c: Ensuring additional lookup data...');
+    let additionalLookupFixed = 0;
+
+    // BRAND lookup
+    let brandLookup = await db.lookupMaster.findUnique({ where: { lookupCode: 'BRAND' } });
+    if (!brandLookup) {
+      brandLookup = await db.lookupMaster.create({
+        data: {
+          lookupCode: 'BRAND',
+          lookupName: 'Brand',
+          description: 'Product brands (MAP Group)',
+          category: 'Custom',
+        },
+      });
+      additionalLookupFixed++;
+    }
+    const brandValues = [
+      { valueCode: 'NIKE', displayValue: 'Nike', parentValueCode: 'FOOTWEAR', sortOrder: 0 },
+      { valueCode: 'ADIDAS', displayValue: 'Adidas', parentValueCode: 'FOOTWEAR', sortOrder: 1 },
+      { valueCode: 'PUMA', displayValue: 'Puma', parentValueCode: 'FOOTWEAR', sortOrder: 2 },
+      { valueCode: 'NEW_BALANCE', displayValue: 'New Balance', parentValueCode: 'FOOTWEAR', sortOrder: 3 },
+      { valueCode: 'ASICS', displayValue: 'Asics', parentValueCode: 'FOOTWEAR', sortOrder: 4 },
+      { valueCode: 'SKECHERS', displayValue: 'Skechers', parentValueCode: 'FOOTWEAR', sortOrder: 5 },
+      { valueCode: 'CONVERSE', displayValue: 'Converse', parentValueCode: 'FOOTWEAR', sortOrder: 6 },
+      { valueCode: 'VANS', displayValue: 'Vans', parentValueCode: 'FOOTWEAR', sortOrder: 7 },
+      { valueCode: 'REEBOK', displayValue: 'Reebok', parentValueCode: 'FOOTWEAR', sortOrder: 8 },
+      { valueCode: 'UNDER_ARMOUR', displayValue: 'Under Armour', parentValueCode: 'FOOTWEAR', sortOrder: 9 },
+      { valueCode: 'TIMBERLAND', displayValue: 'Timberland', parentValueCode: 'FOOTWEAR', sortOrder: 10 },
+      { valueCode: 'COLUMBIA', displayValue: 'Columbia', parentValueCode: 'FOOTWEAR', sortOrder: 11 },
+      { valueCode: 'ZARA', displayValue: 'Zara', parentValueCode: 'APPAREL', sortOrder: 12 },
+      { valueCode: 'HM', displayValue: 'H&M', parentValueCode: 'APPAREL', sortOrder: 13 },
+      { valueCode: 'UNIQLO', displayValue: 'Uniqlo', parentValueCode: 'APPAREL', sortOrder: 14 },
+      { valueCode: 'STARBUCKS', displayValue: 'Starbucks', parentValueCode: 'FOOD_BEVERAGE', sortOrder: 15 },
+      { valueCode: 'PIZZA_HUT', displayValue: 'Pizza Hut', parentValueCode: 'FOOD_BEVERAGE', sortOrder: 16 },
+    ];
+    for (const v of brandValues) {
+      await db.lookupValue.upsert({
+        where: { lookupId_valueCode: { lookupId: brandLookup.id, valueCode: v.valueCode } },
+        create: { lookupId: brandLookup.id, ...v, isActive: true },
+        update: { displayValue: v.displayValue, parentValueCode: v.parentValueCode, sortOrder: v.sortOrder, isActive: true },
+      });
+      additionalLookupFixed++;
+    }
+    // Soft-delete old BRAND values
+    const newBrandCodes = brandValues.map((v) => v.valueCode);
+    await db.lookupValue.updateMany({
+      where: { lookupId: brandLookup.id, valueCode: { notIn: newBrandCodes }, isActive: true },
+      data: { isActive: false },
+    });
+
+    // COLOR lookup
+    let colorLookup = await db.lookupMaster.findUnique({ where: { lookupCode: 'COLOR' } });
+    if (!colorLookup) {
+      colorLookup = await db.lookupMaster.create({
+        data: {
+          lookupCode: 'COLOR',
+          lookupName: 'Color',
+          description: 'Common product colors',
+          category: 'Custom',
+        },
+      });
+      additionalLookupFixed++;
+    }
+    const colorValues = [
+      { valueCode: 'BLACK', displayValue: 'Black', sortOrder: 0 },
+      { valueCode: 'WHITE', displayValue: 'White', sortOrder: 1 },
+      { valueCode: 'RED', displayValue: 'Red', sortOrder: 2 },
+      { valueCode: 'BLUE', displayValue: 'Blue', sortOrder: 3 },
+      { valueCode: 'GREEN', displayValue: 'Green', sortOrder: 4 },
+      { valueCode: 'GREY', displayValue: 'Grey', sortOrder: 5 },
+      { valueCode: 'NAVY', displayValue: 'Navy', sortOrder: 6 },
+      { valueCode: 'PINK', displayValue: 'Pink', sortOrder: 7 },
+      { valueCode: 'BROWN', displayValue: 'Brown', sortOrder: 8 },
+      { valueCode: 'BEIGE', displayValue: 'Beige', sortOrder: 9 },
+    ];
+    for (const v of colorValues) {
+      await db.lookupValue.upsert({
+        where: { lookupId_valueCode: { lookupId: colorLookup.id, valueCode: v.valueCode } },
+        create: { lookupId: colorLookup.id, ...v, isActive: true },
+        update: { displayValue: v.displayValue, sortOrder: v.sortOrder, isActive: true },
+      });
+      additionalLookupFixed++;
+    }
+    const newColorCodes = colorValues.map((v) => v.valueCode);
+    await db.lookupValue.updateMany({
+      where: { lookupId: colorLookup.id, valueCode: { notIn: newColorCodes }, isActive: true },
+      data: { isActive: false },
+    });
+
+    // SIZE_SHOES lookup
+    let sizeShoesLookup = await db.lookupMaster.findUnique({ where: { lookupCode: 'SIZE_SHOES' } });
+    if (!sizeShoesLookup) {
+      sizeShoesLookup = await db.lookupMaster.create({
+        data: {
+          lookupCode: 'SIZE_SHOES',
+          lookupName: 'Size (Shoes)',
+          description: 'Shoe sizes (EU)',
+          category: 'Custom',
+        },
+      });
+      additionalLookupFixed++;
+    }
+    const sizeShoesValues = [
+      { valueCode: '38', displayValue: '38', parentValueCode: 'FOOTWEAR', sortOrder: 0 },
+      { valueCode: '39', displayValue: '39', parentValueCode: 'FOOTWEAR', sortOrder: 1 },
+      { valueCode: '40', displayValue: '40', parentValueCode: 'FOOTWEAR', sortOrder: 2 },
+      { valueCode: '41', displayValue: '41', parentValueCode: 'FOOTWEAR', sortOrder: 3 },
+      { valueCode: '42', displayValue: '42', parentValueCode: 'FOOTWEAR', sortOrder: 4 },
+      { valueCode: '43', displayValue: '43', parentValueCode: 'FOOTWEAR', sortOrder: 5 },
+      { valueCode: '44', displayValue: '44', parentValueCode: 'FOOTWEAR', sortOrder: 6 },
+    ];
+    for (const v of sizeShoesValues) {
+      await db.lookupValue.upsert({
+        where: { lookupId_valueCode: { lookupId: sizeShoesLookup.id, valueCode: v.valueCode } },
+        create: { lookupId: sizeShoesLookup.id, ...v, isActive: true },
+        update: { displayValue: v.displayValue, parentValueCode: v.parentValueCode, sortOrder: v.sortOrder, isActive: true },
+      });
+      additionalLookupFixed++;
+    }
+    const newSizeShoesCodes = sizeShoesValues.map((v) => v.valueCode);
+    await db.lookupValue.updateMany({
+      where: { lookupId: sizeShoesLookup.id, valueCode: { notIn: newSizeShoesCodes }, isActive: true },
+      data: { isActive: false },
+    });
+
+    // SIZE_APPAREL lookup
+    let sizeApparelLookup = await db.lookupMaster.findUnique({ where: { lookupCode: 'SIZE_APPAREL' } });
+    if (!sizeApparelLookup) {
+      sizeApparelLookup = await db.lookupMaster.create({
+        data: {
+          lookupCode: 'SIZE_APPAREL',
+          lookupName: 'Size (Apparel)',
+          description: 'Apparel sizes (letter)',
+          category: 'Custom',
+        },
+      });
+      additionalLookupFixed++;
+    }
+    const sizeApparelValues = [
+      { valueCode: 'XS', displayValue: 'XS', parentValueCode: 'APPAREL', sortOrder: 0 },
+      { valueCode: 'S', displayValue: 'S', parentValueCode: 'APPAREL', sortOrder: 1 },
+      { valueCode: 'M', displayValue: 'M', parentValueCode: 'APPAREL', sortOrder: 2 },
+      { valueCode: 'L', displayValue: 'L', parentValueCode: 'APPAREL', sortOrder: 3 },
+      { valueCode: 'XL', displayValue: 'XL', parentValueCode: 'APPAREL', sortOrder: 4 },
+      { valueCode: 'XXL', displayValue: 'XXL', parentValueCode: 'APPAREL', sortOrder: 5 },
+    ];
+    for (const v of sizeApparelValues) {
+      await db.lookupValue.upsert({
+        where: { lookupId_valueCode: { lookupId: sizeApparelLookup.id, valueCode: v.valueCode } },
+        create: { lookupId: sizeApparelLookup.id, ...v, isActive: true },
+        update: { displayValue: v.displayValue, parentValueCode: v.parentValueCode, sortOrder: v.sortOrder, isActive: true },
+      });
+      additionalLookupFixed++;
+    }
+    const newSizeApparelCodes = sizeApparelValues.map((v) => v.valueCode);
+    await db.lookupValue.updateMany({
+      where: { lookupId: sizeApparelLookup.id, valueCode: { notIn: newSizeApparelCodes }, isActive: true },
+      data: { isActive: false },
+    });
+
+    // Resolve parentValueId for BRAND, SIZE_SHOES, SIZE_APPAREL (cross-lookup → CATEGORY)
+    if (categoryLookup) {
+      const catVals2 = await db.lookupValue.findMany({
+        where: { lookupId: categoryLookup.id, isActive: true },
+        select: { id: true, valueCode: true },
+      });
+      const catCodeToId2 = new Map(catVals2.map((v) => [v.valueCode, v.id]));
+
+      for (const lookupObj of [brandLookup, sizeShoesLookup, sizeApparelLookup]) {
+        const lookupValues = await db.lookupValue.findMany({
+          where: { lookupId: lookupObj.id, isActive: true },
+          select: { id: true, valueCode: true, parentValueCode: true, parentValueId: true },
+        });
+        for (const lv of lookupValues) {
+          if (lv.parentValueCode) {
+            const expectedParentId = catCodeToId2.get(lv.parentValueCode) ?? null;
+            if (lv.parentValueId !== expectedParentId) {
+              await db.lookupValue.update({
+                where: { id: lv.id },
+                data: { parentValueId: expectedParentId },
+              });
+              additionalLookupFixed++;
+            }
+          }
+        }
+      }
+    }
+
+    // Ensure brand field is linked to BRAND lookup
+    if (articleModuleId) {
+      const brandField = await db.metaField.findUnique({
+        where: { moduleId_fieldCode: { moduleId: articleModuleId, fieldCode: 'brand' } },
+      });
+      if (brandField && brandLookup) {
+        await db.metaField.update({
+          where: { id: brandField.id },
+          data: { lookupId: brandLookup.id, isActive: true },
+        });
+        additionalLookupFixed++;
+      }
+      // Ensure color field is linked to COLOR lookup
+      const colorField = await db.metaField.findUnique({
+        where: { moduleId_fieldCode: { moduleId: articleModuleId, fieldCode: 'color' } },
+      });
+      if (colorField && colorLookup) {
+        await db.metaField.update({
+          where: { id: colorField.id },
+          data: { lookupId: colorLookup.id, isActive: true },
+        });
+        additionalLookupFixed++;
+      }
+      // Ensure size field is linked to SIZE_SHOES lookup (with cascading from category)
+      const sizeField = await db.metaField.findUnique({
+        where: { moduleId_fieldCode: { moduleId: articleModuleId, fieldCode: 'size' } },
+      });
+      if (sizeField && sizeShoesLookup) {
+        await db.metaField.update({
+          where: { id: sizeField.id },
+          data: { lookupId: sizeShoesLookup.id, cascadesFromFieldCode: 'category', isActive: true },
+        });
+        additionalLookupFixed++;
+      }
+    }
+
+    summary.steps.push(`Step 1c: Ensured additional lookup data (${additionalLookupFixed} fixes)`);
+    console.info(`[reseed-map-data] Step 1c complete: ${additionalLookupFixed} additional lookup fixes`);
+
     // ============================================================
     // STEP 2: CREATE ARTICLE MASTER RECORDS (65)
     // ============================================================

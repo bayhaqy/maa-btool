@@ -687,7 +687,9 @@ export default function RecordDetailPage() {
       if (!currentValue) continue;
       const parentValue = next[parentCode];
       const options = (f.lookupMaster?.values || []) as any[];
-      const filtered = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+      const filtered = parentValue
+        ? options.filter((o: any) => o.parentValueCode === parentValue)
+        : options.filter((o: any) => !o.parentValueCode);
       const stillValid = filtered.some((o: any) => o.valueCode === currentValue);
       if (!stillValid) {
         next[f.fieldCode] = '';
@@ -1152,7 +1154,13 @@ export default function RecordDetailPage() {
       let parentValue: string | undefined;
       if (parentCode) {
         parentValue = editPayload[parentCode];
-        options = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+        if (parentValue) {
+          // Parent selected: show ONLY values whose parentValueCode matches
+          options = options.filter((o: any) => o.parentValueCode === parentValue);
+        } else {
+          // No parent selected: show values that have no parentValueCode (root values)
+          options = options.filter((o: any) => !o.parentValueCode);
+        }
       }
       return (
         <div className="space-y-1.5">

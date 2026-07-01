@@ -38,10 +38,18 @@ import {
   Save, X, ExternalLink, Check, Columns3, Clock, User,
   RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot,
   Brain, Sparkles, Shield, Tag, Loader2,
+  Languages, Wand2, CheckCircle2, XCircle as RejectIcon, ChevronDown,
+  Cloud, HardDrive, Link2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
+import ImageLightbox, { LightboxImage, createLightboxImageFromUrl } from '@/components/mdm/ImageLightbox';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 // ============================================================================
 // Constants
@@ -99,12 +107,18 @@ function SortIcon({ columnKey, sortConfig }: { columnKey: string; sortConfig: { 
     : <ArrowDown className="w-3 h-3 text-red-600" />;
 }
 
-function RecordPreview({ record, fields, activeModuleId, navigate, perms }: {
+function RecordPreview({ record, fields, activeModuleId, navigate, perms, onAiEnrich, aiEnrichLoading, recordImages, payloadImageUrl, onOpenLightbox, onViewInDAM }: {
   record: any;
   fields: any[];
   activeModuleId: string;
   navigate: (page: any, params?: any) => void;
   perms: ReturnType<typeof usePermissions>;
+  onAiEnrich: (action: 'translate' | 'categorize' | 'auto-fill') => void;
+  aiEnrichLoading: string | null;
+  recordImages: any[];
+  payloadImageUrl: string | null;
+  onOpenLightbox: () => void;
+  onViewInDAM: () => void;
 }) {
   if (!record) return (
     <div className="flex items-center justify-center h-full text-muted-foreground text-sm p-8">
@@ -211,6 +225,168 @@ function RecordPreview({ record, fields, activeModuleId, navigate, perms }: {
 
       <Separator />
 
+      {/* Digital Assets Section */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Digital Assets</span>
+          </div>
+          {(recordImages.length > 0 || payloadImageUrl) && (
+            <Badge variant="secondary" className="h-4 px-1.5 text-[9px]">
+              {recordImages.length > 0 ? recordImages.length : 1} asset{(recordImages.length > 0 ? recordImages.length : 1) !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+
+        {recordImages.length > 0 ? (
+          <div className="space-y-2">
+            {/* Thumbnail grid of DAM images */}
+            <div className="flex gap-1.5 flex-wrap">
+              {recordImages.slice(0, 4).map((img: any, idx: number) => (
+                <button
+                  key={img.id}
+                  type="button"
+                  className={cn(
+                    'w-12 h-12 rounded-md border overflow-hidden transition-all hover:ring-2 hover:ring-red-400',
+                    img.isPrimary && 'ring-2 ring-red-400'
+                  )}
+                  onClick={onOpenLightbox}
+                  title={`View ${img.fileName || 'image'}`}
+                >
+                  <img
+                    src={img.variants?.thumbnail || img.filePath}
+                    alt={img.altText || img.fileName || ''}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const imgEl = e.target as HTMLImageElement;
+                      if (imgEl.src !== img.filePath && !imgEl.dataset.fallback) {
+                        imgEl.dataset.fallback = '1';
+                        imgEl.src = img.filePath;
+                      } else {
+                        imgEl.style.opacity = '0.2';
+                      }
+                    }}
+                  />
+                </button>
+              ))}
+              {recordImages.length > 4 && (
+                <div className="w-12 h-12 rounded-md border border-dashed flex items-center justify-center text-muted-foreground text-xs font-medium">
+                  +{recordImages.length - 4}
+                </div>
+              )}
+            </div>
+            {/* Primary image info */}
+            {(() => {
+              const primary = recordImages.find((i: any) => i.isPrimary) || recordImages[0];
+              if (!primary) return null;
+              const isR2 = primary.storageType === 'r2' || (primary.filePath || '').includes('X-Amz-Signature');
+              return (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Badge className={cn(
+                      'text-[9px] h-4 px-1.5 border-0',
+                      isR2 ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' : 'bg-muted text-muted-foreground'
+                    )}>
+                      {isR2 ? <><Cloud className="w-2.5 h-2.5 mr-0.5" /> R2</> : <><HardDrive className="w-2.5 h-2.5 mr-0.5" /> Local</>}
+                    </Badge>
+                    <span className="text-muted-foreground truncate">{primary.fileName}</span>
+                  </div>
+                  {/* URL with copy button */}
+                  <div className="flex items-center gap-1">
+                    <div className="flex-1 bg-muted/50 rounded border px-2 py-1 text-[10px] text-muted-foreground font-mono truncate" title={primary.filePath}>
+                      {primary.filePath}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 flex-shrink-0"
+                      onClick={() => {
+                        const url = primary.variants?.large || primary.filePath;
+                        navigator.clipboard.writeText(url.startsWith('http') ? url : `${window.location.origin}${url}`).then(() => {
+                          toast.success('URL copied');
+                        }).catch(() => {
+                          toast.error('Failed to copy URL');
+                        });
+                      }}
+                      title="Copy image URL"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        ) : payloadImageUrl ? (
+          <div className="space-y-2">
+            {/* Payload URL image */}
+            <button
+              type="button"
+              className="w-full h-20 rounded-md border overflow-hidden hover:ring-2 hover:ring-red-400 transition-all"
+              onClick={onOpenLightbox}
+              title="View payload image"
+            >
+              <img
+                src={payloadImageUrl}
+                alt="Record image"
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.opacity = '0.2';
+                }}
+              />
+            </button>
+            <div className="flex items-center gap-1.5 text-xs">
+              <Badge className="text-[9px] h-4 px-1.5 border-0 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                <Link2 className="w-2.5 h-2.5 mr-0.5" /> URL
+              </Badge>
+              <span className="text-muted-foreground">From payload field</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="flex-1 bg-muted/50 rounded border px-2 py-1 text-[10px] text-muted-foreground font-mono truncate" title={payloadImageUrl}>
+                {payloadImageUrl}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 flex-shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(payloadImageUrl).then(() => {
+                    toast.success('URL copied');
+                  }).catch(() => {
+                    toast.error('Failed to copy URL');
+                  });
+                }}
+                title="Copy image URL"
+              >
+                <Copy className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-4 rounded-md border border-dashed">
+            <div className="text-center">
+              <ImageIcon className="w-6 h-6 mx-auto text-muted-foreground/30 mb-1" />
+              <p className="text-[10px] text-muted-foreground">No digital assets</p>
+            </div>
+          </div>
+        )}
+
+        {/* View in DAM button */}
+        {(recordImages.length > 0 || payloadImageUrl) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full h-7 text-xs gap-1.5 text-sky-600 border-sky-200 hover:bg-sky-50 dark:border-sky-800 dark:hover:bg-sky-950"
+            onClick={onViewInDAM}
+          >
+            <ExternalLink className="w-3 h-3" /> View in DAM
+          </Button>
+        )}
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
           disabled={!perms.canEdit}
@@ -226,6 +402,61 @@ function RecordPreview({ record, fields, activeModuleId, navigate, perms }: {
           disabled={!perms.canApprove}>
           <ThumbsUp className="w-3.5 h-3.5" /> Submit
         </Button>
+
+        {/* AI Enrich Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50 dark:border-violet-800 dark:hover:bg-violet-950"
+              disabled={!!aiEnrichLoading}
+            >
+              {aiEnrichLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5" />
+              )}
+              AI Enrich
+              <ChevronDown className="w-3 h-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem
+              onClick={() => onAiEnrich('translate')}
+              disabled={!!aiEnrichLoading}
+              className="gap-2 cursor-pointer"
+            >
+              <Languages className="w-4 h-4 text-blue-500" />
+              <div>
+                <div className="text-sm font-medium">Translate Description</div>
+                <div className="text-xs text-muted-foreground">ID → EN translation</div>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onAiEnrich('categorize')}
+              disabled={!!aiEnrichLoading}
+              className="gap-2 cursor-pointer"
+            >
+              <ImageIcon className="w-4 h-4 text-emerald-500" />
+              <div>
+                <div className="text-sm font-medium">Auto-Categorize from Image</div>
+                <div className="text-xs text-muted-foreground">Detect category, brand, color</div>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onAiEnrich('auto-fill')}
+              disabled={!!aiEnrichLoading}
+              className="gap-2 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <div>
+                <div className="text-sm font-medium">Auto-Fill All</div>
+                <div className="text-xs text-muted-foreground">Categorize + translate</div>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
@@ -269,7 +500,51 @@ export default function DataRecordsPage() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const limit = 20;
 
+  // AI Enrichment state
+  const [aiEnrichLoading, setAiEnrichLoading] = useState<string | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, { original: string; suggested: string }> | null>(null);
+  const [aiSuggestionDialogOpen, setAiSuggestionDialogOpen] = useState(false);
+  const [aiSuggestionAccepted, setAiSuggestionAccepted] = useState<Record<string, boolean>>({});
+  const [aiCategorization, setAiCategorization] = useState<any>(null);
+
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper: extract imageUrl / image_url from a record's payload
+  const getRecordPayloadImageUrl = useCallback((record: any): string | null => {
+    const payload = parsePayload(record.currentPayload);
+    return payload.imageUrl || payload.image_url || payload.source_url || payload.sourceUrl || null;
+  }, []);
+
+  // Helper: build LightboxImage array for a record (combines DAM images + payload URL fallback)
+  const buildLightboxImages = useCallback((record: any): LightboxImage[] => {
+    const damImages = (recordImagesMap[record.id] || []).map((img: any) => ({
+      id: img.id,
+      fileName: img.fileName,
+      filePath: img.filePath,
+      altText: img.altText,
+      isPrimary: img.isPrimary,
+      sortOrder: img.sortOrder,
+      fileSize: img.fileSize,
+      mimeType: img.mimeType,
+      variants: img.variants,
+      width: img.width,
+      height: img.height,
+      r2Key: img.r2Key,
+      storageType: img.storageType,
+      digitalAssetId: img.digitalAssetId,
+      createdAt: img.createdAt,
+    }));
+
+    // If there are DAM images, return them
+    if (damImages.length > 0) return damImages;
+
+    // Fallback: check for imageUrl / image_url in payload
+    const payloadUrl = getRecordPayloadImageUrl(record);
+    if (payloadUrl && typeof payloadUrl === 'string' && payloadUrl.startsWith('http')) {
+      return [createLightboxImageFromUrl(payloadUrl, record.id)];
+    }
+    return [];
+  }, [recordImagesMap, getRecordPayloadImageUrl]);
 
   useEffect(() => {
     if (activeModuleId) setPage(1);
@@ -522,13 +797,22 @@ export default function DataRecordsPage() {
   }, []);
 
   // Get filtered options for a cascading lookup field
+  // When a parent field has a value, ONLY show child values whose parentValueCode matches.
+  // When no parent is selected, show values that have no parentValueCode (root values).
   const getCascadingOptions = useCallback((field: any, record: any) => {
     if (!field?.lookupMaster?.values) return [];
     let options = field.lookupMaster.values;
     const parentCode = field.cascadesFromFieldCode;
     if (parentCode) {
       const parentValue = parsePayload(record.currentPayload)[parentCode];
-      options = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+      if (parentValue) {
+        // Parent selected: show ONLY values whose parentValueCode matches
+        options = options.filter((o: any) => o.parentValueCode === parentValue);
+      } else {
+        // No parent selected: show values that have no parentValueCode (root values)
+        // or show all values so user can see available options
+        options = options.filter((o: any) => !o.parentValueCode);
+      }
     }
     return options;
   }, []);
@@ -563,6 +847,283 @@ export default function DataRecordsPage() {
     }
   }, [token, selectedRows]);
 
+  // ─── AI Enrichment Handler (single record) ───
+  const handleAiEnrich = useCallback(async (action: 'translate' | 'categorize' | 'auto-fill') => {
+    if (!token || !selectedRecord) return;
+    setAiEnrichLoading(action);
+    setAiSuggestions(null);
+    setAiCategorization(null);
+    setAiSuggestionAccepted({});
+
+    try {
+      const payload = parsePayload(selectedRecord.currentPayload);
+
+      if (action === 'translate' || action === 'auto-fill') {
+        // Find description field to translate
+        const descField = fields.find((f: any) =>
+          ['description', 'article_description', 'description_en', 'desc'].includes(f.fieldCode?.toLowerCase())
+        );
+        const textToTranslate = descField
+          ? String(payload[descField.fieldCode] || '')
+          : String(payload.description || payload.article_description || payload.desc || '');
+
+        if (!textToTranslate || textToTranslate === '-') {
+          toast.error('No description text found to translate');
+          setAiEnrichLoading(null);
+          return;
+        }
+
+        // Call translation API
+        const translateRes = await fetch('/api/ai-enrichment/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            text: textToTranslate,
+            sourceLang: 'id',
+            targetLang: 'en',
+            recordId: selectedRecord.id,
+          }),
+        });
+        const translateData = await translateRes.json();
+        if (!translateRes.ok) throw new Error(translateData.error || 'Translation failed');
+
+        // Build suggestions map
+        const newSuggestions: Record<string, { original: string; suggested: string }> = {};
+        const descFieldCode = descField?.fieldCode || 'description';
+        newSuggestions[descFieldCode] = {
+          original: textToTranslate,
+          suggested: translateData.translatedText,
+        };
+
+        // If auto-fill, also run categorization
+        if (action === 'auto-fill') {
+          try {
+            const images = recordImagesMap[selectedRecord.id] || [];
+            const imageUrl = images[0]?.filePath || images[0]?.variants?.medium || payload.image_url || payload.source_url || '';
+
+            if (imageUrl) {
+              const catRes = await fetch('/api/ai-enrichment/categorize', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  imageUrl,
+                  recordId: selectedRecord.id,
+                }),
+              });
+              const catData = await catRes.json();
+              if (catRes.ok && catData.categorization) {
+                setAiCategorization(catData.categorization);
+                // Map categorization to fields
+                const catMapping: Record<string, string> = {
+                  category: catData.categorization.category,
+                  sub_category: catData.categorization.subCategory,
+                  subCategory: catData.categorization.subCategory,
+                  brand: catData.categorization.brand,
+                  color: catData.categorization.color,
+                  product_type: catData.categorization.productType,
+                  productType: catData.categorization.productType,
+                };
+                for (const [fieldCode, suggestedValue] of Object.entries(catMapping)) {
+                  if (suggestedValue && payload[fieldCode] !== undefined) {
+                    const original = String(payload[fieldCode] || '');
+                    if (original !== suggestedValue) {
+                      newSuggestions[fieldCode] = { original: original || '(empty)', suggested: suggestedValue };
+                    }
+                  }
+                }
+                // Add tags suggestion
+                if (catData.categorization.suggestedTags?.length > 0) {
+                  const tagFields = ['tags', 'article_tags', 'tag'];
+                  for (const tf of tagFields) {
+                    if (payload[tf] !== undefined) {
+                      newSuggestions[tf] = {
+                        original: String(payload[tf] || '(empty)'),
+                        suggested: catData.categorization.suggestedTags.join(', '),
+                      };
+                    }
+                  }
+                }
+                // Add Indonesian description
+                if (catData.categorization.description?.id) {
+                  const idDescFields = ['description_id', 'description_id'];
+                  for (const df of idDescFields) {
+                    if (payload[df] !== undefined) {
+                      newSuggestions[df] = {
+                        original: String(payload[df] || '(empty)'),
+                        suggested: catData.categorization.description.id,
+                      };
+                    }
+                  }
+                }
+              }
+            }
+          } catch (catErr) {
+            console.error('Auto-fill categorization error:', catErr);
+            // Don't fail the whole operation, just skip categorization
+          }
+        }
+
+        setAiSuggestions(newSuggestions);
+        // Pre-accept all suggestions
+        const initialAccepted: Record<string, boolean> = {};
+        for (const key of Object.keys(newSuggestions)) {
+          initialAccepted[key] = true;
+        }
+        setAiSuggestionAccepted(initialAccepted);
+        setAiSuggestionDialogOpen(true);
+        toast.success('AI suggestions ready for review');
+      } else if (action === 'categorize') {
+        // Find image URL for the record
+        const images = recordImagesMap[selectedRecord.id] || [];
+        const imageUrl = images[0]?.filePath || images[0]?.variants?.medium || payload.image_url || payload.source_url || '';
+
+        if (!imageUrl) {
+          toast.error('No image found for this record. Add an image first.');
+          setAiEnrichLoading(null);
+          return;
+        }
+
+        const catRes = await fetch('/api/ai-enrichment/categorize', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageUrl,
+            recordId: selectedRecord.id,
+          }),
+        });
+        const catData = await catRes.json();
+        if (!catRes.ok) throw new Error(catData.error || 'Categorization failed');
+
+        setAiCategorization(catData.categorization);
+
+        // Build suggestions from categorization
+        const newSuggestions: Record<string, { original: string; suggested: string }> = {};
+        const catMapping: Record<string, string> = {
+          category: catData.categorization.category,
+          sub_category: catData.categorization.subCategory,
+          subCategory: catData.categorization.subCategory,
+          brand: catData.categorization.brand,
+          color: catData.categorization.color,
+          product_type: catData.categorization.productType,
+          productType: catData.categorization.productType,
+        };
+        for (const [fieldCode, suggestedValue] of Object.entries(catMapping)) {
+          if (suggestedValue && payload[fieldCode] !== undefined) {
+            const original = String(payload[fieldCode] || '');
+            if (original !== suggestedValue) {
+              newSuggestions[fieldCode] = { original: original || '(empty)', suggested: suggestedValue };
+            }
+          }
+        }
+        // Tags
+        if (catData.categorization.suggestedTags?.length > 0) {
+          const tagFields = ['tags', 'article_tags', 'tag'];
+          for (const tf of tagFields) {
+            if (payload[tf] !== undefined) {
+              newSuggestions[tf] = {
+                original: String(payload[tf] || '(empty)'),
+                suggested: catData.categorization.suggestedTags.join(', '),
+              };
+            }
+          }
+        }
+        // Descriptions
+        if (catData.categorization.description?.en) {
+          const descField = fields.find((f: any) =>
+            ['description', 'article_description', 'description_en'].includes(f.fieldCode?.toLowerCase())
+          );
+          if (descField && payload[descField.fieldCode] !== undefined) {
+            newSuggestions[descField.fieldCode] = {
+              original: String(payload[descField.fieldCode] || '(empty)'),
+              suggested: catData.categorization.description.en,
+            };
+          }
+        }
+        if (catData.categorization.description?.id) {
+          const idDescFields = ['description_id'];
+          for (const df of idDescFields) {
+            if (payload[df] !== undefined) {
+              newSuggestions[df] = {
+                original: String(payload[df] || '(empty)'),
+                suggested: catData.categorization.description.id,
+              };
+            }
+          }
+        }
+
+        setAiSuggestions(newSuggestions);
+        const initialAccepted: Record<string, boolean> = {};
+        for (const key of Object.keys(newSuggestions)) {
+          initialAccepted[key] = true;
+        }
+        setAiSuggestionAccepted(initialAccepted);
+        setAiSuggestionDialogOpen(true);
+        toast.success('AI categorization complete — review suggestions');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI enrichment failed');
+    } finally {
+      setAiEnrichLoading(null);
+    }
+  }, [token, selectedRecord, fields, recordImagesMap]);
+
+  // Apply accepted AI suggestions to the record
+  const handleApplyAiSuggestions = useCallback(async () => {
+    if (!token || !selectedRecord || !aiSuggestions) return;
+
+    try {
+      const payload = parsePayload(selectedRecord.currentPayload);
+      let appliedCount = 0;
+
+      for (const [fieldCode, accepted] of Object.entries(aiSuggestionAccepted)) {
+        if (accepted && aiSuggestions[fieldCode]) {
+          payload[fieldCode] = aiSuggestions[fieldCode].suggested;
+          appliedCount++;
+        }
+      }
+
+      if (appliedCount === 0) {
+        toast.info('No suggestions were accepted');
+        setAiSuggestionDialogOpen(false);
+        return;
+      }
+
+      // Update the record
+      const res = await fetch(`/api/records?action=update`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedRecord.id, payload }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to update record');
+      }
+
+      // Update local state
+      setRecords((prev) => prev.map((r) =>
+        r.id === selectedRecord.id ? { ...r, currentPayload: JSON.stringify(payload) } : r
+      ));
+      // Update selectedRecord too
+      setSelectedRecord((prev: any) => prev ? { ...prev, currentPayload: JSON.stringify(payload) } : prev);
+
+      toast.success(`Applied ${appliedCount} AI suggestion${appliedCount > 1 ? 's' : ''}`);
+      setAiSuggestionDialogOpen(false);
+      setAiSuggestions(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to apply suggestions');
+    }
+  }, [token, selectedRecord, aiSuggestions, aiSuggestionAccepted]);
+
   const handleInlineSave = useCallback(async () => {
     if (!editingCell || !token || !activeModuleId) return;
     const record = records.find((r) => r.id === editingCell.recordId);
@@ -570,6 +1131,24 @@ export default function DataRecordsPage() {
     try {
       const payload = parsePayload(record.currentPayload);
       payload[editingCell.fieldCode] = editingValue;
+
+      // Auto-clear child cascading fields if their current value is no longer valid
+      // after the parent field value changes
+      for (const f of fields) {
+        if (f.cascadesFromFieldCode === editingCell.fieldCode && f.lookupMaster?.values) {
+          const childValue = payload[f.fieldCode];
+          if (childValue) {
+            const validOptions = f.lookupMaster.values.filter(
+              (o: any) => o.parentValueCode === editingValue
+            );
+            const stillValid = validOptions.some((o: any) => o.valueCode === childValue);
+            if (!stillValid) {
+              payload[f.fieldCode] = '';
+            }
+          }
+        }
+      }
+
       await fetch(`/api/records?action=update`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -580,7 +1159,7 @@ export default function DataRecordsPage() {
       ));
     } catch { /* silent */ }
     setEditingCell(null);
-  }, [editingCell, editingValue, token, activeModuleId, records]);
+  }, [editingCell, editingValue, token, activeModuleId, records, fields]);
 
   const handleInlineCancel = useCallback(() => {
     setEditingCell(null);
@@ -1019,41 +1598,56 @@ export default function DataRecordsPage() {
                                 <TableCell className="text-muted-foreground text-xs">{(page - 1) * limit + idx + 1}</TableCell>
                                 <TableCell><StatusBadge status={r.status} /></TableCell>
                                 <TableCell>
-                                  {recordImagesMap[r.id]?.length > 0 ? (
-                                    <button
-                                      type="button"
-                                      className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const imgs = (recordImagesMap[r.id] || []).map((img: any) => ({
-                                          id: img.id,
-                                          fileName: img.fileName,
-                                          filePath: img.filePath,
-                                          altText: img.altText,
-                                          isPrimary: img.isPrimary,
-                                          sortOrder: img.sortOrder,
-                                          fileSize: img.fileSize,
-                                          mimeType: img.mimeType,
-                                          variants: img.variants,
-                                        }));
-                                        setLightboxImages(imgs);
-                                        setLightboxIndex(imgs.findIndex((i: any) => i.isPrimary) || 0);
-                                        setLightboxOpen(true);
-                                      }}
-                                      title="View images"
-                                    >
-                                      <img
-                                        src={recordImagesMap[r.id][0]?.variants?.thumbnail || recordImagesMap[r.id][0]?.filePath}
-                                        alt=""
-                                        className="w-full h-full object-cover"
-                                        onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.2'; }}
-                                      />
-                                    </button>
-                                  ) : (
-                                    <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
-                                      <ImageIcon className="w-3 h-3" />
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const imgs = buildLightboxImages(r);
+                                    const payloadUrl = getRecordPayloadImageUrl(r);
+                                    const hasImage = imgs.length > 0;
+                                    const isPayloadImage = hasImage && imgs[0].isPayloadUrl;
+                                    const thumbSrc = hasImage
+                                      ? (imgs[0].variants?.thumbnail || imgs[0].filePath)
+                                      : payloadUrl;
+                                    return hasImage || thumbSrc ? (
+                                      <button
+                                        type="button"
+                                        className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const images = imgs.length > 0 ? imgs : (thumbSrc ? [createLightboxImageFromUrl(thumbSrc, r.id)] : []);
+                                          setLightboxImages(images);
+                                          setLightboxIndex(images.findIndex((i: any) => i.isPrimary) || 0);
+                                          setLightboxOpen(true);
+                                        }}
+                                        title={isPayloadImage ? 'View payload image' : 'View images'}
+                                      >
+                                        <img
+                                          src={thumbSrc}
+                                          alt=""
+                                          className="w-full h-full object-cover"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            const imgEl = e.target as HTMLImageElement;
+                                            if (imgEl.src !== imgs[0]?.filePath && !imgEl.dataset.fallback) {
+                                              imgEl.dataset.fallback = '1';
+                                              imgEl.src = imgs[0]?.filePath || '';
+                                            } else {
+                                              imgEl.style.display = 'none';
+                                              const parent = imgEl.parentElement;
+                                              if (parent && !parent.querySelector('.img-placeholder')) {
+                                                const placeholder = document.createElement('div');
+                                                placeholder.className = 'img-placeholder w-full h-full flex items-center justify-center bg-muted';
+                                                placeholder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground/40"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+                                                parent.appendChild(placeholder);
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      </button>
+                                    ) : (
+                                      <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
+                                        <ImageIcon className="w-3 h-3" />
+                                      </div>
+                                    );
+                                  })()}
                                 </TableCell>
                                 {displayFields.map((f: any) => (
                                   <TableCell key={f.id} className="max-w-[200px]">
@@ -1124,7 +1718,26 @@ export default function DataRecordsPage() {
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={40} minSize={25}>
                   <ScrollArea className="h-full">
-                    <RecordPreview record={selectedRecord} fields={fields} activeModuleId={activeModuleId} navigate={navigate} perms={perms} />
+                    <RecordPreview
+                      record={selectedRecord}
+                      fields={fields}
+                      activeModuleId={activeModuleId}
+                      navigate={navigate}
+                      perms={perms}
+                      onAiEnrich={handleAiEnrich}
+                      aiEnrichLoading={aiEnrichLoading}
+                      recordImages={recordImagesMap[selectedRecord?.id] || []}
+                      payloadImageUrl={selectedRecord ? getRecordPayloadImageUrl(selectedRecord) : null}
+                      onOpenLightbox={() => {
+                        const imgs = buildLightboxImages(selectedRecord);
+                        if (imgs.length > 0) {
+                          setLightboxImages(imgs);
+                          setLightboxIndex(imgs.findIndex((i) => i.isPrimary) || 0);
+                          setLightboxOpen(true);
+                        }
+                      }}
+                      onViewInDAM={() => navigate('digital-assets')}
+                    />
                   </ScrollArea>
                 </ResizablePanel>
               </ResizablePanelGroup>
@@ -1167,41 +1780,56 @@ export default function DataRecordsPage() {
                             <TableCell className="text-muted-foreground text-xs">{(page - 1) * limit + idx + 1}</TableCell>
                             <TableCell><StatusBadge status={r.status} /></TableCell>
                             <TableCell>
-                              {recordImagesMap[r.id]?.length > 0 ? (
-                                <button
-                                  type="button"
-                                  className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const imgs = (recordImagesMap[r.id] || []).map((img: any) => ({
-                                      id: img.id,
-                                      fileName: img.fileName,
-                                      filePath: img.filePath,
-                                      altText: img.altText,
-                                      isPrimary: img.isPrimary,
-                                      sortOrder: img.sortOrder,
-                                      fileSize: img.fileSize,
-                                      mimeType: img.mimeType,
-                                      variants: img.variants,
-                                    }));
-                                    setLightboxImages(imgs);
-                                    setLightboxIndex(imgs.findIndex((i: any) => i.isPrimary) || 0);
-                                    setLightboxOpen(true);
-                                  }}
-                                  title="View images"
-                                >
-                                  <img
-                                    src={recordImagesMap[r.id][0]?.variants?.thumbnail || recordImagesMap[r.id][0]?.filePath}
-                                    alt=""
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.2'; }}
-                                  />
-                                </button>
-                              ) : (
-                                <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
-                                  <ImageIcon className="w-3 h-3" />
-                                </div>
-                              )}
+                              {(() => {
+                                const imgs = buildLightboxImages(r);
+                                const payloadUrl = getRecordPayloadImageUrl(r);
+                                const hasImage = imgs.length > 0;
+                                const isPayloadImage = hasImage && imgs[0].isPayloadUrl;
+                                const thumbSrc = hasImage
+                                  ? (imgs[0].variants?.thumbnail || imgs[0].filePath)
+                                  : payloadUrl;
+                                return hasImage || thumbSrc ? (
+                                  <button
+                                    type="button"
+                                    className="w-7 h-7 rounded overflow-hidden border hover:ring-2 hover:ring-red-400 transition-all"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const images = imgs.length > 0 ? imgs : (thumbSrc ? [createLightboxImageFromUrl(thumbSrc, r.id)] : []);
+                                      setLightboxImages(images);
+                                      setLightboxIndex(images.findIndex((i: any) => i.isPrimary) || 0);
+                                      setLightboxOpen(true);
+                                    }}
+                                    title={isPayloadImage ? 'View payload image' : 'View images'}
+                                  >
+                                    <img
+                                      src={thumbSrc}
+                                      alt=""
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                      onError={(e) => {
+                                        const imgEl = e.target as HTMLImageElement;
+                                        if (imgEl.src !== imgs[0]?.filePath && !imgEl.dataset.fallback) {
+                                          imgEl.dataset.fallback = '1';
+                                          imgEl.src = imgs[0]?.filePath || '';
+                                        } else {
+                                          imgEl.style.display = 'none';
+                                          const parent = imgEl.parentElement;
+                                          if (parent && !parent.querySelector('.img-placeholder')) {
+                                            const placeholder = document.createElement('div');
+                                            placeholder.className = 'img-placeholder w-full h-full flex items-center justify-center bg-muted';
+                                            placeholder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground/40"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+                                            parent.appendChild(placeholder);
+                                          }
+                                        }
+                                      }}
+                                    />
+                                  </button>
+                                ) : (
+                                  <div className="w-7 h-7 rounded border border-dashed flex items-center justify-center text-muted-foreground/30">
+                                    <ImageIcon className="w-3 h-3" />
+                                  </div>
+                                );
+                              })()}
                             </TableCell>
                             {displayFields.map((f: any) => (
                               <TableCell key={f.id} className="max-w-[200px]">
@@ -1301,8 +1929,186 @@ export default function DataRecordsPage() {
           setLightboxImages((prev) => prev.filter((img) => img.id !== imageId));
           if (lightboxImages.length <= 1) setLightboxOpen(false);
         }}
+        onViewInDAM={() => {
+          setLightboxOpen(false);
+          navigate('digital-assets');
+        }}
         token={token}
       />
+
+      {/* AI Suggestion Review Dialog */}
+      <Dialog open={aiSuggestionDialogOpen} onOpenChange={setAiSuggestionDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="w-5 h-5 text-violet-600" />
+              AI Enrichment Suggestions
+            </DialogTitle>
+            <DialogDescription>
+              Review the AI-generated suggestions below. Accept or reject each change before applying.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1">
+            {/* Categorization Summary */}
+            {aiCategorization && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-800 dark:bg-violet-950/30 p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-violet-700 dark:text-violet-400">
+                  <ImageIcon className="w-4 h-4" />
+                  AI Image Analysis
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">Category:</span>{' '}
+                    <span className="font-medium">{aiCategorization.category}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Sub-Category:</span>{' '}
+                    <span className="font-medium">{aiCategorization.subCategory}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Brand:</span>{' '}
+                    <span className="font-medium">{aiCategorization.brand}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Color:</span>{' '}
+                    <span className="font-medium">{aiCategorization.color}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Product Type:</span>{' '}
+                    <span className="font-medium">{aiCategorization.productType}</span>
+                  </div>
+                  {aiCategorization.suggestedTags?.length > 0 && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Tags:</span>{' '}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {aiCategorization.suggestedTags.map((tag: string, i: number) => (
+                          <Badge key={i} variant="secondary" className="text-[10px] h-5">{tag}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {(aiCategorization.description?.en || aiCategorization.description?.id) && (
+                  <div className="space-y-1.5 mt-2">
+                    {aiCategorization.description.en && (
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">EN:</span> {aiCategorization.description.en}
+                      </div>
+                    )}
+                    {aiCategorization.description.id && (
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">ID:</span> {aiCategorization.description.id}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Field-by-field suggestions */}
+            {aiSuggestions && Object.entries(aiSuggestions).map(([fieldCode, { original, suggested }]) => (
+              <div
+                key={fieldCode}
+                className={cn(
+                  'rounded-lg border p-3 space-y-2 transition-colors',
+                  aiSuggestionAccepted[fieldCode]
+                    ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20'
+                    : 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20',
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{fieldCode}</span>
+                    {aiSuggestionAccepted[fieldCode] ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <RejectIcon className="w-4 h-4 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn('h-7 text-xs', aiSuggestionAccepted[fieldCode] ? 'text-emerald-600' : 'text-muted-foreground')}
+                      onClick={() => setAiSuggestionAccepted(prev => ({ ...prev, [fieldCode]: true }))}
+                    >
+                      <CheckCircle2 className="w-3 h-3 mr-1" /> Accept
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn('h-7 text-xs', !aiSuggestionAccepted[fieldCode] ? 'text-red-500' : 'text-muted-foreground')}
+                      onClick={() => setAiSuggestionAccepted(prev => ({ ...prev, [fieldCode]: false }))}
+                    >
+                      <RejectIcon className="w-3 h-3 mr-1" /> Reject
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md bg-muted/50 p-2">
+                    <p className="text-muted-foreground mb-1 font-medium">Original</p>
+                    <p className="line-clamp-3 break-words">{original || '(empty)'}</p>
+                  </div>
+                  <div className="rounded-md bg-emerald-50 dark:bg-emerald-950/30 p-2">
+                    <p className="text-emerald-600 dark:text-emerald-400 mb-1 font-medium">AI Suggested</p>
+                    <p className="line-clamp-3 break-words">{suggested}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {(!aiSuggestions || Object.keys(aiSuggestions).length === 0) && (
+              <div className="text-center py-6 text-muted-foreground text-sm">
+                No field changes to suggest — record data already matches AI analysis.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  const allAccepted: Record<string, boolean> = {};
+                  for (const key of Object.keys(aiSuggestions || {})) allAccepted[key] = true;
+                  setAiSuggestionAccepted(allAccepted);
+                }}
+              >
+                Accept All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  const allRejected: Record<string, boolean> = {};
+                  for (const key of Object.keys(aiSuggestions || {})) allRejected[key] = false;
+                  setAiSuggestionAccepted(allRejected);
+                }}
+              >
+                Reject All
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setAiSuggestionDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={handleApplyAiSuggestions}
+                disabled={!Object.values(aiSuggestionAccepted).some(Boolean)}
+              >
+                <Check className="w-3.5 h-3.5 mr-1" />
+                Apply Accepted ({Object.values(aiSuggestionAccepted).filter(Boolean).length})
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

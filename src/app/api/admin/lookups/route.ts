@@ -199,12 +199,41 @@ export async function PUT(request: NextRequest) {
       });
       const valueCodeToId = new Map(existingValues.map((v) => [v.valueCode, v.id]));
 
+      // Also resolve cross-lookup parentValueCode references.
+      // Collect all unique parentValueCodes that are NOT found within this lookup.
+      const ownCodes = new Set(values.map((v: { valueCode: string }) => v.valueCode));
+      const crossLookupParentCodes = new Set<string>();
+      for (const v of values) {
+        if (v.parentValueCode && !ownCodes.has(v.parentValueCode)) {
+          crossLookupParentCodes.add(v.parentValueCode);
+        }
+      }
+      // Build a map of parentValueCode → parentValueId from OTHER lookups
+      const crossCodeToId = new Map<string, string>();
+      if (crossLookupParentCodes.size > 0) {
+        const crossLookupValues = await db.lookupValue.findMany({
+          where: {
+            valueCode: { in: [...crossLookupParentCodes] },
+            lookupId: { not: id },
+            isActive: true,
+          },
+          select: { id: true, valueCode: true },
+        });
+        for (const cv of crossLookupValues) {
+          // Use the first match if multiple lookups have the same code
+          if (!crossCodeToId.has(cv.valueCode)) {
+            crossCodeToId.set(cv.valueCode, cv.id);
+          }
+        }
+      }
+
       for (let i = 0; i < values.length; i++) {
         const v = values[i];
-        // Resolve parentValueCode → parentValueId (within same lookup)
+        // Resolve parentValueCode → parentValueId (within same lookup OR cross-lookup)
         let parentValueId: string | null = null;
         if (v.parentValueCode) {
-          parentValueId = valueCodeToId.get(v.parentValueCode) ?? null;
+          // Try same-lookup first
+          parentValueId = valueCodeToId.get(v.parentValueCode) ?? crossCodeToId.get(v.parentValueCode) ?? null;
           // If the parent value is part of this same submitted batch but not yet upserted,
           // we'll fall back to a lookup after the upsert loop completes.
         }
@@ -235,7 +264,7 @@ export async function PUT(request: NextRequest) {
         });
       }
       // Second pass: now that all values exist, re-link parentValueId for any value
-      // whose parent was inserted later in the batch.
+      // whose parent was inserted later in the batch (same-lookup parents).
       const refreshedValues = await db.lookupValue.findMany({
         where: { lookupId: id, isActive: true },
         select: { id: true, valueCode: true, parentValueCode: true, parentValueId: true },
@@ -243,7 +272,8 @@ export async function PUT(request: NextRequest) {
       const codeToIdFresh = new Map(refreshedValues.map((v) => [v.valueCode, v.id]));
       for (const rv of refreshedValues) {
         if (rv.parentValueCode) {
-          const expectedParentId = codeToIdFresh.get(rv.parentValueCode) ?? null;
+          // Try same-lookup first, then cross-lookup
+          const expectedParentId = codeToIdFresh.get(rv.parentValueCode) ?? crossCodeToId.get(rv.parentValueCode) ?? null;
           if (rv.parentValueId !== expectedParentId) {
             await db.lookupValue.update({
               where: { id: rv.id },

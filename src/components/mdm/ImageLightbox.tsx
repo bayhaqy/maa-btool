@@ -51,6 +51,28 @@ export interface LightboxImage {
   r2Key?: string | null;
   storageType?: string;
   digitalAssetId?: string | null;
+  /** Whether this image comes from a record payload field (imageUrl/image_url) rather than DAM */
+  isPayloadUrl?: boolean;
+}
+
+/**
+ * Helper to create a LightboxImage from a simple URL string (e.g., from a record payload field).
+ * This allows opening images from `imageUrl` or `image_url` payload fields in the lightbox
+ * even when they're not registered in the DAM.
+ */
+export function createLightboxImageFromUrl(url: string, recordId?: string): LightboxImage {
+  const fileName = url.split('/').pop()?.split('?')[0] || 'image';
+  const isR2 = url.includes('X-Amz-Signature') || url.includes('X-Amz-Credential') || url.includes('/api/r2-image');
+  return {
+    id: `payload-${recordId || 'url'}-${Date.now()}`,
+    fileName,
+    filePath: url,
+    altText: fileName,
+    isPrimary: true,
+    sortOrder: 0,
+    storageType: isR2 ? 'r2' : 'url',
+    isPayloadUrl: true,
+  };
 }
 
 interface ImageLightboxProps {
@@ -442,6 +464,13 @@ export default function ImageLightbox({
       }
       return { label: 'R2 (Public CDN)', isTemporary: false };
     }
+    if (storage === 'url' || img.isPayloadUrl) {
+      const url = getImageUrl(img);
+      if (isSignedUrl(url)) {
+        return { label: 'R2 (Signed URL)', isTemporary: true };
+      }
+      return { label: 'External URL', isTemporary: false };
+    }
     return { label: 'Local Storage', isTemporary: false };
   };
 
@@ -501,11 +530,15 @@ export default function ImageLightbox({
                     'text-[10px] h-5 px-1.5 border',
                     currentImage.storageType === 'r2'
                       ? 'text-sky-300 border-sky-500/40 bg-sky-500/10'
-                      : 'text-white/50 border-white/20 bg-white/5'
+                      : currentImage.isPayloadUrl || currentImage.storageType === 'url'
+                        ? 'text-violet-300 border-violet-500/40 bg-violet-500/10'
+                        : 'text-white/50 border-white/20 bg-white/5'
                   )}
                 >
                   {currentImage.storageType === 'r2' ? (
                     <><Cloud className="w-3 h-3 mr-0.5" /> R2</>
+                  ) : currentImage.isPayloadUrl || currentImage.storageType === 'url' ? (
+                    <><Link2 className="w-3 h-3 mr-0.5" /> URL</>
                   ) : (
                     <><HardDrive className="w-3 h-3 mr-0.5" /> Local</>
                   )}
@@ -858,6 +891,9 @@ export default function ImageLightbox({
                       <InfoRow label="Alt Text" value={currentImage.altText || '-'} />
                       <InfoRow label="Sort Order" value={String(currentImage.sortOrder)} />
                       <InfoRow label="Primary" value={currentImage.isPrimary ? 'Yes' : 'No'} />
+                      {currentImage.isPayloadUrl && (
+                        <InfoRow label="Source" value="Record Payload URL" />
+                      )}
                       <InfoRow label="Rotation" value={rotation !== 0 ? `${rotation}°` : '0° (none)'} />
                       <InfoRow label="Zoom" value={`${Math.round(zoom * 100)}%`} />
 
@@ -868,6 +904,10 @@ export default function ImageLightbox({
                           {currentImage.storageType === 'r2' ? (
                             <Badge className="bg-sky-500/20 text-sky-300 border-sky-500/30 text-[10px] h-5 px-1.5">
                               <Cloud className="w-3 h-3 mr-0.5" /> Cloudflare R2
+                            </Badge>
+                          ) : currentImage.isPayloadUrl || currentImage.storageType === 'url' ? (
+                            <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30 text-[10px] h-5 px-1.5">
+                              <Link2 className="w-3 h-3 mr-0.5" /> External URL
                             </Badge>
                           ) : (
                             <Badge className="bg-white/10 text-white/70 border-white/20 text-[10px] h-5 px-1.5">
@@ -1057,6 +1097,9 @@ export default function ImageLightbox({
                   )}
                   {img.storageType === 'r2' && (
                     <Cloud className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 text-sky-300" />
+                  )}
+                  {(img.isPayloadUrl || img.storageType === 'url') && (
+                    <Link2 className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 text-violet-300" />
                   )}
                 </button>
               ))}
