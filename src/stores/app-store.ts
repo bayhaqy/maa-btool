@@ -207,7 +207,18 @@ export const useAppStore = create<AppState>()(
         onboardingCompleted: state.onboardingCompleted,
       }),
       onRehydrateStorage: () => {
+        // Safety: if hydration doesn't complete within 3 seconds, force it
+        // This prevents the app from being stuck on the "Loading…" screen
+        // in edge cases where the rehydration callback never fires.
+        const safetyTimeout = setTimeout(() => {
+          if (!useAppStore.getState()._hydrated) {
+            console.warn('Zustand rehydration safety timeout — forcing _hydrated=true');
+            useAppStore.setState({ _hydrated: true });
+          }
+        }, 3000);
+
         return (_state, error) => {
+          clearTimeout(safetyTimeout);
           if (error) {
             console.error('Zustand rehydration error:', error);
           }
