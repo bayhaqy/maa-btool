@@ -31,6 +31,21 @@ export default function Home() {
   const serverErrorCountRef = useRef(0);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Client-side hydration fallback: if Zustand's onRehydrateStorage
+  // callback doesn't fire within 2 seconds (e.g., due to a JS error or
+  // the persist middleware not initializing), force _hydrated = true
+  // so the user isn't stuck on the "Loading…" screen forever.
+  useEffect(() => {
+    if (_hydrated) return;
+    const fallbackTimer = setTimeout(() => {
+      if (!useAppStore.getState()._hydrated) {
+        console.warn('[Home] Hydration fallback: forcing _hydrated=true');
+        useAppStore.setState({ _hydrated: true });
+      }
+    }, 2000);
+    return () => clearTimeout(fallbackTimer);
+  }, [_hydrated]);
+
   // Seed database on first mount — only after hydration is complete.
   // Uses AbortController with a 10-second timeout to prevent blocking
   // on slow/timeout responses (Vercel serverless has function timeouts).
