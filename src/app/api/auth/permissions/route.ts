@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTokenFromHeaders, getUserPermissions } from '@/lib/auth';
+import { getAuthFromRequest, getUserPermissions } from '@/lib/auth';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 
 // GET /api/auth/permissions - Get current user's permissions
 export async function GET(request: NextRequest) {
   try {
-    const tokenPayload = getTokenFromHeaders(request.headers);
+    const tokenPayload = getAuthFromRequest(request);
     if (!tokenPayload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

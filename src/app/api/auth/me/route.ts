@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTokenFromHeaders } from '@/lib/auth';
+import { getAuthFromRequest } from '@/lib/auth';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest) {
   try {
-    const tokenPayload = getTokenFromHeaders(request.headers);
+    const tokenPayload = getAuthFromRequest(request);
 
     if (!tokenPayload) {
       return NextResponse.json(

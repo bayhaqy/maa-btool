@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { NextResponse } from 'next/server';
 import { db } from './db';
 import { hasPermission, isSuperAdmin, isCompanyAdmin, type PermissionContext } from './rbac';
 
@@ -97,14 +98,91 @@ export function getTokenFromHeaders(headers: Headers): TokenPayload | null {
   return verifyToken(token);
 }
 
-export function setAuthCookies(accessToken: string, refreshToken: string) {
-  // This is used server-side
-  return {
-    'Set-Cookie': [
-      `access_token=${accessToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${8 * 60 * 60}`,
-      `refresh_token=${refreshToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${7 * 24 * 60 * 60}`,
-    ].join(', '),
-  };
+/**
+ * Get auth token from a NextRequest, checking both the Authorization header
+ * and the access_token cookie. The cookie fallback ensures that requests
+ * made without an explicit Authorization header (e.g., direct browser
+ * navigation, or when the client-side token was lost) can still be
+ * authenticated if the HttpOnly cookie is present.
+ */
+export function getAuthFromRequest(request: { headers: Headers; cookies?: { get(name: string): { value: string } | undefined } }): TokenPayload | null {
+  // 1. Try Authorization header first (primary method used by the frontend)
+  const fromHeader = getTokenFromHeaders(request.headers);
+  if (fromHeader) return fromHeader;
+
+  // 2. Fallback: try the access_token cookie (HttpOnly, set by login/refresh)
+  if (request.cookies) {
+    const cookieToken = request.cookies.get('access_token')?.value;
+    if (cookieToken) {
+      return verifyToken(cookieToken);
+    }
+  }
+
+  return null;
+}
+
+export interface CookieOptions {
+  name: string;
+  value: string;
+  maxAge: number;
+}
+
+export function getAuthCookieOptions(accessToken: string, refreshToken: string): CookieOptions[] {
+  return [
+    {
+      name: 'access_token',
+      value: accessToken,
+      maxAge: 8 * 60 * 60, // 8 hours
+    },
+    {
+      name: 'refresh_token',
+      value: refreshToken,
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+    },
+  ];
+}
+
+/**
+ * Apply auth cookies to a Next.js response using the proper cookies.set() API.
+ * This correctly handles multiple cookies (unlike setting Set-Cookie header directly).
+ * Secure flag is only set in production (HTTPS); in dev (HTTP) Secure cookies are
+ * silently dropped by browsers.
+ */
+export function setAuthCookiesOnResponse(
+  response: NextResponse,
+  accessToken: string,
+  refreshToken: string
+): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const cookies = getAuthCookieOptions(accessToken, refreshToken);
+
+  for (const cookie of cookies) {
+    response.cookies.set(cookie.name, cookie.value, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: cookie.maxAge,
+    });
+  }
+}
+
+/**
+ * Clear auth cookies on a Next.js response (used during logout).
+ */
+export function clearAuthCookiesOnResponse(response: NextResponse): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  for (const name of ['access_token', 'refresh_token']) {
+    response.cookies.set(name, '', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    });
+  }
 }
 
 export const STATUS_DRAFT = 'DRAFT';

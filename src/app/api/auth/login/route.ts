@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyPassword, generateAccessToken, generateRefreshToken, setAuthCookies } from '@/lib/auth';
+import { verifyPassword, generateAccessToken, generateRefreshToken, setAuthCookiesOnResponse } from '@/lib/auth';
 import { rateLimitByCategory, rateLimitResponse } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 import { validateInput, sanitizeString } from '@/lib/api-security';
@@ -108,7 +108,6 @@ export async function POST(request: NextRequest) {
 
     const accessToken = generateAccessToken(tokenPayload);
     const refreshToken = generateRefreshToken(tokenPayload);
-    const cookieHeaders = setAuthCookies(accessToken, refreshToken);
 
     // ── Audit: successful login (fire-and-forget) ───────────────────────────
     logAudit({
@@ -127,8 +126,8 @@ export async function POST(request: NextRequest) {
       user: tokenPayload,
     });
 
-    // Set cookies on the response
-    response.headers.set('Set-Cookie', cookieHeaders['Set-Cookie']);
+    // Set cookies on the response using the proper Next.js API
+    setAuthCookiesOnResponse(response, accessToken, refreshToken);
 
     return response;
   } catch (error) {

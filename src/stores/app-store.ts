@@ -100,6 +100,9 @@ interface AppState {
    *  Resets the completion flag AND bumps the trigger counter so the
    *  OnboardingGuide component re-opens immediately. */
   replayOnboarding: () => void;
+
+  /** Whether the Zustand persist middleware has finished rehydrating from localStorage. */
+  _hydrated: boolean;
 }
 
 export const useAppStore = create<AppState>()(
@@ -190,6 +193,8 @@ export const useAppStore = create<AppState>()(
         if (!state.user) return false;
         return !state.onboardingCompleted[state.user.username];
       },
+
+      _hydrated: false,
     }),
     {
       name: 'maa-btool-storage',
@@ -201,6 +206,15 @@ export const useAppStore = create<AppState>()(
         currentPage: state.currentPage,
         onboardingCompleted: state.onboardingCompleted,
       }),
+      onRehydrateStorage: () => {
+        return (_state, error) => {
+          if (error) {
+            console.error('Zustand rehydration error:', error);
+          }
+          // Mark hydration as complete regardless of error so the UI can render
+          useAppStore.setState({ _hydrated: true });
+        };
+      },
     }
   )
 );

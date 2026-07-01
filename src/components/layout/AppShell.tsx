@@ -677,6 +677,13 @@ export default function AppShell() {
   const { settings } = useBranding();
   const isSuperAdmin = isSuperAdminRole(user?.roles);
 
+  // Enhanced logout: clear server-side cookies + client state
+  const handleLogout = useCallback(() => {
+    // Fire-and-forget: clear HttpOnly cookies on the server
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    logout();
+  }, [logout]);
+
   // ── Role-filtered navigation ───────────────────────────────────────────
   // Build the per-user nav lists using the centralized page-access map.
   const allowedPages = getAllowedPages(user?.roles);
@@ -1300,7 +1307,7 @@ export default function AppShell() {
                     {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={logout}>
+                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={handleLogout}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Logout
                   </DropdownMenuItem>
