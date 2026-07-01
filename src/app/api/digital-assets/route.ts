@@ -7,6 +7,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { jsonVal, jsonParse } from '@/lib/db-json';
 import { ensureR2Config, isR2Configured, uploadWithVariants, deleteWithVariants, generateR2Key, getR2PublicUrl, uploadToR2 } from '@/lib/r2';
+import { getRLSFilter, applyRLS } from '@/lib/rls';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'digital-assets');
 
@@ -74,12 +75,16 @@ export async function GET(request: NextRequest) {
     const isSA = tokenPayload.roles.includes('Super Admin');
     const companyId = tokenPayload.companyId;
 
-    // Build where clause
+    // Build where clause with RLS
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: Record<string, any> = {};
+    const baseWhere: Record<string, any> = {};
     if (!isSA) {
-      where.companyId = companyId;
+      baseWhere.companyId = companyId;
     }
+
+    // Apply RLS filter for brand/country/team scope
+    const rlsFilter = await getRLSFilter(tokenPayload.userId);
+    const where = applyRLS(baseWhere, rlsFilter);
 
     if (assetType && ASSET_TYPES.includes(assetType)) {
       where.assetType = assetType;

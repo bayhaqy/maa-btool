@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   ListFilter, Plus, MoreVertical, Pencil, Trash2, ChevronDown, ChevronRight,
-  Search, Link2, Loader2,
+  Search, Link2, Loader2, GitBranch,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -89,6 +89,38 @@ export default function AdminLookupsPage() {
     values: [] as LookupValue[],
   });
   const [saving, setSaving] = useState(false);
+
+  // Cross-lookup parent options: when a lookup's values have parentValueCode
+  // that references a different lookup (e.g. SUB_CATEGORY → CATEGORY), we
+  // need to load those parent lookup values for the parentValueCode selector.
+  const [crossLookupParentValues, setCrossLookupParentValues] = useState<{ valueCode: string; displayValue: string }[]>([]);
+  const [crossLookupParentName, setCrossLookupParentName] = useState<string>('');
+
+  // Detect if a lookup has cross-lookup parentValueCode references
+  const getCrossLookupParent = useCallback((lookup: LookupItem): { lookupCode: string; name: string } | null => {
+    const ownCodes = new Set((lookup.values || []).map((v: any) => v.valueCode));
+    const parentCodes = new Set<string>();
+    for (const v of (lookup.values || [])) {
+      if (v.parentValueCode && !ownCodes.has(v.parentValueCode)) {
+        parentCodes.add(v.parentValueCode);
+      }
+    }
+    if (parentCodes.size === 0) return null;
+    // Find which other lookup contains those parent codes
+    for (const other of lookups) {
+      if (other.id === lookup.id) continue;
+      const otherCodes = new Set((other.values || []).map((v: any) => v.valueCode));
+      let matchCount = 0;
+      for (const pc of parentCodes) {
+        if (otherCodes.has(pc)) matchCount++;
+      }
+      // If most parent codes are found in this other lookup, it's the cross-lookup parent
+      if (matchCount >= parentCodes.size * 0.5) {
+        return { lookupCode: other.lookupCode, name: other.lookupName };
+      }
+    }
+    return null;
+  }, [lookups]);
 
   const loadData = useCallback(async () => {
     if (!token) return;
@@ -236,6 +268,22 @@ export default function AdminLookupsPage() {
         parentValueCode: v.parentValueCode || '',
       })) || [],
     });
+
+    // Detect cross-lookup parent and load its values
+    const crossParent = getCrossLookupParent(l);
+    if (crossParent) {
+      const parentLookup = lookups.find((lk) => lk.lookupCode === crossParent.lookupCode);
+      if (parentLookup) {
+        setCrossLookupParentValues(
+          (parentLookup.values || []).map((v: any) => ({ valueCode: v.valueCode, displayValue: v.displayValue }))
+        );
+        setCrossLookupParentName(parentLookup.lookupName);
+      }
+    } else {
+      setCrossLookupParentValues([]);
+      setCrossLookupParentName('');
+    }
+
     setDialogOpen(true);
   };
 
@@ -245,6 +293,8 @@ export default function AdminLookupsPage() {
       lookupCode: '', lookupName: '', description: '', category: '',
       values: [{ valueCode: '', displayValue: '', description: '', validFrom: '', validTo: '', parentValueCode: '' }],
     });
+    setCrossLookupParentValues([]);
+    setCrossLookupParentName('');
     setDialogOpen(true);
   };
 
@@ -341,6 +391,18 @@ export default function AdminLookupsPage() {
                           Inactive
                         </Badge>
                       )}
+                      {getCrossLookupParent(l) && (
+                        <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-300 gap-1">
+                          <GitBranch className="w-3 h-3" />
+                          Cascading from {getCrossLookupParent(l)!.name}
+                        </Badge>
+                      )}
+                      {!getCrossLookupParent(l) && (l.values || []).some((v: any) => v.parentValueCode) && (
+                        <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300 gap-1">
+                          <GitBranch className="w-3 h-3" />
+                          Cascading
+                        </Badge>
+                      )}
                       <Badge variant="outline" className="text-xs">{l.values?.length || 0} values</Badge>
                       <button
                         type="button"
@@ -390,7 +452,16 @@ export default function AdminLookupsPage() {
                       </TableHeader>
                       <TableBody>
                         {l.values?.map((v: any, idx: number) => {
-                          const parentValue = l.values?.find((p: any) => p.valueCode === v.parentValueCode);
+                          // Try to find display value: first in same lookup, then in cross-lookup parent
+                          const sameLookupParent = l.values?.find((p: any) => p.valueCode === v.parentValueCode);
+                          const crossParent = getCrossLookupParent(l);
+                          let crossLookupParentVal: any = null;
+                          if (crossParent && !sameLookupParent && v.parentValueCode) {
+                            const parentLookup = lookups.find((lk) => lk.lookupCode === crossParent.lookupCode);
+                            crossLookupParentVal = parentLookup?.values?.find((p: any) => p.valueCode === v.parentValueCode);
+                          }
+                          const parentDisplay = sameLookupParent?.displayValue || crossLookupParentVal?.displayValue || v.parentValueCode;
+                          const isCrossLookup = !sameLookupParent && !!crossLookupParentVal;
                           return (
                           <TableRow key={v.id}>
                             <TableCell className="font-mono text-xs">{v.valueCode}</TableCell>
@@ -402,8 +473,14 @@ export default function AdminLookupsPage() {
                             </TableCell>
                             <TableCell>
                               {v.parentValueCode ? (
-                                <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-300 font-mono">
-                                  {parentValue?.displayValue || v.parentValueCode}
+                                <Badge variant="outline" className={cn(
+                                  "text-[10px] font-mono",
+                                  isCrossLookup
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                    : "bg-violet-50 text-violet-700 border-violet-300"
+                                )}>
+                                  {isCrossLookup && <GitBranch className="w-2.5 h-2.5 mr-0.5" />}
+                                  {parentDisplay}
                                 </Badge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
@@ -520,6 +597,9 @@ export default function AdminLookupsPage() {
                       <Label className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
                         Parent Value
                         <span className="text-[9px] normal-case text-violet-600">(untuk cascading dropdown)</span>
+                        {crossLookupParentName && (
+                          <span className="text-[9px] normal-case text-emerald-600 font-medium">← from {crossLookupParentName}</span>
+                        )}
                       </Label>
                       <select
                         value={v.parentValueCode || ''}
@@ -527,13 +607,28 @@ export default function AdminLookupsPage() {
                         className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       >
                         <option value="">— No parent (root value) —</option>
+                        {crossLookupParentValues.length > 0 && (
+                          <optgroup label={`── ${crossLookupParentName} (cross-lookup) ──`}>
+                            {crossLookupParentValues.map((p) => (
+                              <option key={p.valueCode} value={p.valueCode}>
+                                {p.valueCode} — {p.displayValue}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                         {form.values
                           .filter((p) => p.valueCode && p.valueCode !== v.valueCode)
-                          .map((p) => (
-                            <option key={p.valueCode} value={p.valueCode}>
-                              {p.valueCode} — {p.displayValue}
-                            </option>
-                          ))}
+                          .length > 0 && (
+                          <optgroup label="── Same lookup values ──">
+                            {form.values
+                              .filter((p) => p.valueCode && p.valueCode !== v.valueCode)
+                              .map((p) => (
+                                <option key={p.valueCode} value={p.valueCode}>
+                                  {p.valueCode} — {p.displayValue}
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                     <div className="grid grid-cols-2 gap-2">

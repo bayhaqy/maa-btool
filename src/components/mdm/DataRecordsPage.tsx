@@ -37,8 +37,10 @@ import {
   ArrowUp, ArrowDown, Copy, Trash2, Pencil, ThumbsUp,
   Save, X, ExternalLink, Check, Columns3, Clock, User,
   RefreshCw, Image as ImageIcon, ZoomIn, Star, BarChart3, CircleDot,
+  Brain, Sparkles, Shield, Tag, Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
 
 // ============================================================================
@@ -519,6 +521,48 @@ export default function DataRecordsPage() {
     setEditingValue(currentValue === '-' ? '' : currentValue);
   }, []);
 
+  // Get filtered options for a cascading lookup field
+  const getCascadingOptions = useCallback((field: any, record: any) => {
+    if (!field?.lookupMaster?.values) return [];
+    let options = field.lookupMaster.values;
+    const parentCode = field.cascadesFromFieldCode;
+    if (parentCode) {
+      const parentValue = parsePayload(record.currentPayload)[parentCode];
+      options = options.filter((o: any) => !o.parentValueCode || o.parentValueCode === parentValue);
+    }
+    return options;
+  }, []);
+
+  // ─── AI Bulk Action Handler ───
+  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null);
+
+  const handleAIBulkAction = useCallback(async (action: 'classify' | 'enrich' | 'quality-check' | 'image-analyze') => {
+    if (!token || selectedRows.size === 0) return;
+    setAiActionLoading(action);
+    try {
+      const res = await fetch('/api/ai-enrichment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action,
+          recordIds: Array.from(selectedRows),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI action failed');
+
+      const resultCount = data.results?.length || data.duplicates?.length || 0;
+      toast.success(`AI ${action}: ${resultCount} records processed (${data.modelUsed || 'rule-based'}, ${data.totalTokens || 0} tokens)`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `AI ${action} failed`);
+    } finally {
+      setAiActionLoading(null);
+    }
+  }, [token, selectedRows]);
+
   const handleInlineSave = useCallback(async () => {
     if (!editingCell || !token || !activeModuleId) return;
     const record = records.find((r) => r.id === editingCell.recordId);
@@ -870,6 +914,20 @@ export default function DataRecordsPage() {
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!perms.canBulk || !perms.canApprove}><ThumbsUp className="w-3 h-3" /> Submit for Approval</Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!perms.canBulk || !perms.canEdit}><Pencil className="w-3 h-3" /> Bulk Edit</Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-red-600" disabled={!perms.canBulk || !perms.canDelete}><Trash2 className="w-3 h-3" /> Delete</Button>
+                <Separator orientation="vertical" className="h-5" />
+                <span className="text-[10px] text-muted-foreground">AI:</span>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-violet-600 hover:bg-violet-50" disabled={selectedRows.size === 0 || !!aiActionLoading} onClick={() => handleAIBulkAction('classify')}>
+                  {aiActionLoading === 'classify' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Tag className="w-3 h-3" />} Classify
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-emerald-600 hover:bg-emerald-50" disabled={selectedRows.size === 0 || !!aiActionLoading} onClick={() => handleAIBulkAction('enrich')}>
+                  {aiActionLoading === 'enrich' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Enrich
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-amber-600 hover:bg-amber-50" disabled={selectedRows.size === 0 || !!aiActionLoading} onClick={() => handleAIBulkAction('quality-check')}>
+                  {aiActionLoading === 'quality-check' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />} Quality
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-sky-600 hover:bg-sky-50" disabled={selectedRows.size === 0 || !!aiActionLoading} onClick={() => handleAIBulkAction('image-analyze')}>
+                  {aiActionLoading === 'image-analyze' ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImageIcon className="w-3 h-3" />} Analyze
+                </Button>
                 <Button variant="ghost" size="sm" className="h-7 text-xs ml-auto" onClick={() => setSelectedRows(new Set())}><X className="w-3 h-3" /> Clear</Button>
               </motion.div>
             )}
@@ -1001,15 +1059,34 @@ export default function DataRecordsPage() {
                                   <TableCell key={f.id} className="max-w-[200px]">
                                     {editingCell?.recordId === r.id && editingCell?.fieldCode === f.fieldCode ? (
                                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                                        <Input ref={editInputRef} value={editingValue} onChange={(e) => setEditingValue(e.target.value)} className="h-7 text-xs"
-                                          onKeyDown={(e) => { if (e.key === 'Enter') handleInlineSave(); if (e.key === 'Escape') handleInlineCancel(); }}
-                                          onBlur={handleInlineSave} />
+                                        {(f.dataType === 'SELECT' || f.dataType === 'LOOKUP' || f.dataType === 'LOV') && f.lookupMaster ? (
+                                          <select
+                                            value={editingValue}
+                                            onChange={(e) => setEditingValue(e.target.value)}
+                                            onBlur={handleInlineSave}
+                                            autoFocus
+                                            onKeyDown={(e) => { if (e.key === 'Escape') handleInlineCancel(); }}
+                                            className="h-7 text-xs w-full rounded-md border border-input bg-background px-2 py-0 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                                          >
+                                            <option value="">— Select —</option>
+                                            {getCascadingOptions(f, r).map((o: any) => (
+                                              <option key={o.valueCode} value={o.valueCode}>{o.displayValue}</option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <Input ref={editInputRef} value={editingValue} onChange={(e) => setEditingValue(e.target.value)} className="h-7 text-xs"
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleInlineSave(); if (e.key === 'Escape') handleInlineCancel(); }}
+                                            onBlur={handleInlineSave} />
+                                        )}
                                       </div>
                                     ) : (
                                       <span className={cn('truncate block rounded px-1 -mx-1', perms.canEdit ? 'cursor-text hover:bg-accent/30' : 'cursor-default')}
                                         onDoubleClick={perms.canEdit ? (e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); } : undefined}
                                         title={perms.canEdit ? 'Double-click to edit' : 'Read only'}>
-                                        {String(getPayloadValue(r, f.fieldCode))}
+                                        {(f.dataType === 'SELECT' || f.dataType === 'LOOKUP' || f.dataType === 'LOV') && f.lookupMaster
+                                          ? (f.lookupMaster.values?.find((o: any) => o.valueCode === getPayloadValue(r, f.fieldCode))?.displayValue || String(getPayloadValue(r, f.fieldCode)))
+                                          : String(getPayloadValue(r, f.fieldCode))
+                                        }
                                       </span>
                                     )}
                                   </TableCell>
@@ -1130,15 +1207,34 @@ export default function DataRecordsPage() {
                               <TableCell key={f.id} className="max-w-[200px]">
                                 {editingCell?.recordId === r.id && editingCell?.fieldCode === f.fieldCode ? (
                                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                                    <Input ref={editInputRef} value={editingValue} onChange={(e) => setEditingValue(e.target.value)} className="h-7 text-xs"
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleInlineSave(); if (e.key === 'Escape') handleInlineCancel(); }}
-                                      onBlur={handleInlineSave} />
+                                    {(f.dataType === 'SELECT' || f.dataType === 'LOOKUP' || f.dataType === 'LOV') && f.lookupMaster ? (
+                                      <select
+                                        value={editingValue}
+                                        onChange={(e) => setEditingValue(e.target.value)}
+                                        onBlur={handleInlineSave}
+                                        autoFocus
+                                        onKeyDown={(e) => { if (e.key === 'Escape') handleInlineCancel(); }}
+                                        className="h-7 text-xs w-full rounded-md border border-input bg-background px-2 py-0 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                                      >
+                                        <option value="">— Select —</option>
+                                        {getCascadingOptions(f, r).map((o: any) => (
+                                          <option key={o.valueCode} value={o.valueCode}>{o.displayValue}</option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <Input ref={editInputRef} value={editingValue} onChange={(e) => setEditingValue(e.target.value)} className="h-7 text-xs"
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleInlineSave(); if (e.key === 'Escape') handleInlineCancel(); }}
+                                        onBlur={handleInlineSave} />
+                                    )}
                                   </div>
                                 ) : (
                                   <span className={cn('truncate block rounded px-1 -mx-1', perms.canEdit ? 'cursor-text hover:bg-accent/30' : 'cursor-default')}
                                     onDoubleClick={perms.canEdit ? (e) => { e.stopPropagation(); handleInlineEdit(r.id, f.fieldCode, String(getPayloadValue(r, f.fieldCode))); } : undefined}
                                     title={perms.canEdit ? 'Double-click to edit' : 'Read only'}>
-                                    {String(getPayloadValue(r, f.fieldCode))}
+                                    {(f.dataType === 'SELECT' || f.dataType === 'LOOKUP' || f.dataType === 'LOV') && f.lookupMaster
+                                      ? (f.lookupMaster.values?.find((o: any) => o.valueCode === getPayloadValue(r, f.fieldCode))?.displayValue || String(getPayloadValue(r, f.fieldCode)))
+                                      : String(getPayloadValue(r, f.fieldCode))
+                                    }
                                   </span>
                                 )}
                               </TableCell>

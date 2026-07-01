@@ -68,6 +68,10 @@ export async function GET(request: NextRequest) {
       companyId: u.companyId,
       company: u.company,
       roles: u.userRoles.map((ur) => ur.role),
+      assignedBrands: u.assignedBrands,
+      assignedCountries: u.assignedCountries,
+      assignedTeams: u.assignedTeams,
+      dataScope: u.dataScope,
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
     }));
@@ -104,7 +108,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { username, email, password, companyId, roleIds } = body;
+    const { username, email, password, companyId, roleIds, assignedBrands, assignedCountries, assignedTeams, dataScope } = body;
 
     if (!username || !email || !password || !companyId) {
       return NextResponse.json(
@@ -180,6 +184,10 @@ export async function POST(request: NextRequest) {
         email,
         passwordHash,
         companyId,
+        assignedBrands: assignedBrands || null,
+        assignedCountries: assignedCountries || null,
+        assignedTeams: assignedTeams || null,
+        dataScope: dataScope || null,
         userRoles: {
           create: (roleIds || []).map((roleId: string) => ({
             roleId,
@@ -245,7 +253,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, email, displayName, isActive, roleIds } = body;
+    const { id, email, displayName, isActive, roleIds, assignedBrands, assignedCountries, assignedTeams, dataScope } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'User id is required' }, { status: 400 });
@@ -321,6 +329,10 @@ export async function PUT(request: NextRequest) {
         ...(email !== undefined && { email }),
         ...(displayName !== undefined && { displayName }),
         ...(isActive !== undefined && { isActive }),
+        ...(assignedBrands !== undefined && { assignedBrands: assignedBrands || null }),
+        ...(assignedCountries !== undefined && { assignedCountries: assignedCountries || null }),
+        ...(assignedTeams !== undefined && { assignedTeams: assignedTeams || null }),
+        ...(dataScope !== undefined && { dataScope: dataScope || null }),
       },
     });
 

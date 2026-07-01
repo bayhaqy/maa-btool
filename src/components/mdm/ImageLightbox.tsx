@@ -20,6 +20,12 @@ import {
   Star,
   Maximize,
   Shrink,
+  Copy,
+  Check,
+  ExternalLink,
+  Link2,
+  HardDrive,
+  Cloud,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -42,6 +48,9 @@ export interface LightboxImage {
   createdAt?: string;
   pending?: boolean;
   variants?: Record<string, string>;
+  r2Key?: string | null;
+  storageType?: string;
+  digitalAssetId?: string | null;
 }
 
 interface ImageLightboxProps {
@@ -52,6 +61,7 @@ interface ImageLightboxProps {
   onDelete?: (imageId: string) => void;
   onSetPrimary?: (imageId: string) => void;
   onRotate?: (imageId: string, degrees: number) => void;
+  onViewInDAM?: (imageId: string) => void;
   token?: string | null;
 }
 
@@ -66,6 +76,31 @@ function formatFileSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Resolve the full URL for an image, expanding relative API paths
+ * to absolute URLs using the current origin.
+ */
+function resolveFullUrl(filePath: string): string {
+  if (!filePath) return '';
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) return filePath;
+  if (filePath.startsWith('/')) return `${window.location.origin}${filePath}`;
+  return filePath;
+}
+
+/**
+ * Determine if a URL is an R2 signed URL (contains X-Amz-Signature or similar)
+ */
+function isSignedUrl(url: string): boolean {
+  return url.includes('X-Amz-Signature') || url.includes('X-Amz-Credential');
+}
+
+/**
+ * Determine if a URL is an API proxy URL (our /api/r2-image endpoint)
+ */
+function isProxyUrl(url: string): boolean {
+  return url.includes('/api/r2-image?');
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -78,6 +113,7 @@ export default function ImageLightbox({
   onDelete,
   onSetPrimary,
   onRotate,
+  onViewInDAM,
   token,
 }: ImageLightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -90,6 +126,7 @@ export default function ImageLightbox({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +206,9 @@ export default function ImageLightbox({
           break;
         case 'f':
           handleToggleFullscreen();
+          break;
+        case 'c':
+          handleCopyUrl();
           break;
         case 'Delete':
           if (onDelete && currentImage && !currentImage.pending) {
@@ -364,9 +404,45 @@ export default function ImageLightbox({
     document.body.removeChild(link);
   }, [currentImage]);
 
+  // Copy URL handler
+  const handleCopyUrl = useCallback(() => {
+    if (!currentImage) return;
+    const imageUrl = getImageUrl(currentImage);
+    const fullUrl = resolveFullUrl(imageUrl);
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      setUrlCopied(true);
+      toast.success('Image URL copied to clipboard');
+      setTimeout(() => setUrlCopied(false), 2000);
+    }).catch(() => {
+      toast.error('Failed to copy URL');
+    });
+  }, [currentImage]);
+
   // Get the best image URL for lightbox display
   const getImageUrl = (img: LightboxImage) => {
     return img.variants?.large || img.variants?.medium || img.filePath;
+  };
+
+  // Get the display URL for info panel (full resolved URL)
+  const getDisplayUrl = (img: LightboxImage) => {
+    const url = getImageUrl(img);
+    return resolveFullUrl(url);
+  };
+
+  // Get URL type label
+  const getUrlTypeLabel = (img: LightboxImage): { label: string; isTemporary: boolean } => {
+    const storage = img.storageType || 'local';
+    if (storage === 'r2') {
+      const url = getImageUrl(img);
+      if (isProxyUrl(url)) {
+        return { label: 'R2 (Signed Proxy)', isTemporary: true };
+      }
+      if (isSignedUrl(url)) {
+        return { label: 'R2 (Signed URL)', isTemporary: true };
+      }
+      return { label: 'R2 (Public CDN)', isTemporary: false };
+    }
+    return { label: 'Local Storage', isTemporary: false };
   };
 
   // Combine zoom + rotation transform
@@ -415,6 +491,24 @@ export default function ImageLightbox({
               {currentImage?.pending && (
                 <Badge className="bg-amber-500 text-white text-[10px] h-5 px-1.5 border-0">
                   Pending Upload
+                </Badge>
+              )}
+              {/* Storage type badge */}
+              {currentImage && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[10px] h-5 px-1.5 border',
+                    currentImage.storageType === 'r2'
+                      ? 'text-sky-300 border-sky-500/40 bg-sky-500/10'
+                      : 'text-white/50 border-white/20 bg-white/5'
+                  )}
+                >
+                  {currentImage.storageType === 'r2' ? (
+                    <><Cloud className="w-3 h-3 mr-0.5" /> R2</>
+                  ) : (
+                    <><HardDrive className="w-3 h-3 mr-0.5" /> Local</>
+                  )}
                 </Badge>
               )}
             </div>
@@ -508,6 +602,33 @@ export default function ImageLightbox({
               )}
 
               <div className="w-px h-5 bg-white/20 mx-1" />
+
+              {/* Copy URL button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "text-white/80 hover:text-white hover:bg-white/10 h-8 w-8 p-0",
+                  urlCopied && "text-emerald-400"
+                )}
+                onClick={handleCopyUrl}
+                title="Copy image URL (C)"
+              >
+                {urlCopied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+              </Button>
+
+              {/* View in DAM button */}
+              {onViewInDAM && currentImage && !currentImage.pending && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-sky-300 hover:bg-white/10 h-8 w-8 p-0"
+                  onClick={() => onViewInDAM(currentImage.id)}
+                  title="View in Digital Assets"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </Button>
+              )}
 
               {/* Action buttons */}
               {onSetPrimary && !currentImage?.isPrimary && !currentImage?.pending && (
@@ -684,12 +805,12 @@ export default function ImageLightbox({
               {showInfo && currentImage && (
                 <motion.div
                   initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: 280, opacity: 1 }}
+                  animate={{ width: 300, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
                   className="bg-black/70 backdrop-blur-sm border-l border-white/10 overflow-hidden flex-shrink-0"
                 >
-                  <div className="p-4 space-y-4 w-[280px]">
+                  <div className="p-4 space-y-4 w-[300px]">
                     <div className="flex items-center justify-between">
                       <h3 className="text-white font-semibold text-sm">
                         Image Details
@@ -723,18 +844,9 @@ export default function ImageLightbox({
 
                     {/* Metadata */}
                     <div className="space-y-2.5">
-                      <InfoRow
-                        label="Filename"
-                        value={currentImage.fileName || '-'}
-                      />
-                      <InfoRow
-                        label="File Size"
-                        value={formatFileSize(currentImage.fileSize)}
-                      />
-                      <InfoRow
-                        label="MIME Type"
-                        value={currentImage.mimeType || '-'}
-                      />
+                      <InfoRow label="Filename" value={currentImage.fileName || '-'} />
+                      <InfoRow label="File Size" value={formatFileSize(currentImage.fileSize)} />
+                      <InfoRow label="Format" value={currentImage.mimeType || '-'} />
                       <InfoRow
                         label="Dimensions"
                         value={
@@ -743,26 +855,33 @@ export default function ImageLightbox({
                             : 'Unknown'
                         }
                       />
-                      <InfoRow
-                        label="Alt Text"
-                        value={currentImage.altText || '-'}
-                      />
-                      <InfoRow
-                        label="Sort Order"
-                        value={String(currentImage.sortOrder)}
-                      />
-                      <InfoRow
-                        label="Primary"
-                        value={currentImage.isPrimary ? 'Yes' : 'No'}
-                      />
-                      <InfoRow
-                        label="Rotation"
-                        value={rotation !== 0 ? `${rotation}°` : '0° (none)'}
-                      />
-                      <InfoRow
-                        label="Zoom"
-                        value={`${Math.round(zoom * 100)}%`}
-                      />
+                      <InfoRow label="Alt Text" value={currentImage.altText || '-'} />
+                      <InfoRow label="Sort Order" value={String(currentImage.sortOrder)} />
+                      <InfoRow label="Primary" value={currentImage.isPrimary ? 'Yes' : 'No'} />
+                      <InfoRow label="Rotation" value={rotation !== 0 ? `${rotation}°` : '0° (none)'} />
+                      <InfoRow label="Zoom" value={`${Math.round(zoom * 100)}%`} />
+
+                      {/* Storage type */}
+                      <div className="flex items-start gap-2">
+                        <span className="text-white/50 text-xs w-20 flex-shrink-0 pt-0.5">Storage</span>
+                        <span className="flex items-center gap-1">
+                          {currentImage.storageType === 'r2' ? (
+                            <Badge className="bg-sky-500/20 text-sky-300 border-sky-500/30 text-[10px] h-5 px-1.5">
+                              <Cloud className="w-3 h-3 mr-0.5" /> Cloudflare R2
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-white/10 text-white/70 border-white/20 text-[10px] h-5 px-1.5">
+                              <HardDrive className="w-3 h-3 mr-0.5" /> Local
+                            </Badge>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* R2 Key */}
+                      {currentImage.r2Key && (
+                        <InfoRow label="R2 Key" value={currentImage.r2Key} />
+                      )}
+
                       <InfoRow
                         label="Uploaded"
                         value={
@@ -781,10 +900,61 @@ export default function ImageLightbox({
                       />
                     </div>
 
+                    {/* Image URL Section */}
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                      <p className="text-white/50 text-xs font-medium uppercase tracking-wider">Image URL</p>
+                      {(() => {
+                        const urlType = getUrlTypeLabel(currentImage);
+                        const displayUrl = getDisplayUrl(currentImage);
+                        return (
+                          <>
+                            {urlType.isTemporary && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-500/10 rounded px-2 py-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                {urlType.label} — URL expires after 1 hour
+                              </div>
+                            )}
+                            {!urlType.isTemporary && urlType.label !== 'Local Storage' && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 rounded px-2 py-1">
+                                <Check className="w-3 h-3" />
+                                {urlType.label} — Permanent URL
+                              </div>
+                            )}
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex-1 bg-white/5 rounded border border-white/10 px-2 py-1.5 text-[10px] text-white/70 font-mono break-all max-h-16 overflow-y-auto">
+                                {displayUrl}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={cn(
+                                  "text-white/70 hover:text-white hover:bg-white/10 h-7 w-7 p-0 flex-shrink-0",
+                                  urlCopied && "text-emerald-400"
+                                )}
+                                onClick={handleCopyUrl}
+                                title="Copy URL"
+                              >
+                                {urlCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              </Button>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
                     {/* Quick actions */}
                     <div className="space-y-2 pt-2 border-t border-white/10">
                       <p className="text-white/50 text-xs font-medium uppercase tracking-wider">Actions</p>
                       <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-white/70 hover:text-white hover:bg-white/10 h-8 text-xs gap-1.5 justify-start"
+                          onClick={handleCopyUrl}
+                        >
+                          {urlCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          {urlCopied ? 'Copied!' : 'Copy URL'}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -810,6 +980,16 @@ export default function ImageLightbox({
                             onClick={handleSetPrimary}
                           >
                             <Star className="w-3 h-3" /> Set Primary
+                          </Button>
+                        )}
+                        {onViewInDAM && !currentImage.pending && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white/70 hover:text-sky-300 hover:bg-white/10 h-8 text-xs gap-1.5 justify-start col-span-2"
+                            onClick={() => onViewInDAM(currentImage.id)}
+                          >
+                            <ExternalLink className="w-3 h-3" /> View in Digital Assets
                           </Button>
                         )}
                         {onDelete && (
@@ -838,6 +1018,7 @@ export default function ImageLightbox({
                         <ShortcutRow label="Rotate CCW" shortcut="R" />
                         <ShortcutRow label="Info panel" shortcut="I" />
                         <ShortcutRow label="Fullscreen" shortcut="F" />
+                        <ShortcutRow label="Copy URL" shortcut="C" />
                         <ShortcutRow label="Navigate" shortcut="←→" />
                         <ShortcutRow label="Delete" shortcut="Del" />
                       </div>
@@ -873,6 +1054,9 @@ export default function ImageLightbox({
                   />
                   {img.isPrimary && (
                     <Star className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                  )}
+                  {img.storageType === 'r2' && (
+                    <Cloud className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 text-sky-300" />
                   )}
                 </button>
               ))}

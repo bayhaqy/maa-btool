@@ -59,6 +59,8 @@ interface RoleData {
   companyId: string;
   color: string | null;
   icon: string | null;
+  dataScope: string | null;
+  scopeConfig: string | null;
   permissionCount: number;
   userCount: number;
   assignedUsers?: Array<{ id: string; username: string; displayName: string | null }>;
@@ -137,6 +139,10 @@ export default function AdminRolesPage() {
     scope: 'MODULE_LEVEL' as string,
     permissions: [] as PermissionRow[],
     selectedModuleIds: [] as string[],
+    dataScope: '' as string,
+    scopeConfigBrands: '',
+    scopeConfigCountries: '',
+    scopeConfigTeams: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -248,6 +254,17 @@ export default function AdminRolesPage() {
     if (!token) return;
     setSaving(true);
     try {
+      const scopeConfig: Record<string, string[]> = {};
+      if (form.scopeConfigBrands) {
+        try { scopeConfig.brands = JSON.parse(form.scopeConfigBrands); } catch { /* ignore */ }
+      }
+      if (form.scopeConfigCountries) {
+        try { scopeConfig.countries = JSON.parse(form.scopeConfigCountries); } catch { /* ignore */ }
+      }
+      if (form.scopeConfigTeams) {
+        try { scopeConfig.teams = JSON.parse(form.scopeConfigTeams); } catch { /* ignore */ }
+      }
+
       const payload = {
         id: editRole?.id,
         roleName: form.roleName,
@@ -255,6 +272,8 @@ export default function AdminRolesPage() {
         roleType: form.roleType,
         scope: form.scope,
         permissions: form.permissions,
+        dataScope: form.dataScope || null,
+        scopeConfig: Object.keys(scopeConfig).length > 0 ? JSON.stringify(scopeConfig) : null,
         // Auto-assign companyId based on filter for new roles
         ...(!editRole && companyFilter !== 'ALL' ? { companyId: companyFilter } : {}),
       };
@@ -348,6 +367,18 @@ export default function AdminRolesPage() {
     })) || [];
     // Normalize scope: treat 'MODULE' as 'MODULE_LEVEL' for backward compatibility
     const normalizedScope = (r.scope === 'MODULE' || r.scope === 'MODULE_LEVEL') ? 'MODULE_LEVEL' : r.scope || 'MODULE_LEVEL';
+    // Parse scopeConfig for RLS
+    let scopeConfigBrands = '';
+    let scopeConfigCountries = '';
+    let scopeConfigTeams = '';
+    if (r.scopeConfig) {
+      try {
+        const config = typeof r.scopeConfig === 'string' ? JSON.parse(r.scopeConfig) : r.scopeConfig;
+        if (config.brands) scopeConfigBrands = JSON.stringify(config.brands);
+        if (config.countries) scopeConfigCountries = JSON.stringify(config.countries);
+        if (config.teams) scopeConfigTeams = JSON.stringify(config.teams);
+      } catch { /* ignore */ }
+    }
     setForm({
       roleName: r.roleName,
       description: r.description || '',
@@ -355,6 +386,10 @@ export default function AdminRolesPage() {
       scope: normalizedScope,
       permissions: perms,
       selectedModuleIds: perms.map((p) => p.moduleId),
+      dataScope: r.dataScope || '',
+      scopeConfigBrands,
+      scopeConfigCountries,
+      scopeConfigTeams,
     });
     setDialogOpen(true);
   };
@@ -368,6 +403,10 @@ export default function AdminRolesPage() {
       scope: 'MODULE_LEVEL',
       permissions: [],
       selectedModuleIds: [],
+      dataScope: '',
+      scopeConfigBrands: '',
+      scopeConfigCountries: '',
+      scopeConfigTeams: '',
     });
     setDialogOpen(true);
   };
@@ -708,6 +747,14 @@ export default function AdminRolesPage() {
                     <span>{role.permissionCount} privilege rule{role.permissionCount !== 1 ? 's' : ''}</span>
                     <span>•</span>
                     <span>Scope: {role.scope === 'MODULE' || role.scope === 'MODULE_LEVEL' ? 'Module-level' : role.scope === 'GLOBAL' ? 'Global' : role.scope || 'Module-level'}</span>
+                    {role.dataScope && (
+                      <>
+                        <span>•</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          RLS: {role.dataScope}
+                        </Badge>
+                      </>
+                    )}
                   </div>
 
                   {/* ── Expandable User List ──────────────────────── */}
@@ -1094,6 +1141,58 @@ export default function AdminRolesPage() {
                 <span className="text-blue-700 dark:text-blue-400">Global scope grants access to <strong>all modules</strong>. Configure privilege rules per module below.</span>
               </div>
             )}
+
+            <Separator />
+
+            {/* ── RLS Data Scope ──────────────────────────────── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">Data Scope (Row-Level Security)</Label>
+              </div>
+              <Select value={form.dataScope || 'COMPANY'} onValueChange={(v) => setForm({ ...form, dataScope: v === 'COMPANY' ? '' : v })}>
+                <SelectTrigger><SelectValue placeholder="Select data scope" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="COMPANY">Company (default)</SelectItem>
+                  <SelectItem value="ALL">All (no row-level restrictions)</SelectItem>
+                  <SelectItem value="BRAND">Brand-scoped</SelectItem>
+                  <SelectItem value="COUNTRY">Country-scoped</SelectItem>
+                  <SelectItem value="TEAM">Team-scoped</SelectItem>
+                  <SelectItem value="CUSTOM">Custom (brand + country + team)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Controls which data rows users with this role can access within permitted modules</p>
+              {(form.dataScope === 'BRAND' || form.dataScope === 'CUSTOM') && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Allowed Brands (JSON array)</Label>
+                  <Input
+                    placeholder='e.g. ["Nike","Adidas","New Balance"]'
+                    value={form.scopeConfigBrands}
+                    onChange={(e) => setForm({ ...form, scopeConfigBrands: e.target.value })}
+                  />
+                </div>
+              )}
+              {(form.dataScope === 'COUNTRY' || form.dataScope === 'CUSTOM') && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Allowed Countries (JSON array)</Label>
+                  <Input
+                    placeholder='e.g. ["ID","SG","MY"]'
+                    value={form.scopeConfigCountries}
+                    onChange={(e) => setForm({ ...form, scopeConfigCountries: e.target.value })}
+                  />
+                </div>
+              )}
+              {(form.dataScope === 'TEAM' || form.dataScope === 'CUSTOM') && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Allowed Teams (JSON array)</Label>
+                  <Input
+                    placeholder='e.g. ["Map Corporate","MAPI Operations"]'
+                    value={form.scopeConfigTeams}
+                    onChange={(e) => setForm({ ...form, scopeConfigTeams: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
 
             <Separator />
 

@@ -43,7 +43,7 @@ Stage Summary:
 ---
 Task ID: 3
 Agent: Main
-Task: Reseed production database with mapclub.com data
+Task: Reseed production database with map club.com data
 
 Work Log:
 - Called /api/admin/reseed-map-data on production API
@@ -162,7 +162,7 @@ Agent: Main
 Task: Set Vercel environment variables, run production migration, and populate Digital Assets to R2
 
 Work Log:
-- Used Vercel API (token: REDACTED) to set R2 env vars
+- Used Vercel API to set R2 env vars
 - Set R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_URL for production/preview/development
 - Added r2Key and storageType fields to all 3 Prisma schema files (schema.prisma, schema.supabase.prisma, schema.sqlite.prisma)
 - Modified r2.ts to load config from AppSettings DB first (fallback to env vars)
@@ -182,3 +182,154 @@ Stage Summary:
 - Images served via /api/r2-image proxy with signed URLs (1hr expiry)
 - Vercel env vars configured for R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
 - AppSettings DB also stores R2 config (dual-source: DB + env vars)
+
+---
+Task ID: 8
+Agent: AI Assistant Write Agent
+Task: Make AI Assistant writable with tool execution
+
+Work Log:
+- Read existing code: /api/ai/chat/route.ts, /api/ai/chat/stream/route.ts, AiAssistantPage.tsx
+- Analyzed current tool system: 9 tools existed (search_records, get_record, create_record, update_record, delete_record, submit_for_approval, approve_record, get_data_quality, list_modules) but were only in the streaming route, had no RBAC checks, no audit logging, and no confirmation for destructive operations
+- Created `/src/lib/ai-tools.ts` — Shared tool execution engine with:
+  - 17 tool definitions with full parameter schemas, RBAC permission requirements, and confirmation flags
+  - 9 NEW tools: bulk_update, enrich_record, classify_record, check_quality, upload_image (create_digital_asset), create_digital_asset, get_hierarchy, search_digital_assets, reject_record
+  - Enhanced system prompt (SYSTEM_PROMPT) with detailed tool documentation and usage rules
+  - Tool execution engine with RBAC permission checks before every operation
+  - Confirmation preview generation for destructive operations (delete_record, bulk_update, approve_record, reject_record)
+  - Audit logging for all write operations using logAudit()
+  - parseToolCalls() and stripToolCalls() helper functions
+  - generateToolResultSummary() for fallback when AI is unavailable
+- Created `/src/app/api/ai/chat/execute-tool/route.ts` — API endpoint for executing confirmed destructive operations
+  - POST endpoint accepts toolName, args, confirmed flag
+  - Rejects unconfirmed operations with audit logging
+  - Executes confirmed operations with skipConfirmation flag
+  - Logs all confirmations/rejections in audit trail
+- Created `/src/app/api/ai/chat/tools/route.ts` — API endpoint for listing available tools
+  - Returns tools filtered by user's RBAC permissions
+  - Groups tools by category (read, write, workflow, ai, asset)
+- Updated `/src/app/api/ai/chat/stream/route.ts` — Complete rewrite using shared ai-tools engine
+  - Uses SYSTEM_PROMPT and executeToolCall from ai-tools.ts
+  - Separates destructive and non-destructive tool calls
+  - Non-destructive tools execute immediately with results streamed back
+  - Destructive tools generate confirmation previews sent as `tool_confirmation` SSE events
+  - Tool results include success/error status badges
+  - Confirmation notices added to saved response text
+- Updated `/src/app/api/ai/chat/route.ts` — Complete rewrite using shared ai-tools engine
+  - Same tool processing logic as streaming route
+  - Returns toolResults and confirmations in JSON response
+- Updated `/src/components/mdm/AiAssistantPage.tsx` — Major UI enhancements for write operations:
+  - Tool confirmation dialog: Shows preview of destructive operations (action, target, details) with Confirm/Reject buttons
+  - Tool execution status badges: Success (green), Failed (red), Pending (amber) shown inline in messages
+  - Pending confirmation cards: Inline amber-bordered cards with Confirm/Reject buttons for each destructive operation
+  - Tools panel: Right sidebar showing all available tools grouped by category (read, write, workflow, ai, asset) with permission indicators
+  - Tool execution status section in tools panel: Shows recent tool executions with status
+  - Updated welcome message highlighting read/write capabilities
+  - Updated suggested prompts for write operations
+  - Quick action buttons: Search, Create, Workflow, Enrich
+  - Handle confirm/reject tool actions via /api/ai/chat/execute-tool endpoint
+  - Results appended to chat messages with appropriate formatting
+- Fixed unrelated lint error in AiCapabilitiesPage.tsx (missing Zap import)
+
+Stage Summary:
+- AI Assistant is now fully writable with 17 tools across 5 categories
+- All tools have RBAC permission checks before execution
+- Destructive operations (delete, bulk_update, approve, reject) require user confirmation via dialog
+- All write operations are audit-logged with tool name, parameters, result, and confirmation status
+- Streaming chat supports tool_confirmation SSE events for destructive operations
+- Tools panel shows available tools filtered by user permissions
+- Tool execution status tracked and displayed in real-time
+- New tools added: bulk_update, enrich_record, classify_record, check_quality, create_digital_asset, get_hierarchy, search_digital_assets, reject_record
+
+---
+Task ID: 3
+Agent: Hierarchy & Lookup Cascading Agent
+Task: Fix cascading category-subcategory relationships
+
+Work Log:
+- Investigated user report: selecting "Sepatu" (Footwear) shows unrelated subcategories like "Tas" (Bags) in dropdown
+- Root cause analysis: The SUB_CATEGORY lookup values have `parentValueCode` pointing to CATEGORY codes (e.g., RUNNING_SHOES → FOOTWEAR), but:
+  1. The reseed-map-data endpoint didn't ensure cascading lookup data integrity
+  2. The AdminLookupsPage parentValueCode selector only showed same-lookup values, not cross-lookup parent values (CATEGORY)
+  3. The DataRecordsPage inline edit used plain text input for all fields, no dropdown for SELECT/LOOKUP types
+  4. The lookup API didn't support filtering by parentValueCode
+- Fixed reseed-map-data route: Added Step 1b that ensures CATEGORY and SUB_CATEGORY lookup data integrity:
+  - Upserts 8 CATEGORY values (FOOTWEAR, APPAREL, ACCESSORIES, SPORTS_EQUIPMENT, OUTDOOR, FOOD_BEVERAGE, BEAUTY, HOME_LIVING)
+  - Upserts 30 SUB_CATEGORY values with proper parentValueCode (e.g., RUNNING_SHOES→FOOTWEAR, BAGS→ACCESSORIES)
+  - Resolves parentValueId from parentValueCode across lookups
+  - Links sub_category field to SUB_CATEGORY lookup + sets cascadesFromFieldCode='category'
+  - Links category field to CATEGORY lookup
+- Fixed AdminLookupsPage.tsx:
+  - Added `getCrossLookupParent()` function that detects when a lookup's parentValueCode references a different lookup
+  - Added "Cascading from {parent name}" badge for cross-lookup cascading lookups
+  - Added "Cascading" badge for same-lookup cascading lookups
+  - Fixed parentValueCode selector: now shows cross-lookup parent values in optgroup (e.g., when editing SUB_CATEGORY, CATEGORY values like FOOTWEAR appear in "from Article Category" group)
+  - Fixed Parent column display: cross-lookup parent values show with green badge + GitBranch icon
+- Extended lookup API: Added `parentValueCode` query parameter to GET /api/admin/lookups endpoint
+  - Filters values to only those matching the given parent code
+  - E.g., GET /api/admin/lookups?lookupCode=SUB_CATEGORY&parentValueCode=FOOTWEAR returns only Running Shoes, Basketball Shoes, etc.
+- Updated DataRecordsPage.tsx inline edit:
+  - SELECT/LOOKUP/LOV fields now show a dropdown with lookup values instead of text input
+  - Cascading fields filter options based on parent field's current value using `getCascadingOptions()`
+  - Display mode shows lookup displayValue instead of raw valueCode
+- Verified RecordDetailPage.tsx already had cascading dropdown support (lines 1114-1154)
+- Verified: lint passes with 0 errors
+- Verified: API endpoint works correctly - FOOTWEAR returns 7 subcategories, APPAREL returns 6, ACCESSORIES returns 6
+- Verified: reseed step 1b runs with "70 cascading fixes" applied
+
+Stage Summary:
+- Cascading category→subcategory relationship now works correctly
+- Reseed endpoint ensures data integrity for CATEGORY/SUB_CATEGORY lookups
+- AdminLookupsPage shows cascading indicators and cross-lookup parent selector
+- Lookup API supports parentValueCode filtering
+- DataRecordsPage inline edit shows dropdown for lookup fields with cascading filter
+- All 30 SUB_CATEGORY values properly linked to their parent CATEGORY via parentValueCode
+
+---
+Task ID: 2
+Agent: Article Master Fix Agent
+Task: Fix Article Master data with correct products/images/source links
+
+Work Log:
+- Read worklog.md and current reseed-map-data/route.ts to understand project context
+- Identified issues with existing article data: generic/incorrect data, missing sourceUrl, inconsistent images
+- Rewrote ARTICLE_SEEDS array with 65 realistic articles (up from 55):
+  - FOOTWEAR: 6 Running, 4 Basketball, 6 Casual Sneakers, 3 Sandals, 3 Training, 2 Boots (24 total)
+  - APPAREL: 6 T-Shirts/Tops, 4 Hoodies, 3 Jackets, 3 Pants, 2 Shorts (18 total)
+  - ACCESSORIES: 4 Bags, 3 Hats, 2 Socks, 2 Watches, 1 Sunglasses (12 total)
+  - SPORTS_EQUIPMENT: 2 Football, 2 Gym Equipment (4 total)
+  - FOOD_BEVERAGE: 2 Coffee, 2 Snacks (4 total) — NEW category with Starbucks & Pizza Hut
+  - Fashion brands: 3 additional Zara/H&M/Uniqlo articles
+- Added new fields to every article: `sku`, `sourceUrl`, `imageSeed`
+  - SKU format: {brand_prefix}-{category_prefix}-{number} (e.g., NK-FW-001 for Nike Footwear)
+  - sourceUrl format: https://www.map.co.id/products/{SKU}
+  - imageSeed: unique per product for consistent picsum.photos images
+- Added brands: Zara, H&M, Uniqlo, Starbucks, Pizza Hut, Reebok (new MAP Group brands)
+- Updated ARTICLE_COMPANY_MAP for all 65 articles with proper company assignments:
+  - MBA company for FOOD_BEVERAGE articles (Starbucks, Pizza Hut)
+  - MAPI/MAPA split for other brands
+- Updated image URL generation:
+  - mapclubImageUrl() and damImageUrl() now accept optional imageSeed parameter
+  - Product-specific seeds ensure consistent images per article (e.g., 'nike-pegasus40-1')
+  - Added CATEGORY_IMAGE_PREFIX mapping for category-aware image generation
+- Updated article payload to include new fields:
+  - `sku` field for product SKU code
+  - `source_url` field for verification link
+  - Image URLs now use imageSeed for consistency
+- Updated stewardship task references to match new article codes (ART-017, ART-022, ART-039, ART-057)
+- Updated quality score references for new article codes
+- Added Source Link card to RecordDetailPage sidebar:
+  - Displays when `source_url` field exists in record payload
+  - Shows clickable URL with ExternalLink icon
+  - Opens in new tab with rel="noopener noreferrer"
+  - Includes helper text "External source where this record data can be verified"
+- Verified reseed successfully: 65 Articles, 130 ImageAssets, 87 DigitalAssets created
+- Lint passes with 0 errors (10 pre-existing warnings only)
+
+Stage Summary:
+- 65 realistic article master records with correct brand-category pairings
+- Every article has sku, source_url, and consistent imageSeed
+- Source Link card added to RecordDetailPage sidebar for verification
+- New categories: FOOD_BEVERAGE (Starbucks, Pizza Hut) and Fashion (Zara, H&M, Uniqlo)
+- Images use product-specific seeds for consistency across picsum.photos
+- Company assignments correct: MBA for F&B, MAPI/MAPA for sportswear/fashion

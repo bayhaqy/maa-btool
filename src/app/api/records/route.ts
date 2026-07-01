@@ -5,6 +5,7 @@ import { hasPermission, isSuperAdmin as checkSuperAdmin } from '@/lib/rbac';
 import { rateLimitByCategory } from '@/lib/rate-limit';
 import { logAudit, AuditAction } from '@/lib/audit';
 import { jsonVal, jsonParse } from '@/lib/db-json';
+import { getRLSFilter, applyRLS, canAccessRecord, extractRLSFieldsFromPayload } from '@/lib/rls';
 
 // ============================================================
 // Validation rule type constants (STIBO-aligned per-field
@@ -363,7 +364,16 @@ export async function GET(request: NextRequest) {
 
     // Get single record detail
     if (action === 'detail' && id) {
-      const isSA = checkSuperAdmin(tokenPayload.roles);
+      // RLS: use canAccessRecord for granular access check
+      const canAccess = await canAccessRecord(tokenPayload.userId, id, 'read');
+      if (!canAccess) {
+        // Still check if record exists first for proper 404
+        const exists = await db.dataRecord.findUnique({ where: { id }, select: { id: true } });
+        if (!exists) {
+          return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+        }
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
 
       const record = await db.dataRecord.findUnique({
         where: { id },
@@ -388,11 +398,6 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Record not found' }, { status: 404 });
       }
 
-      // RLS: check company access (Super Admin bypasses)
-      if (!isSA && record.companyId !== tokenPayload.companyId) {
-        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
-      }
-
       return NextResponse.json({ record });
     }
 
@@ -407,25 +412,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'moduleId query parameter is required' }, { status: 400 });
     }
 
-    const isSA = checkSuperAdmin(tokenPayload.roles);
-
+    // Build base where clause
     const where: Record<string, unknown> = {
       moduleId,
       status: { not: STATUS_ARCHIVED },
     };
 
-    // RLS: filter by company (Super Admin sees all)
-    if (!isSA) {
-      where.companyId = tokenPayload.companyId;
-    }
-
     if (status) {
       where.status = status;
     }
 
+    // Apply RLS filter (brand/country/company/team)
+    const rlsFilter = await getRLSFilter(tokenPayload.userId);
+    const filteredWhere = applyRLS(where, rlsFilter);
+
     const [data, total] = await Promise.all([
       db.dataRecord.findMany({
-        where,
+        where: filteredWhere,
         orderBy: { updatedAt: 'desc' },
         skip,
         take: limit,
@@ -434,7 +437,7 @@ export async function GET(request: NextRequest) {
           locker: { select: { id: true, username: true, displayName: true } },
         },
       }),
-      db.dataRecord.count({ where }),
+      db.dataRecord.count({ where: filteredWhere }),
     ]);
 
     return NextResponse.json({ data, total, page, limit });
@@ -495,6 +498,9 @@ export async function POST(request: NextRequest) {
 
     const initialStatus = metaModule.requireApproval ? STATUS_DRAFT : STATUS_ACTIVE;
 
+    // Extract RLS denormalized fields from payload for fast filtering
+    const rlsFields = extractRLSFieldsFromPayload(finalPayload);
+
     const record = await db.dataRecord.create({
       data: {
         moduleId,
@@ -503,6 +509,9 @@ export async function POST(request: NextRequest) {
         currentPayload: jsonVal(finalPayload),
         createdById: tokenPayload.userId,
         updatedById: tokenPayload.userId,
+        ...(rlsFields.brand && { brand: rlsFields.brand }),
+        ...(rlsFields.country && { country: rlsFields.country }),
+        ...(rlsFields.region && { region: rlsFields.region }),
       },
     });
 
@@ -566,6 +575,12 @@ export async function PUT(request: NextRequest) {
       const isSA = checkSuperAdmin(tokenPayload.roles);
       if (!isSA && record.companyId !== tokenPayload.companyId) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      // RLS: check brand/country access
+      const canAccess = await canAccessRecord(tokenPayload.userId, id, 'write');
+      if (!canAccess) {
+        return NextResponse.json({ error: 'Access denied (RLS)' }, { status: 403 });
       }
 
       // Approval actions require data:approve permission
@@ -654,6 +669,12 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
 
+      // RLS: check brand/country access for update
+      const canAccess = await canAccessRecord(tokenPayload.userId, id, 'write');
+      if (!canAccess) {
+        return NextResponse.json({ error: 'Access denied (RLS)' }, { status: 403 });
+      }
+
       const errors = await validatePayload(record.moduleId, payload, id);
       if (errors.length > 0) {
         return NextResponse.json({ error: 'Validation failed', errors }, { status: 422 });
@@ -670,6 +691,9 @@ export async function PUT(request: NextRequest) {
         );
       }
       const finalPayload = ruleResult.modifiedPayload;
+
+      // Extract RLS denormalized fields from updated payload
+      const rlsFields = extractRLSFieldsFromPayload(finalPayload);
 
       // If record is ACTIVE, create amendment workflow:
       // 1. Change original record to REVISION_PENDING status
@@ -704,6 +728,9 @@ export async function PUT(request: NextRequest) {
             currentPayload: jsonVal(finalPayload),
             status: STATUS_REVISION_PENDING,
             updatedById: tokenPayload.userId,
+            ...(rlsFields.brand !== undefined && { brand: rlsFields.brand }),
+            ...(rlsFields.country !== undefined && { country: rlsFields.country }),
+            ...(rlsFields.region !== undefined && { region: rlsFields.region }),
           },
         });
 
@@ -730,6 +757,9 @@ export async function PUT(request: NextRequest) {
           data: {
             currentPayload: jsonVal(finalPayload),
             updatedById: tokenPayload.userId,
+            ...(rlsFields.brand !== undefined && { brand: rlsFields.brand }),
+            ...(rlsFields.country !== undefined && { country: rlsFields.country }),
+            ...(rlsFields.region !== undefined && { region: rlsFields.region }),
           },
         });
 
@@ -743,6 +773,9 @@ export async function PUT(request: NextRequest) {
           data: {
             currentPayload: jsonVal(finalPayload),
             updatedById: tokenPayload.userId,
+            ...(rlsFields.brand !== undefined && { brand: rlsFields.brand }),
+            ...(rlsFields.country !== undefined && { country: rlsFields.country }),
+            ...(rlsFields.region !== undefined && { region: rlsFields.region }),
           },
         });
 
@@ -985,6 +1018,12 @@ export async function DELETE(request: NextRequest) {
     const isSA = checkSuperAdmin(tokenPayload.roles);
     if (!isSA && record.companyId !== tokenPayload.companyId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    // RLS: check brand/country access for delete
+    const canAccess = await canAccessRecord(tokenPayload.userId, id, 'delete');
+    if (!canAccess) {
+      return NextResponse.json({ error: 'Access denied (RLS)' }, { status: 403 });
     }
 
     const updatedRecord = await db.dataRecord.update({

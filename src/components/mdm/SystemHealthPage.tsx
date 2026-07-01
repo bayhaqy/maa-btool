@@ -51,6 +51,9 @@ import {
   HardDriveDownload,
   Table2,
   Zap,
+  Cloud,
+  CloudCog,
+  ImageIcon,
 } from 'lucide-react';
 
 // ── Types matching the /api/health response ──────────────────────────────
@@ -114,6 +117,23 @@ interface RedisUsage {
   error?: string;
 }
 
+interface R2Stats {
+  r2AssetsCount: number;
+  r2ImageAssetsCount: number;
+  r2TotalSize: number;
+  configInfo: {
+    endpoint: string;
+    bucket: string;
+    publicUrl: string;
+    hasPublicUrl: boolean;
+  } | null;
+  storageBreakdown: {
+    r2: number;
+    local: number;
+    fileAsset: number;
+  };
+}
+
 interface HealthResponse {
   status: OverallStatus;
   timestamp: string;
@@ -122,6 +142,7 @@ interface HealthResponse {
   systemInfo: SystemInfo;
   resourceUsage?: ResourceUsage;
   redisUsage?: RedisUsage;
+  r2Stats?: R2Stats;
   envVars: Record<string, boolean>;
   requestedBy?: {
     userId: string;
@@ -142,6 +163,7 @@ const SERVICE_META: Record<
   'Vector DB': { icon: Layers, accent: 'from-violet-500 to-violet-700' },
   AI: { icon: Sparkles, accent: 'from-fuchsia-500 to-fuchsia-700' },
   'File Storage': { icon: FileStack, accent: 'from-teal-500 to-teal-700' },
+  'Cloud Storage': { icon: Cloud, accent: 'from-orange-500 to-orange-700' },
 };
 
 const STATUS_BADGE: Record<
@@ -451,7 +473,7 @@ export default function SystemHealthPage() {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {loading
-            ? Array.from({ length: 7 }).map((_, i) => (
+            ? Array.from({ length: 8 }).map((_, i) => (
                 <Card key={i} className="shadow-sm">
                   <CardContent className="p-4 space-y-3">
                     <Skeleton className="h-10 w-10 rounded-lg" />
@@ -589,6 +611,238 @@ export default function SystemHealthPage() {
               />
             </>
           )}
+        </div>
+      </section>
+
+      {/* ── Cloud Storage (Cloudflare R2) ──────────────────────────────── */}
+      <section>
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <CloudCog className="w-5 h-5 text-red-600" />
+          Cloud Storage
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* R2 Service status card */}
+          {data?.services.find((s) => s.name === 'Cloud Storage') && (
+            <Card className="shadow-sm">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center shadow-sm">
+                    <Cloud className="w-5 h-5 text-white" />
+                  </div>
+                  {(() => {
+                    const svc = data!.services.find((s) => s.name === 'Cloud Storage')!;
+                    const badge = STATUS_BADGE[svc.status];
+                    const StatusIcon = badge.icon;
+                    return (
+                      <Badge variant="outline" className={badge.className}>
+                        <StatusIcon className="w-3 h-3" />
+                        {badge.label}
+                      </Badge>
+                    );
+                  })()}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">Cloudflare R2</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {data?.services.find((s) => s.name === 'Cloud Storage')?.details ?? '—'}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Response
+                  </span>
+                  <span className="text-xs font-mono font-medium">
+                    {data?.services.find((s) => s.name === 'Cloud Storage')?.responseTimeMs != null
+                      ? `${data.services.find((s) => s.name === 'Cloud Storage')!.responseTimeMs} ms`
+                      : '—'}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* R2 Configuration */}
+          <Card className="shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-sm">
+                  <Settings2 className="w-5 h-5 text-white" />
+                </div>
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                  Config
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Endpoint</span>
+                  <span className="font-mono text-[11px] truncate max-w-[180px]" title={data?.r2Stats?.configInfo?.endpoint}>
+                    {data?.r2Stats?.configInfo?.endpoint || '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Bucket</span>
+                  <span className="font-mono text-[11px]">
+                    {data?.r2Stats?.configInfo?.bucket || '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Public URL</span>
+                  {data?.r2Stats?.configInfo?.hasPublicUrl ? (
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Configured
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
+                      <AlertTriangle className="w-3 h-3" />
+                      Not set
+                    </span>
+                  )}
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Connection</span>
+                  {(() => {
+                    const svc = data?.services.find((s) => s.name === 'Cloud Storage');
+                    if (!svc) return <span className="text-[11px]">—</span>;
+                    if (svc.status === 'operational') {
+                      return (
+                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Connected
+                        </span>
+                      );
+                    }
+                    if (svc.status === 'degraded') {
+                      return (
+                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
+                          <AlertTriangle className="w-3 h-3" />
+                          Can't connect
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="flex items-center gap-1 text-slate-500 text-[11px] font-medium">
+                        <CircleAlert className="w-3 h-3" />
+                        Not configured
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* R2 Storage Statistics */}
+          <Card className="shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 flex items-center justify-center shadow-sm">
+                  <HardDrive className="w-5 h-5 text-white" />
+                </div>
+                <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 text-[10px]">
+                  R2 Stats
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <MiniStat
+                  label="DAM Assets (R2)"
+                  value={data?.r2Stats?.r2AssetsCount?.toLocaleString() ?? '—'}
+                />
+                <MiniStat
+                  label="Image Assets (R2)"
+                  value={data?.r2Stats?.r2ImageAssetsCount?.toLocaleString() ?? '—'}
+                />
+                <MiniStat
+                  label="Est. R2 Size"
+                  value={data?.r2Stats?.r2TotalSize ? formatBytes(data.r2Stats.r2TotalSize) : '—'}
+                />
+                <MiniStat
+                  label="Total R2 Objects"
+                  value={data?.r2Stats ? String(data.r2Stats.r2AssetsCount + data.r2Stats.r2ImageAssetsCount) : '—'}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Storage type breakdown */}
+          <Card className="shadow-sm sm:col-span-2 lg:col-span-3">
+            <CardContent className="p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center shadow-sm">
+                    <ImageIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Storage Distribution</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Asset storage type breakdown
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {/* Progress bar for R2 vs Local vs FileAsset */}
+              {(() => {
+                const r2 = data?.r2Stats?.storageBreakdown.r2 ?? 0;
+                const local = data?.r2Stats?.storageBreakdown.local ?? 0;
+                const fileAsset = data?.r2Stats?.storageBreakdown.fileAsset ?? 0;
+                const total = r2 + local + fileAsset || 1;
+                const r2Pct = Math.round((r2 / total) * 100);
+                const localPct = Math.round((local / total) * 100);
+                const fileAssetPct = 100 - r2Pct - localPct;
+                return (
+                  <div className="space-y-3">
+                    {/* Combined bar */}
+                    <div className="h-4 w-full rounded-full overflow-hidden flex bg-muted">
+                      {r2 > 0 && (
+                        <div
+                          className="h-full bg-gradient-to-r from-orange-500 to-orange-600 transition-all"
+                          style={{ width: `${r2Pct}%` }}
+                          title={`R2: ${r2} (${r2Pct}%)`}
+                        />
+                      )}
+                      {local > 0 && (
+                        <div
+                          className="h-full bg-gradient-to-r from-slate-400 to-slate-500 transition-all"
+                          style={{ width: `${localPct}%` }}
+                          title={`Local: ${local} (${localPct}%)`}
+                        />
+                      )}
+                      {fileAsset > 0 && (
+                        <div
+                          className="h-full bg-gradient-to-r from-teal-500 to-teal-600 transition-all"
+                          style={{ width: `${fileAssetPct}%` }}
+                          title={`FileAsset: ${fileAsset} (${fileAssetPct}%)`}
+                        />
+                      )}
+                    </div>
+                    {/* Legend */}
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm bg-gradient-to-r from-orange-500 to-orange-600" />
+                        <span className="text-xs text-muted-foreground">
+                          R2 Cloud <span className="font-semibold text-foreground">{r2}</span> ({r2Pct}%)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm bg-gradient-to-r from-slate-400 to-slate-500" />
+                        <span className="text-xs text-muted-foreground">
+                          Local <span className="font-semibold text-foreground">{local}</span> ({localPct}%)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm bg-gradient-to-r from-teal-500 to-teal-600" />
+                        <span className="text-xs text-muted-foreground">
+                          FileAsset <span className="font-semibold text-foreground">{fileAsset}</span> ({fileAssetPct}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
         </div>
       </section>
 

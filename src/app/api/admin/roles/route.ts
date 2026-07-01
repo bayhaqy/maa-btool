@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
       company: r.company,
       color: r.color,
       icon: r.icon,
+      dataScope: r.dataScope,
+      scopeConfig: r.scopeConfig,
       permissionCount: r._count.rolePermissions,
       userCount: r._count.userRoles,
       assignedUsers: r.userRoles.map((ur) => ({
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { roleName, description, roleType, scope, permissions, companyId } = body;
+    const { roleName, description, roleType, scope, permissions, companyId, dataScope, scopeConfig } = body;
 
     if (!roleName) {
       return NextResponse.json({ error: 'roleName is required' }, { status: 400 });
@@ -146,6 +148,8 @@ export async function POST(request: NextRequest) {
         companyId: resolvedCompanyId,
         color: resolvedColor,
         icon: resolvedIcon,
+        dataScope: dataScope || null,
+        scopeConfig: scopeConfig || null,
         rolePermissions: {
           create: (permissions || []).map((p: {
             moduleId: string;
@@ -214,7 +218,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, roleName, description, roleType, scope, permissions } = body;
+    const { id, roleName, description, roleType, scope, permissions, dataScope, scopeConfig } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Role id is required' }, { status: 400 });
@@ -247,6 +251,8 @@ export async function PUT(request: NextRequest) {
         ...(description !== undefined && { description }),
         ...(roleType !== undefined && { roleType, color: resolvedColor, icon: resolvedIcon }),
         ...(scope !== undefined && { scope }),
+        ...(dataScope !== undefined && { dataScope: dataScope || null }),
+        ...(scopeConfig !== undefined && { scopeConfig: scopeConfig || null }),
       },
     });
 

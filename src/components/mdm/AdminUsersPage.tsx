@@ -41,6 +41,7 @@ export default function AdminUsersPage() {
   const [form, setForm] = useState({
     username: '', email: '', password: '', displayName: '',
     companyId: '', roleIds: [] as string[], isActive: true,
+    dataScope: '' as string, assignedBrands: '', assignedCountries: '', assignedTeams: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -114,6 +115,10 @@ export default function AdminUsersPage() {
             displayName: form.displayName,
             isActive: form.isActive,
             roleIds: form.roleIds,
+            dataScope: form.dataScope || null,
+            assignedBrands: form.assignedBrands || null,
+            assignedCountries: form.assignedCountries || null,
+            assignedTeams: form.assignedTeams || null,
           }),
         });
         const data = await res.json();
@@ -222,6 +227,10 @@ export default function AdminUsersPage() {
       companyId: u.companyId,
       roleIds: u.roles?.map((r: any) => r.id) || [],
       isActive: u.isActive,
+      dataScope: u.dataScope || '',
+      assignedBrands: u.assignedBrands || '',
+      assignedCountries: u.assignedCountries || '',
+      assignedTeams: u.assignedTeams || '',
     });
     setDialogOpen(true);
   };
@@ -233,6 +242,7 @@ export default function AdminUsersPage() {
       username: '', email: '', password: '', displayName: '',
       companyId: defaultCompanyId,
       roleIds: [], isActive: true,
+      dataScope: '', assignedBrands: '', assignedCountries: '', assignedTeams: '',
     });
     setDialogOpen(true);
   };
@@ -310,6 +320,7 @@ export default function AdminUsersPage() {
                   <TableHead>Display Name</TableHead>
                   <TableHead>Account</TableHead>
                   <TableHead>User Groups</TableHead>
+                  <TableHead>Data Scope</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
@@ -317,7 +328,7 @@ export default function AdminUsersPage() {
               <TableBody>
                 {filteredUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No users found for the selected account
                     </TableCell>
                   </TableRow>
@@ -351,6 +362,19 @@ export default function AdminUsersPage() {
                             <Badge key={r.id} variant="outline" className="text-xs">{r.roleName}</Badge>
                           ))}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={cn(
+                          'text-xs border',
+                          u.dataScope === 'ALL' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          u.dataScope === 'BRAND' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          u.dataScope === 'COUNTRY' ? 'bg-sky-50 text-sky-700 border-sky-200' :
+                          u.dataScope === 'TEAM' ? 'bg-violet-50 text-violet-700 border-violet-200' :
+                          u.dataScope === 'CUSTOM' ? 'bg-pink-50 text-pink-700 border-pink-200' :
+                          'bg-gray-50 text-gray-600 border-gray-200'
+                        )}>
+                          {u.dataScope || 'COMPANY'}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -491,6 +515,54 @@ export default function AdminUsersPage() {
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <Label>Active</Label>
                 <Switch checked={form.isActive} onCheckedChange={(c) => setForm({ ...form, isActive: c })} />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Data Scope (RLS)</Label>
+              <Select value={form.dataScope || 'COMPANY'} onValueChange={(v) => setForm({ ...form, dataScope: v === 'COMPANY' ? '' : v })}>
+                <SelectTrigger><SelectValue placeholder="Select data scope" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="COMPANY">Company (default)</SelectItem>
+                  <SelectItem value="ALL">All (no restrictions)</SelectItem>
+                  <SelectItem value="BRAND">Brand-scoped</SelectItem>
+                  <SelectItem value="COUNTRY">Country-scoped</SelectItem>
+                  <SelectItem value="TEAM">Team-scoped</SelectItem>
+                  <SelectItem value="CUSTOM">Custom (brand + country + team)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Controls which data records this user can access</p>
+            </div>
+            {(form.dataScope === 'BRAND' || form.dataScope === 'CUSTOM') && (
+              <div className="space-y-2">
+                <Label>Assigned Brands (JSON array)</Label>
+                <Input
+                  placeholder='e.g. ["Nike","Adidas","New Balance"]'
+                  value={form.assignedBrands}
+                  onChange={(e) => setForm({ ...form, assignedBrands: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">User will only see records matching these brands</p>
+              </div>
+            )}
+            {(form.dataScope === 'COUNTRY' || form.dataScope === 'CUSTOM') && (
+              <div className="space-y-2">
+                <Label>Assigned Countries (JSON array)</Label>
+                <Input
+                  placeholder='e.g. ["ID","SG","MY"]'
+                  value={form.assignedCountries}
+                  onChange={(e) => setForm({ ...form, assignedCountries: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">User will only see records matching these country codes</p>
+              </div>
+            )}
+            {(form.dataScope === 'TEAM' || form.dataScope === 'CUSTOM') && (
+              <div className="space-y-2">
+                <Label>Assigned Teams (JSON array)</Label>
+                <Input
+                  placeholder='e.g. ["Map Corporate","MAPI Operations"]'
+                  value={form.assignedTeams}
+                  onChange={(e) => setForm({ ...form, assignedTeams: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">User will only see records for their assigned teams</p>
               </div>
             )}
           </div>

@@ -101,6 +101,13 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  Check,
+  Link2,
+  Cloud,
+  HardDrive,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 
 import ImageLightbox, { type LightboxImage } from '@/components/mdm/ImageLightbox';
@@ -148,6 +155,8 @@ interface DigitalAsset {
   uploadedById: string | null;
   sortOrder: number;
   isPrimary: boolean;
+  r2Key: string | null;
+  storageType: string;
   createdAt: string;
   updatedAt: string;
   variants: DigitalAssetVariant[];
@@ -501,12 +510,55 @@ export default function DigitalAssetPage() {
         height: a.height || undefined,
         createdAt: a.createdAt,
         variants: vMap,
+        r2Key: a.r2Key,
+        storageType: a.storageType,
+        digitalAssetId: a.id,
       };
     });
     setLightboxImages(images);
     setLightboxIndex(idx >= 0 ? idx : 0);
     setLightboxOpen(true);
   };
+
+  // Copy asset URL to clipboard
+  const handleCopyAssetUrl = useCallback((asset: DigitalAsset, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const vMap = getVariantMap(asset.variants);
+    const imageUrl = vMap.large || vMap.original || asset.filePath;
+    const fullUrl = imageUrl.startsWith('/')
+      ? `${window.location.origin}${imageUrl}`
+      : imageUrl;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      toast.success('URL copied to clipboard');
+    }).catch(() => {
+      toast.error('Failed to copy URL');
+    });
+  }, []);
+
+  // Replace asset image
+  const handleReplaceImage = useCallback(async (assetId: string, file: File) => {
+    if (!token) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('action', 'replace');
+
+      const res = await fetch(`/api/digital-assets/${assetId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        toast.success('Image replaced successfully');
+        await fetchAssets();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to replace image');
+      }
+    } catch {
+      toast.error('Network error during image replacement');
+    }
+  }, [token, fetchAssets]);
 
   // ============================================================================
   // Selection
@@ -807,6 +859,21 @@ export default function DigitalAssetPage() {
                       variant="secondary"
                       size="sm"
                       className="h-8 w-8 p-0 rounded-full bg-white/90 hover:bg-white text-gray-900"
+                      onClick={(e) => { handleCopyAssetUrl(asset, e); }}
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy URL</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-8 w-8 p-0 rounded-full bg-white/90 hover:bg-white text-gray-900"
                       onClick={(e) => { e.stopPropagation(); setDetailAsset(asset); }}
                     >
                       <Info className="w-4 h-4" />
@@ -836,12 +903,15 @@ export default function DigitalAssetPage() {
                   <MoreVertical className="w-3.5 h-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={() => setEditAsset(asset)}>
                   <Edit3 className="w-4 h-4 mr-2" /> Edit
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setDetailAsset(asset)}>
                   <Eye className="w-4 h-4 mr-2" /> View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCopyAssetUrl(asset)}>
+                  <Link2 className="w-4 h-4 mr-2" /> Copy URL
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => {
                   const link = document.createElement('a');
@@ -872,6 +942,15 @@ export default function DigitalAssetPage() {
               {typeConfig.label}
             </Badge>
             <span>{formatFileSize(asset.fileSize)}</span>
+            {asset.storageType === 'r2' ? (
+              <Badge variant="outline" className="text-[9px] h-4 px-1 text-sky-600 border-sky-300 dark:text-sky-400 dark:border-sky-700">
+                <Cloud className="w-2.5 h-2.5 mr-0.5" /> R2
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[9px] h-4 px-1 text-muted-foreground">
+                <HardDrive className="w-2.5 h-2.5 mr-0.5" /> Local
+              </Badge>
+            )}
           </div>
 
           {tags.length > 0 && (
@@ -986,12 +1065,15 @@ export default function DigitalAssetPage() {
               <MoreVertical className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditAsset(asset); }}>
               <Edit3 className="w-4 h-4 mr-2" /> Edit
             </DropdownMenuItem>
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDetailAsset(asset); }}>
               <Eye className="w-4 h-4 mr-2" /> View Details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCopyAssetUrl(asset); }}>
+              <Link2 className="w-4 h-4 mr-2" /> Copy URL
             </DropdownMenuItem>
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation();
@@ -1197,6 +1279,20 @@ export default function DigitalAssetPage() {
               <DetailField label="File Size" value={formatFileSize(detailAsset.fileSize)} />
               <DetailField label="MIME Type" value={detailAsset.mimeType} />
               <DetailField label="Category" value={detailAsset.category || '—'} />
+              <DetailField label="Storage" value={
+                detailAsset.storageType === 'r2' ? (
+                  <Badge variant="outline" className="text-[10px] h-5 text-sky-600 border-sky-300 dark:text-sky-400 dark:border-sky-700">
+                    <Cloud className="w-3 h-3 mr-0.5" /> Cloudflare R2
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] h-5">
+                    <HardDrive className="w-3 h-3 mr-0.5" /> Local
+                  </Badge>
+                )
+              } />
+              {detailAsset.r2Key && (
+                <DetailField label="R2 Key" value={<span className="text-xs font-mono break-all text-muted-foreground">{detailAsset.r2Key}</span>} />
+              )}
               {detailAsset.width && detailAsset.height && (
                 <DetailField label="Dimensions" value={`${detailAsset.width} × ${detailAsset.height}${detailAsset.dpi ? ` @ ${detailAsset.dpi} DPI` : ''}`} />
               )}
@@ -1210,6 +1306,64 @@ export default function DigitalAssetPage() {
               <DetailField label="Created" value={new Date(detailAsset.createdAt).toLocaleString()} />
               <DetailField label="Updated" value={new Date(detailAsset.updatedAt).toLocaleString()} />
             </div>
+
+            {/* Image URL Section */}
+            {isImageAsset(detailAsset) && (
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5" /> Image URL
+                </Label>
+                {(() => {
+                  const imageUrl = vMap.large || vMap.original || detailAsset.filePath;
+                  const fullUrl = imageUrl.startsWith('/')
+                    ? `${typeof window !== 'undefined' ? window.location.origin : ''}${imageUrl}`
+                    : imageUrl;
+                  const isSigned = fullUrl.includes('X-Amz-Signature');
+                  const isProxy = fullUrl.includes('/api/r2-image?');
+                  return (
+                    <div className="space-y-1.5">
+                      {isProxy && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1.5 border border-amber-200 dark:border-amber-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Signed URL via proxy — expires after 1 hour
+                        </div>
+                      )}
+                      {isSigned && !isProxy && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1.5 border border-amber-200 dark:border-amber-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Signed URL — expires after 1 hour
+                        </div>
+                      )}
+                      {!isSigned && !isProxy && detailAsset.storageType === 'r2' && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded px-2 py-1.5 border border-emerald-200 dark:border-emerald-800">
+                          <Check className="w-3 h-3" />
+                          Public CDN URL — permanent
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-muted rounded border px-2.5 py-2 text-[11px] font-mono break-all max-h-14 overflow-y-auto text-muted-foreground">
+                          {fullUrl}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 flex-shrink-0"
+                          onClick={() => {
+                            navigator.clipboard.writeText(fullUrl).then(() => {
+                              toast.success('URL copied to clipboard');
+                            }).catch(() => {
+                              toast.error('Failed to copy URL');
+                            });
+                          }}
+                        >
+                          <Copy className="w-3.5 h-3.5 mr-1" /> Copy
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Description */}
             {detailAsset.description && (
@@ -1311,11 +1465,19 @@ export default function DigitalAssetPage() {
             )}
           </div>
 
-          <DialogFooter className="flex-row gap-2">
-            <Button variant="outline" onClick={() => setEditAsset(detailAsset)}>
+          <DialogFooter className="flex-row gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setEditAsset(detailAsset)}>
               <Edit3 className="w-4 h-4 mr-1" /> Edit
             </Button>
-            <Button variant="outline" onClick={() => {
+            <Button variant="outline" size="sm" onClick={() => handleCopyAssetUrl(detailAsset)}>
+              <Link2 className="w-4 h-4 mr-1" /> Copy URL
+            </Button>
+            {isImageAsset(detailAsset) && (
+              <Button variant="outline" size="sm" onClick={() => openLightbox(detailAsset)}>
+                <ZoomIn className="w-4 h-4 mr-1" /> Preview
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => {
               const link = document.createElement('a');
               link.href = vMap.large || vMap.original || detailAsset.filePath;
               link.download = detailAsset.originalFileName;
@@ -1326,7 +1488,7 @@ export default function DigitalAssetPage() {
             }}>
               <Download className="w-4 h-4 mr-1" /> Download
             </Button>
-            <Button variant="destructive" onClick={() => setDeleteConfirm({ ids: [detailAsset.id], single: true })} disabled={!perms.canDeleteAssets}>
+            <Button variant="destructive" size="sm" onClick={() => setDeleteConfirm({ ids: [detailAsset.id], single: true })} disabled={!perms.canDeleteAssets}>
               <Trash2 className="w-4 h-4 mr-1" /> Delete
             </Button>
           </DialogFooter>

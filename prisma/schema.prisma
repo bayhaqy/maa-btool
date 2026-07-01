@@ -58,6 +58,11 @@ model SysUser {
   avatarUrl    String?
   isActive     Boolean  @default(true)
   lastLoginAt  DateTime?
+  // RLS fields — Row-Level Security data scope assignments
+  assignedBrands    String?  // JSON array of brand names, e.g. '["Nike","Adidas"]'
+  assignedCountries String?  // JSON array of country codes, e.g. '["ID","SG","MY"]'
+  assignedTeams     String?  // JSON array of team names, e.g. '["Map Corporate","MAPI Operations"]'
+  dataScope         String?  // RLS scope: 'ALL', 'COMPANY', 'BRAND', 'COUNTRY', 'TEAM', 'CUSTOM'
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -96,6 +101,9 @@ model SysRole {
   isGlobal    Boolean @default(false)
   color       String? // UI color for badges
   icon        String? // UI icon name
+  // RLS fields — Row-Level Security data scope for this role
+  dataScope   String?  // Default data scope: 'ALL', 'COMPANY', 'BRAND', 'COUNTRY', 'TEAM', 'CUSTOM'
+  scopeConfig String?  // JSON config for scope, e.g. '{"brands":["New Balance"],"countries":["ID"]}'
 
   company          TenantCompany  @relation(fields: [companyId], references: [id])
   userRoles        UserRole[]
@@ -320,6 +328,10 @@ model DataRecord {
   qualityScore   Int      @default(0)
   // STIBO: Completeness percentage
   completenessScore Int   @default(0)
+  // RLS denormalized fields — for fast row-level filtering by brand/country/region
+  brand          String?  // Denormalized brand field for fast filtering
+  country        String?  // Denormalized country field for fast filtering
+  region         String?  // Denormalized region field
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   createdById    String?

@@ -34,7 +34,7 @@ import {
   ChevronDown, Check, Shield, Activity, Database,
   TrendingUp, BarChart3, Eye, ArrowRight, User, Layers,
   Search, Zap, AlertTriangle, ZoomIn, RotateCw, RotateCcw,
-  Trash2, Download, Maximize2, GripVertical,
+  Trash2, Download, Maximize2, GripVertical, Link2, Copy, ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ImageLightbox, { LightboxImage } from '@/components/mdm/ImageLightbox';
@@ -72,7 +72,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ---------------------------------------------------------------------------
 // ImageGalleryCard – card component for the Images tab gallery
-// Shows a single image with action buttons (delete, primary, replace, zoom)
+// Shows a single image with action buttons (delete, primary, replace, zoom, copy URL, view in DAM)
 // ---------------------------------------------------------------------------
 function ImageGalleryCard({
   image,
@@ -81,6 +81,8 @@ function ImageGalleryCard({
   onSetPrimary,
   onReplace,
   onZoom,
+  onViewInDAM,
+  onCopyUrl,
   token,
 }: {
   image: any;
@@ -89,6 +91,8 @@ function ImageGalleryCard({
   onSetPrimary: () => void;
   onReplace: (file: File) => void;
   onZoom: () => void;
+  onViewInDAM?: () => void;
+  onCopyUrl?: () => void;
   token?: string | null;
 }) {
   const replaceRef = useRef<HTMLInputElement>(null);
@@ -135,6 +139,28 @@ function ImageGalleryCard({
           >
             <ZoomIn className="w-4 h-4" />
           </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white hover:text-sky-300 hover:bg-white/20"
+            onClick={onCopyUrl}
+            title="Copy Image URL"
+          >
+            <Link2 className="w-4 h-4" />
+          </Button>
+          {onViewInDAM && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-white hover:text-emerald-300 hover:bg-white/20"
+              onClick={onViewInDAM}
+              title="View in Digital Assets"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </Button>
+          )}
           {isEditing && (
             <>
               <Button
@@ -197,6 +223,8 @@ function ImageGalleryCard({
           mimeType: image.mimeType,
           variants: image.variants,
           pending: image.pending,
+          r2Key: image.r2Key,
+          storageType: image.storageType,
         }]}
         initialIndex={0}
         open={lightboxOpen}
@@ -297,6 +325,8 @@ function ImageUploadField({
       fileSize: img.fileSize,
       mimeType: img.mimeType,
       variants: img.variants,
+      r2Key: img.r2Key,
+      storageType: img.storageType,
     }));
     return (
       <div>
@@ -431,6 +461,8 @@ function ImageUploadField({
           mimeType: img.mimeType,
           variants: img.variants,
           pending: img.pending,
+          r2Key: img.r2Key,
+          storageType: img.storageType,
         }))}
         initialIndex={lightboxIndex}
         open={lightboxOpen}
@@ -1629,6 +1661,35 @@ export default function RecordDetailPage() {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Source Link — displayed when source_url is present in payload */}
+                {(() => {
+                  const sourceUrl = editPayload?.source_url;
+                  if (!sourceUrl || typeof sourceUrl !== 'string') return null;
+                  return (
+                    <Card className="shadow-sm">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <ExternalLink className="w-4 h-4" /> Source Link
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline break-all"
+                        >
+                          {sourceUrl}
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                        </a>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">
+                          External source where this record data can be verified
+                        </p>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
               </div>
             </div>
           </TabsContent>
@@ -1742,6 +1803,18 @@ export default function RecordDetailPage() {
                                   onSetPrimary={() => setPrimaryImage(fieldCode, img.id)}
                                   onReplace={(file) => replaceImage(fieldCode, img.id, file)}
                                   onZoom={() => {}}
+                                  onViewInDAM={() => navigate('digital-assets')}
+                                  onCopyUrl={() => {
+                                    const imageUrl = img.variants?.large || img.variants?.medium || img.filePath;
+                                    const fullUrl = imageUrl.startsWith('/')
+                                      ? `${window.location.origin}${imageUrl}`
+                                      : imageUrl;
+                                    navigator.clipboard.writeText(fullUrl).then(() => {
+                                      toast.success('Image URL copied');
+                                    }).catch(() => {
+                                      toast.error('Failed to copy URL');
+                                    });
+                                  }}
                                   token={token}
                                 />
                               ))}

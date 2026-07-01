@@ -156,6 +156,7 @@ const BulkJobsPage = dynamic(() => import('@/components/mdm/BulkJobsPage'), { lo
 const AiPromptsPage = dynamic(() => import('@/components/mdm/AiPromptsPage'), { loading: () => <PageSkeleton /> });
 const AiReviewPage = dynamic(() => import('@/components/mdm/AiReviewPage'), { loading: () => <PageSkeleton /> });
 const AiSettingsPage = dynamic(() => import('@/components/mdm/AiSettingsPage'), { loading: () => <PageSkeleton /> });
+const AiCapabilitiesPage = dynamic(() => import('@/components/mdm/AiCapabilitiesPage'), { loading: () => <PageSkeleton /> });
 const DataStewardshipPage = dynamic(() => import('@/components/mdm/DataStewardshipPage'), { loading: () => <PageSkeleton /> });
 const DataCatalogPage = dynamic(() => import('@/components/mdm/DataCatalogPage'), { loading: () => <PageSkeleton /> });
 const DataQualityPage = dynamic(() => import('@/components/mdm/DataQualityPage'), { loading: () => <PageSkeleton /> });
@@ -214,7 +215,8 @@ const toolsNav: NavItem[] = [
 
 const aiNav: NavItem[] = [
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles },
-  { label: 'AI Settings', page: 'ai-settings', icon: Brain },
+  { label: 'AI Capabilities', page: 'ai-capabilities', icon: Brain },
+  { label: 'AI Settings', page: 'ai-settings', icon: Settings },
 ];
 
 const integrationsNav: NavItem[] = [
@@ -344,6 +346,7 @@ function PageContent() {
     settings: <SettingsPage />,
     documentation: <DocumentationPage />,
     'ai-assistant': <AiAssistantPage />,
+    'ai-capabilities': <AiCapabilitiesPage />,
     'ai-prompts': <AiPromptsPage />,
     'ai-review': <AiReviewPage />,
     'ai-settings': <AiSettingsPage />,
@@ -617,6 +620,7 @@ function getBreadcrumbPath(currentPage: PageView): { label: string; page?: PageV
     settings: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Settings' }],
     documentation: [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'Tools & Integration' }, { label: 'Documentation' }],
     'ai-assistant': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Assistant' }],
+    'ai-capabilities': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Capabilities' }],
     'ai-prompts': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Prompts' }],
     'ai-review': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Review' }],
     'ai-settings': [{ label: 'Home', page: 'dashboard' as PageView }, { label: 'AI Hub' }, { label: 'AI Settings' }],
@@ -653,6 +657,7 @@ const searchNavigationItems: SearchCommandItem[] = [
   { label: 'Audit Log', page: 'audit-log', icon: ScrollText, keywords: ['log', 'history', 'activity'] },
   { label: 'Documentation', page: 'documentation', icon: BookOpen, keywords: ['docs', 'knowledge', 'help', 'wiki'] },
   { label: 'AI Assistant', page: 'ai-assistant', icon: Sparkles, keywords: ['chat', 'ai', 'assistant', 'bot'] },
+  { label: 'AI Capabilities', page: 'ai-capabilities', icon: Brain, keywords: ['ai', 'capabilities', 'classify', 'enrich', 'quality', 'duplicate', 'image', 'match', 'stibo', 'step'] },
   { label: 'AI Prompts', page: 'ai-prompts', icon: BookTemplate, keywords: ['ai', 'prompt', 'template', 'genai'] },
   { label: 'AI Review', page: 'ai-review', icon: CheckCheck, keywords: ['ai', 'review', 'queue', 'approve', 'reject', 'pending'] },
   { label: 'AI Settings', page: 'ai-settings', icon: Brain, keywords: ['ai', 'settings', 'provider', 'api', 'key', 'configuration'] },
@@ -791,6 +796,7 @@ export default function AppShell() {
       settings: 'Settings',
       documentation: 'Documentation',
       'ai-assistant': 'AI Assistant',
+      'ai-capabilities': 'AI Capabilities',
       'ai-prompts': 'AI Prompt Library',
       'ai-review': 'AI Review Queue',
       'ai-settings': 'AI Settings',

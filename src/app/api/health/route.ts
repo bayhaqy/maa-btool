@@ -4,6 +4,7 @@ import { getTokenFromHeaders } from '@/lib/auth';
 import { getEmailClient } from '@/lib/resend';
 import { getRedis } from '@/lib/redis';
 import { getPineconeIndex } from '@/lib/pinecone';
+import { ensureR2Config, isR2Configured, listR2Objects, getR2ConfigInfo } from '@/lib/r2';
 
 /**
  * GET /api/health
@@ -253,6 +254,57 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // 8) Cloud Storage — Cloudflare R2
+  try {
+    const { result: r2Check, ms: r2Ms } = await timed(async () => {
+      await ensureR2Config();
+      const configured = isR2Configured();
+      if (!configured) {
+        return { configured: false, connected: false, configInfo: null };
+      }
+      // Verify connectivity by listing objects
+      try {
+        const keys = await listR2Objects('images/', 1);
+        return { configured: true, connected: true, configInfo: getR2ConfigInfo(), objectCount: keys.length };
+      } catch {
+        return { configured: true, connected: false, configInfo: getR2ConfigInfo() };
+      }
+    });
+
+    if (!r2Check.configured) {
+      services.push({
+        name: 'Cloud Storage',
+        status: 'not_configured',
+        responseTimeMs: r2Ms,
+        details: 'R2 credentials not configured — using local storage fallback',
+      });
+    } else if (r2Check.connected) {
+      const configInfo = r2Check.configInfo!;
+      services.push({
+        name: 'Cloud Storage',
+        status: 'operational',
+        responseTimeMs: r2Ms,
+        details: `Cloudflare R2 · Bucket: ${configInfo.bucket} · Connected`,
+      });
+    } else {
+      const configInfo = r2Check.configInfo!;
+      services.push({
+        name: 'Cloud Storage',
+        status: 'degraded',
+        responseTimeMs: r2Ms,
+        details: `Cloudflare R2 · Bucket: ${configInfo.bucket} · Config present but cannot connect`,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    services.push({
+      name: 'Cloud Storage',
+      status: 'down',
+      responseTimeMs: 0,
+      details: `R2 check failed: ${message}`,
+    });
+  }
+
   // ── Aggregate DB stats ──────────────────────────────────────────────────
   type StatKey =
     | 'users'
@@ -275,8 +327,47 @@ export async function GET(request: NextRequest) {
     pendingApprovals: 0,
   };
 
+  // R2-specific stats
+  type R2Stats = {
+    r2AssetsCount: number;
+    r2ImageAssetsCount: number;
+    r2TotalSize: number;
+    configInfo: {
+      endpoint: string;
+      bucket: string;
+      publicUrl: string;
+      hasPublicUrl: boolean;
+    } | null;
+    storageBreakdown: {
+      r2: number;
+      local: number;
+      fileAsset: number;
+    };
+  };
+  const r2Stats: R2Stats = {
+    r2AssetsCount: 0,
+    r2ImageAssetsCount: 0,
+    r2TotalSize: 0,
+    configInfo: null,
+    storageBreakdown: { r2: 0, local: 0, fileAsset: 0 },
+  };
+
+  try {
+    const configInfo = getR2ConfigInfo();
+    if (configInfo.endpoint) {
+      r2Stats.configInfo = {
+        endpoint: configInfo.endpoint.replace(/^(https?:\/\/)/, (_, proto) => proto + '***'),
+        bucket: configInfo.bucket,
+        publicUrl: configInfo.publicUrl ? configInfo.publicUrl.replace(/^(https?:\/\/)/, (_, proto) => proto + '***') : '',
+        hasPublicUrl: !!configInfo.publicUrl,
+      };
+    }
+  } catch {
+    // R2 not configured
+  }
+
   // Run counts in parallel — best-effort, individual failures don't fail the route.
-  const [users, companies, modules, records, docs, apiKeys, lookups, pendingApprovals] =
+  const [users, companies, modules, records, docs, apiKeys, lookups, pendingApprovals, r2AssetsCount, r2ImageAssetsCount, r2TotalSize, localAssetsCount, localImageAssetsCount, fileAssetCount] =
     await Promise.allSettled([
       db.sysUser.count(),
       db.tenantCompany.count(),
@@ -286,6 +377,12 @@ export async function GET(request: NextRequest) {
       db.apiKey.count(),
       db.lookupMaster.count(),
       db.approvalTicket.count({ where: { status: 'PENDING' } }),
+      db.digitalAsset.count({ where: { storageType: 'r2' } }),
+      db.imageAsset.count({ where: { storageType: 'r2' } }),
+      db.digitalAsset.aggregate({ where: { storageType: 'r2' }, _sum: { fileSize: true } }),
+      db.digitalAsset.count({ where: { storageType: 'local' } }),
+      db.imageAsset.count({ where: { storageType: 'local' } }),
+      db.fileAsset.count(),
     ]);
 
   if (users.status === 'fulfilled') stats.users = users.value;
@@ -297,6 +394,15 @@ export async function GET(request: NextRequest) {
   if (lookups.status === 'fulfilled') stats.lookups = lookups.value;
   if (pendingApprovals.status === 'fulfilled')
     stats.pendingApprovals = pendingApprovals.value;
+
+  // R2 stats from parallel queries
+  if (r2AssetsCount.status === 'fulfilled') r2Stats.r2AssetsCount = r2AssetsCount.value;
+  if (r2ImageAssetsCount.status === 'fulfilled') r2Stats.r2ImageAssetsCount = r2ImageAssetsCount.value;
+  if (r2TotalSize.status === 'fulfilled') r2Stats.r2TotalSize = (r2TotalSize.value._sum.fileSize as number) ?? 0;
+  if (localAssetsCount.status === 'fulfilled') r2Stats.storageBreakdown.local = localAssetsCount.value;
+  if (localImageAssetsCount.status === 'fulfilled') r2Stats.storageBreakdown.local += localImageAssetsCount.value;
+  if (fileAssetCount.status === 'fulfilled') r2Stats.storageBreakdown.fileAsset = fileAssetCount.value;
+  r2Stats.storageBreakdown.r2 = r2Stats.r2AssetsCount + r2Stats.r2ImageAssetsCount;
 
   // ── System info ─────────────────────────────────────────────────────────
   const mem = process.memoryUsage();
@@ -474,6 +580,11 @@ export async function GET(request: NextRequest) {
     UPSTASH_REDIS_REST_TOKEN: !!process.env.UPSTASH_REDIS_REST_TOKEN,
     PINECONE_API_KEY: !!process.env.PINECONE_API_KEY,
     PINECONE_INDEX_NAME: !!process.env.PINECONE_INDEX_NAME,
+    R2_ENDPOINT: !!process.env.R2_ENDPOINT,
+    R2_ACCESS_KEY_ID: !!process.env.R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: !!process.env.R2_SECRET_ACCESS_KEY,
+    R2_BUCKET: !!process.env.R2_BUCKET,
+    R2_PUBLIC_URL: !!process.env.R2_PUBLIC_URL,
   };
 
   // ── Overall status ──────────────────────────────────────────────────────
@@ -496,6 +607,7 @@ export async function GET(request: NextRequest) {
     systemInfo,
     resourceUsage,
     redisUsage,
+    r2Stats,
     envVars,
     requestedBy: {
       userId: tokenPayload.userId,

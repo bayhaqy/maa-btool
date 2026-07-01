@@ -4,7 +4,8 @@ import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 
-// GET /api/admin/lookups?lookupCode=xxx&includeInactive=true - List all lookups with values
+// GET /api/admin/lookups?lookupCode=xxx&parentValueCode=yyy&includeInactive=true - List all lookups with values
+// When parentValueCode is provided, filters values to only those matching the given parent code
 export async function GET(request: NextRequest) {
   try {
     const tokenPayload = getTokenFromHeaders(request.headers);
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const lookupCode = searchParams.get('lookupCode');
+    const parentValueCode = searchParams.get('parentValueCode');
     const includeInactive = searchParams.get('includeInactive') === 'true';
 
     const where: Record<string, unknown> = {};
@@ -29,12 +31,20 @@ export async function GET(request: NextRequest) {
       where.isActive = true;
     }
 
+    const valuesWhere: Record<string, unknown> = {};
+    if (!includeInactive) {
+      valuesWhere.isActive = true;
+    }
+    if (parentValueCode) {
+      valuesWhere.parentValueCode = parentValueCode;
+    }
+
     const lookups = await db.lookupMaster.findMany({
       where,
       orderBy: { lookupName: 'asc' },
       include: {
         values: {
-          where: includeInactive ? {} : { isActive: true },
+          where: Object.keys(valuesWhere).length > 0 ? valuesWhere : undefined,
           orderBy: { sortOrder: 'asc' },
         },
         _count: {

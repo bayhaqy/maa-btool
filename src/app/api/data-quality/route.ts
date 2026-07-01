@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission } from '@/lib/rbac';
 import { jsonParse } from '@/lib/db-json';
+import { getRLSFilter, applyRLS } from '@/lib/rls';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,10 @@ export async function GET(request: NextRequest) {
     const companyId = tokenPayload!.companyId;
     const moduleFilter = searchParams.get('moduleId');
 
+    // Get RLS filter for brand/country/team scope
+    const rlsFilter = await getRLSFilter(tokenPayload!.userId);
+    const recordWhere = rlsFilter.isRestricted ? applyRLS({ companyId }, rlsFilter) : { companyId };
+
     // ── 1. Fetch all active modules ──────────────────────────────
     const modules = await db.metaModule.findMany({
       where: {
@@ -29,7 +34,7 @@ export async function GET(request: NextRequest) {
       include: {
         fields: { where: { isActive: true } },
         dataRecords: {
-          where: { companyId },
+          where: recordWhere,
           select: {
             id: true,
             currentPayload: true,
@@ -474,13 +479,17 @@ export async function POST(request: NextRequest) {
 
     const companyId = tokenPayload!.companyId;
 
+    // Get RLS filter for brand/country/team scope
+    const rlsFilter = await getRLSFilter(tokenPayload!.userId);
+    const recordWherePost = rlsFilter.isRestricted ? applyRLS({ companyId }, rlsFilter) : { companyId };
+
     // Fetch all active modules
     const modules = await db.metaModule.findMany({
       where: { isActive: true },
       include: {
         fields: { where: { isActive: true } },
         dataRecords: {
-          where: { companyId },
+          where: recordWherePost,
           select: {
             id: true,
             currentPayload: true,

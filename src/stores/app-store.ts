@@ -27,6 +27,7 @@ export type PageView =
   | 'documentation'
   // AI Hub
   | 'ai-assistant'
+  | 'ai-capabilities'
   | 'ai-prompts'
   | 'ai-review'
   | 'ai-settings'

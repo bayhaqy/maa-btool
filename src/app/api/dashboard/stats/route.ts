@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { hasPermission } from '@/lib/rbac';
+import { getRLSFilter, applyRLS } from '@/lib/rls';
 
 // ============================================================================
 // DASHBOARD STATS API — Stibo STEP-aligned dashboard analytics
@@ -18,6 +19,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
+    // Get RLS filter for the current user
+    const rlsFilter = await getRLSFilter(tokenPayload.userId);
+    const recordWhere = rlsFilter.isRestricted ? rlsFilter.where : {};
+
     // --- Core Counts ---
     const [
       totalModules,
@@ -32,10 +37,10 @@ export async function GET(request: NextRequest) {
       rejectedToday,
     ] = await Promise.all([
       db.metaModule.count({ where: { isActive: true } }),
-      db.dataRecord.count(),
-      db.dataRecord.count({ where: { status: 'ACTIVE' } }),
-      db.dataRecord.count({ where: { status: 'DRAFT' } }),
-      db.dataRecord.count({ where: { status: 'IN_REVIEW' } }),
+      db.dataRecord.count({ where: recordWhere }),
+      db.dataRecord.count({ where: { ...recordWhere, status: 'ACTIVE' } }),
+      db.dataRecord.count({ where: { ...recordWhere, status: 'DRAFT' } }),
+      db.dataRecord.count({ where: { ...recordWhere, status: 'IN_REVIEW' } }),
       db.approvalTicket.count({ where: { status: 'PENDING' } }),
       db.approvalTicket.count({
         where: { status: 'PENDING', deadline: { lt: new Date().toISOString() } },
@@ -95,9 +100,9 @@ export async function GET(request: NextRequest) {
       DRAFT: draftRecords,
       IN_REVIEW: inReviewRecords,
       ACTIVE: activeRecords,
-      REVISION_PENDING: await db.dataRecord.count({ where: { status: 'REVISION_PENDING' } }),
-      REJECTED: await db.dataRecord.count({ where: { status: 'REJECTED' } }),
-      ARCHIVED: await db.dataRecord.count({ where: { status: 'ARCHIVED' } }),
+      REVISION_PENDING: await db.dataRecord.count({ where: { ...recordWhere, status: 'REVISION_PENDING' } }),
+      REJECTED: await db.dataRecord.count({ where: { ...recordWhere, status: 'REJECTED' } }),
+      ARCHIVED: await db.dataRecord.count({ where: { ...recordWhere, status: 'ARCHIVED' } }),
     };
 
     // --- Data Quality Score ---
@@ -162,6 +167,7 @@ export async function GET(request: NextRequest) {
     const recentRecords = await db.dataRecord.findMany({
       take: 10,
       orderBy: { updatedAt: 'desc' },
+      where: recordWhere,
       include: {
         module: { select: { moduleName: true, moduleCode: true } },
         company: { select: { companyCode: true } },
@@ -180,6 +186,7 @@ export async function GET(request: NextRequest) {
     // --- Golden Record Stats ---
     const recentlyUpdated = await db.dataRecord.count({
       where: {
+        ...recordWhere,
         updatedAt: {
           gte: new Date(Date.now() - 24 * 3600000).toISOString(),
         },

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getTokenFromHeaders } from '@/lib/auth';
 import { checkAuthAndPermission, hasPermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
+import { getRLSFilter, applyRLS } from '@/lib/rls';
 
 // GET /api/hierarchies?moduleId=xxx - List hierarchies
 // GET /api/hierarchies?action=nodes&hierarchyId=xxx - Get all nodes for a hierarchy

@@ -54,6 +54,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'audit-log',
     'documentation',
     'ai-assistant',
+    'ai-capabilities',
     'ai-prompts',
     'ai-review',
     'ai-settings',
@@ -83,6 +84,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'hierarchy-detail',
     'documentation',
     'ai-assistant',
+    'ai-capabilities',
     'data-exchange',
     'settings',
   ],
@@ -100,6 +102,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
     'audit-log',
     'documentation',
     'ai-assistant',
+    'ai-capabilities',
     'settings',
   ],
   Viewer: [
@@ -119,7 +122,7 @@ const ROLE_PAGE_ACCESS: Record<RoleName, readonly PageView[]> = {
   'Doc Writer': ['dashboard', 'documentation', 'settings'],
   'API Manager': ['dashboard', 'api-management', 'data-exchange', 'settings'],
   'SFTP Manager': ['dashboard', 'api-management', 'data-exchange', 'settings'],
-  'AI User': ['dashboard', 'ai-assistant', 'documentation', 'settings'],
+  'AI User': ['dashboard', 'ai-assistant', 'ai-capabilities', 'documentation', 'settings'],
 };
 
 /**
