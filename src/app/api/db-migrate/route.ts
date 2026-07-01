@@ -62,6 +62,45 @@ export async function POST(request: NextRequest) {
         sql: `ALTER TABLE "DigitalAsset" ADD COLUMN IF NOT EXISTS "storageType" TEXT NOT NULL DEFAULT 'local'`,
         description: 'Add storageType column to DigitalAsset',
       },
+      // RLS: Add data scope fields to SysUser
+      {
+        sql: `ALTER TABLE "SysUser" ADD COLUMN IF NOT EXISTS "assignedBrands" TEXT`,
+        description: 'Add assignedBrands column to SysUser',
+      },
+      {
+        sql: `ALTER TABLE "SysUser" ADD COLUMN IF NOT EXISTS "assignedCountries" TEXT`,
+        description: 'Add assignedCountries column to SysUser',
+      },
+      {
+        sql: `ALTER TABLE "SysUser" ADD COLUMN IF NOT EXISTS "assignedTeams" TEXT`,
+        description: 'Add assignedTeams column to SysUser',
+      },
+      {
+        sql: `ALTER TABLE "SysUser" ADD COLUMN IF NOT EXISTS "dataScope" TEXT`,
+        description: 'Add dataScope column to SysUser',
+      },
+      // RLS: Add data scope fields to SysRole
+      {
+        sql: `ALTER TABLE "SysRole" ADD COLUMN IF NOT EXISTS "dataScope" TEXT`,
+        description: 'Add dataScope column to SysRole',
+      },
+      {
+        sql: `ALTER TABLE "SysRole" ADD COLUMN IF NOT EXISTS "scopeConfig" TEXT`,
+        description: 'Add scopeConfig column to SysRole',
+      },
+      // RLS: Add denormalized fields to DataRecord for fast filtering
+      {
+        sql: `ALTER TABLE "DataRecord" ADD COLUMN IF NOT EXISTS "brand" TEXT`,
+        description: 'Add brand column to DataRecord',
+      },
+      {
+        sql: `ALTER TABLE "DataRecord" ADD COLUMN IF NOT EXISTS "country" TEXT`,
+        description: 'Add country column to DataRecord',
+      },
+      {
+        sql: `ALTER TABLE "DataRecord" ADD COLUMN IF NOT EXISTS "region" TEXT`,
+        description: 'Add region column to DataRecord',
+      },
     ];
 
     for (const migration of allMigrations) {
