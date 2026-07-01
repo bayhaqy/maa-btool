@@ -11,15 +11,15 @@ else
   cp prisma/schema.sqlite.prisma prisma/schema.prisma
 fi
 
-echo "▶ Step 2: Generate Prisma Client..."
-npx prisma generate
-
-echo "▶ Step 2b: Push schema to database (safe - adds missing columns)..."
+echo "▶ Step 2: Push schema to database FIRST (before generate, so DB has all columns)..."
 if [ -n "$DIRECT_DATABASE_URL" ] || echo "$DATABASE_URL" | grep -qi "postgresql\|postgres"; then
-  npx prisma db push --accept-data-loss 2>/dev/null || echo "  Schema push failed (non-fatal, migration API available)"
+  npx prisma db push --accept-data-loss || echo "  Schema push had issues (continuing anyway)"
 else
   echo "  Skipping schema push for SQLite (local dev only)"
 fi
 
-echo "▶ Step 3: Building Next.js..."
+echo "▶ Step 3: Generate Prisma Client..."
+npx prisma generate
+
+echo "▶ Step 4: Building Next.js..."
 npx next build
