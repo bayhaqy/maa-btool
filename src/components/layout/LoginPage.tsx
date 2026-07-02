@@ -70,9 +70,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Sparkles,
 };
 
-// Demo account shape from the API (NO passwords — security!)
+// Demo account shape from the API
 interface DemoAccount {
   username: string;
+  password: string;
   role: string;
   scope: string;
   icon: string;
@@ -241,16 +242,35 @@ export default function LoginPage() {
     }
   };
 
-  // Fill only the username — user must type the password manually (security)
-  const fillDemoUsername = useCallback((u: string) => {
-    setUsername(u);
-    setPassword('');
+  // Fill username and password, then auto-submit for one-click demo login
+  const fillDemoAccount = useCallback(async (acc: DemoAccount) => {
+    setUsername(acc.username);
+    setPassword(acc.password);
     setError('');
-    // Focus the password field so the user can type immediately
-    setTimeout(() => {
-      document.getElementById('password')?.focus();
+
+    // Auto-submit after a short delay to allow state to update
+    setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: acc.username, password: acc.password }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Login failed');
+          return;
+        }
+        setAuth(data.token, data.user);
+        toast.success('Welcome back, ' + data.user.username);
+      } catch {
+        setError('Network error. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }, 50);
-  }, []);
+  }, [setAuth]);
 
   /* ------------------------------------------------------------------------ */
 
@@ -586,8 +606,8 @@ export default function LoginPage() {
                       <motion.button
                         key={acc.username}
                         type="button"
-                        onClick={() => fillDemoUsername(acc.username)}
-                        title={`Fill username "${acc.username}" — ${acc.scope}`}
+                        onClick={() => fillDemoAccount(acc)}
+                        title={`Login as "${acc.username}" — ${acc.scope}`}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.3, delay: 0.5 + i * 0.05 }}
@@ -621,7 +641,7 @@ export default function LoginPage() {
                   })}
                 </div>
                 <p className="mt-2.5 px-2 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-                  Click any row to autofill the username, then type the password and press Sign In.
+                  Click any account to sign in instantly with demo credentials.
                 </p>
               </div>
             </motion.div>

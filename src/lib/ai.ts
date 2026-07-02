@@ -83,7 +83,7 @@ export const PROVIDER_DEFAULTS: Record<AIProvider, { baseUrl: string; model: str
   custom: {
     baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     model: 'glm-5.1',
-    label: 'Custom (DashScope/GLM)',
+    label: 'GLM-5.1 (DashScope)',
   },
 };
 
@@ -131,9 +131,9 @@ export async function getAIProviderConfig(): Promise<AIProviderConfig> {
   ]);
 
   const provider: AIProvider = (() => {
-    const p = providerRaw || process.env.AI_PROVIDER || 'zai';
+    const p = providerRaw || process.env.AI_PROVIDER || 'custom';
     if (['zai', 'gemini', 'openai', 'azure-openai', 'custom'].includes(p)) return p as AIProvider;
-    return 'zai';
+    return 'custom';
   })();
 
   const resolvedApiKey = apiKey || process.env.AI_API_KEY || process.env.ZAI_API_KEY || '';

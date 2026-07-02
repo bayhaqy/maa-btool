@@ -337,12 +337,39 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// ─── Helper: Resolve moduleCode to recordIds ─────────────────────────────
+
+async function resolveRecordIds(body: EnrichmentRequest, companyId: string): Promise<string[]> {
+  // If recordIds are provided directly, use them
+  if (body.recordIds && body.recordIds.length > 0) {
+    return body.recordIds;
+  }
+
+  // If moduleCode is provided, fetch records for that module (limit 20 for AI processing)
+  if (body.moduleCode) {
+    const modRecord = await db.metaModule.findFirst({
+      where: { moduleCode: body.moduleCode, isActive: true },
+    });
+    if (!modRecord) return [];
+
+    const records = await db.dataRecord.findMany({
+      where: { moduleId: modRecord.id, companyId, status: 'ACTIVE' },
+      select: { id: true },
+      take: 20,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return records.map(r => r.id);
+  }
+
+  return [];
+}
+
 // ─── Auto-Classification ────────────────────────────────────────────────────
 
 async function handleClassify(body: EnrichmentRequest, companyId: string, aiConfigured: boolean) {
-  const { recordIds } = body;
-  if (!recordIds || recordIds.length === 0) {
-    return NextResponse.json({ error: 'recordIds are required' }, { status: 400 });
+  const recordIds = await resolveRecordIds(body, companyId);
+  if (recordIds.length === 0) {
+    return NextResponse.json({ error: 'No records found. Provide recordIds or moduleCode.' }, { status: 400 });
   }
 
   const records = await db.dataRecord.findMany({
@@ -463,11 +490,12 @@ Only suggest fields that are missing or could be improved. Return ONLY the JSON 
 // ─── Auto-Enrichment ────────────────────────────────────────────────────────
 
 async function handleEnrich(body: EnrichmentRequest, companyId: string, aiConfigured: boolean) {
-  const { recordIds, options } = body;
+  const recordIds = await resolveRecordIds(body, companyId);
+  const { options } = body;
   const dryRun = options?.dryRun ?? true;
 
-  if (!recordIds || recordIds.length === 0) {
-    return NextResponse.json({ error: 'recordIds are required' }, { status: 400 });
+  if (recordIds.length === 0) {
+    return NextResponse.json({ error: 'No records found. Provide recordIds or moduleCode.' }, { status: 400 });
   }
 
   const records = await db.dataRecord.findMany({
@@ -786,9 +814,9 @@ Return ONLY the JSON object, no other text.`;
 // ─── Image Analysis (VLM) ──────────────────────────────────────────────────
 
 async function handleImageAnalyze(body: EnrichmentRequest, companyId: string, aiConfigured: boolean) {
-  const { recordIds } = body;
-  if (!recordIds || recordIds.length === 0) {
-    return NextResponse.json({ error: 'recordIds are required' }, { status: 400 });
+  const recordIds = await resolveRecordIds(body, companyId);
+  if (recordIds.length === 0) {
+    return NextResponse.json({ error: 'No records found. Provide recordIds or moduleCode.' }, { status: 400 });
   }
 
   const records = await db.dataRecord.findMany({
@@ -1144,10 +1172,10 @@ function findRuleBasedDuplicates(records: Array<{
 // ─── Record Matching ────────────────────────────────────────────────────────
 
 async function handleMatchRecords(body: EnrichmentRequest, companyId: string, aiConfigured: boolean) {
-  const { recordIds, moduleCode } = body;
+  const recordIds = await resolveRecordIds(body, companyId);
 
-  if (!recordIds || recordIds.length < 1) {
-    return NextResponse.json({ error: 'At least one recordId is required' }, { status: 400 });
+  if (recordIds.length < 1) {
+    return NextResponse.json({ error: 'No records found. Provide recordIds or moduleCode.' }, { status: 400 });
   }
 
   // Get the source records
